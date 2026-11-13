@@ -171,6 +171,12 @@ class FloatingBubbleService : Service() {
         FloatingPanelCommand.toggle(this, position.x, position.y, size) { result ->
             if (result is FloatingPanelCommand.Result.Failed) {
                 NeXtepLog.warn("floating_workspace", "Floating panel toggle rejected: ${result.reason}")
+                // This is an ordered-broadcast failure from another process.
+                // Preserve its original stack in the app-side diagnostic ring
+                // even when SystemUI log snapshot is unavailable or stale.
+                result.remoteTrace?.lineSequence()?.take(18)?.forEachIndexed { index, line ->
+                    NeXtepLog.warn("floating_remote_trace", "SystemUI[$index]: $line")
+                }
                 handler.post {
                     Toast.makeText(this, getString(R.string.floating_module_not_ready, result.reason),
                         Toast.LENGTH_LONG).show()
