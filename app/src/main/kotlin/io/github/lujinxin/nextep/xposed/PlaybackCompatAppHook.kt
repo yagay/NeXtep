@@ -1,10 +1,13 @@
 package io.github.lujinxin.nextep.xposed
 
 import android.app.Application
+import android.app.KeyguardManager
 import android.content.Context
 import android.media.MediaPlayer
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Process
+import android.os.PowerManager
 import android.util.Log
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
@@ -45,8 +48,8 @@ internal object PlaybackCompatAppHook {
                             return@runCatching
                         }
                         var installed = 0
-                        installed += hookMediaPlayer(module, packageName)
-                        installed += hookExoPlayer(module, packageName, classLoader)
+                        installed += hookMediaPlayer(module, packageName, context)
+                        installed += hookExoPlayer(module, packageName, classLoader, context)
                         Log.i("NeXtep",
                             "playback_hook package=$packageName installed=$installed " +
                                 "pid=${Process.myPid()} mode=DIAGNOSTIC_ONLY")
@@ -61,14 +64,17 @@ internal object PlaybackCompatAppHook {
         })
     }
 
-    private fun hookMediaPlayer(module: XposedModule, packageName: String): Int {
+    private fun hookMediaPlayer(
+        module: XposedModule, packageName: String, context: Context,
+    ): Int {
         val method = MediaPlayer::class.java.getDeclaredMethod("pause")
-        hookObserved(module, method, packageName, "MediaPlayer.pause", observeFalse = false)
+        hookObserved(module, method, packageName, "MediaPlayer.pause",
+            context = context, observeFalse = false)
         return 1
     }
 
     private fun hookExoPlayer(module: XposedModule, packageName: String,
-                             classLoader: ClassLoader): Int {
+                             classLoader: ClassLoader, context: Context): Int {
         var count = 0
         for (name in listOf("androidx.media3.exoplayer.ExoPlayerImpl",
                             "com.google.android.exoplayer2.ExoPlayerImpl")) {
@@ -82,7 +88,7 @@ internal object PlaybackCompatAppHook {
                 if (!isPause && !isPlayFlag) continue
                 if (runCatching {
                     hookObserved(module, method, packageName, "${clazz.simpleName}.${method.name}",
-                        observeFalse = isPlayFlag)
+                        context = context, observeFalse = isPlayFlag)
                 }.isSuccess) count += 1
             }
         }
@@ -90,7 +96,8 @@ internal object PlaybackCompatAppHook {
     }
 
     private fun hookObserved(module: XposedModule, method: Method,
-                             packageName: String, kind: String, observeFalse: Boolean) {
+                             packageName: String, kind: String,
+                             context: Context, observeFalse: Boolean) {
         method.isAccessible = true
         module.hook(method).intercept(object : XposedInterface.Hooker {
             override fun intercept(chain: XposedInterface.Chain): Any? {
@@ -101,9 +108,14 @@ internal object PlaybackCompatAppHook {
                     val source = Thread.currentThread().stackTrace
                         .firstOrNull { it.className.startsWith(packageName + ".") }
                         ?.className?.take(120) ?: "unknown"
+                    val interactive = context.getSystemService(PowerManager::class.java)
+                        ?.isInteractive
+                    val locked = context.getSystemService(KeyguardManager::class.java)
+                        ?.isKeyguardLocked
+                    val audioMode = context.getSystemService(AudioManager::class.java)?.mode
                     Log.i("NeXtep",
                         "playback_hook package=$packageName event=$kind source=$source " +
-                            "advice=correlate_with_floating_slot_and_audio_focus")
+                            "interactive=$interactive keyguard=$locked audioMode=$audioMode")
                 }
                 return chain.proceed()
             }
