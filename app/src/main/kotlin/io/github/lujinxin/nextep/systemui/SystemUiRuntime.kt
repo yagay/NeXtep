@@ -40,7 +40,6 @@ object SystemUiRuntime {
     private lateinit var windowController: NeXtepWindowController
     private lateinit var workspaceController: WorkspaceController
     private lateinit var fourFingerGestures: FourFingerGestureController
-    private var floatingBubble: FloatingWorkspaceBubble? = null
     private val lifecycleHandler = Handler(Looper.getMainLooper())
     private val configExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "NeXtep-WorkspaceConfig").apply { isDaemon = true }
@@ -84,7 +83,6 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
-                refreshFloatingBubble()
             }
             NeXtepLog.info(
                 "workspace_config",
@@ -106,7 +104,6 @@ object SystemUiRuntime {
     fun shouldReturnAfterSharing(): Boolean = workspaceConfig.returnAfterSharingEnabled
     private val lockStateObserver = object : Runnable {
         override fun run() {
-            refreshFloatingBubble()
             if (!::workspaceController.isInitialized || !workspaceController.isActive()) return
             val screenReady = isScreenReady()
             if (!screenReady || isKeyguardLocked(applicationContext)) {
@@ -205,23 +202,8 @@ object SystemUiRuntime {
                 applicationContext = applicationContext,
                 windowController = windowController,
                 mainTaskPresenter = mainTaskPresenter,
-                onStateChanged = {
-                    updateLockStateObservation()
-                    refreshFloatingBubble()
-                },
+                onStateChanged = ::updateLockStateObservation,
             )
-            floatingBubble = FloatingWorkspaceBubble(applicationContext) {
-                if (::workspaceController.isInitialized && workspaceConfigReady &&
-                    workspaceConfig.floatingBubbleEnabled && isScreenReady() &&
-                    !isKeyguardLocked(applicationContext) && !workspaceController.isActive()
-                ) {
-                    if (workspaceController.setActive(true)) {
-                        publishWorkspaceSurfaceState(true)
-                    } else {
-                        refreshFloatingBubble()
-                    }
-                }
-            }
             fourFingerGestures = FourFingerGestureController(
                 applicationContext,
                 isWorkspaceActive = ::isWorkspaceActive,
@@ -297,14 +279,6 @@ object SystemUiRuntime {
             initialized.set(false)
             NeXtepLog.error("systemui_runtime", "Initialization failed and remains retryable", error)
         }
-    }
-
-    private fun refreshFloatingBubble() {
-        if (!::applicationContext.isInitialized) return
-        val visible = workspaceConfigReady && workspaceConfig.floatingBubbleEnabled &&
-            ::workspaceController.isInitialized && !workspaceController.isActive() &&
-            isScreenReady() && !isKeyguardLocked(applicationContext)
-        floatingBubble?.setVisible(visible)
     }
 
     fun isWorkspaceActive(): Boolean =
@@ -432,7 +406,6 @@ object SystemUiRuntime {
     private val lifecycleReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) refreshWorkspaceConfig()
-            lifecycleHandler.post { refreshFloatingBubble() }
             if (intent.action == Intent.ACTION_SCREEN_OFF) TaskSurfaceCompat.finishWorkspaceExitAnimations()
             if (!::workspaceController.isInitialized || !workspaceController.isActive()) return
             when (intent.action) {
