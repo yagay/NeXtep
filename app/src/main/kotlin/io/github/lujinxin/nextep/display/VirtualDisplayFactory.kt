@@ -26,7 +26,22 @@ class VirtualDisplayFactory(context: Context) {
                         .setRequestedRefreshRate(60f)
                         .build()
                     val display = manager.createVirtualDisplay(config)
-                    if (display != null) return@runCatching display
+                    if (display != null) {
+                        NeXtepLog.info(
+                            "virtual_display",
+                            "Allocated slot=$index displayId=${display.display.displayId} " +
+                                "flags=${flags.names.joinToString()} " +
+                                "state=${display.display.state}",
+                        )
+                        if ("OWN_FOCUS" !in flags.names) {
+                            NeXtepLog.warn(
+                                "virtual_display",
+                                "Slot=$index lacks OWN_FOCUS; Android may pause virtual " +
+                                    "activities when another display owns global focus",
+                            )
+                        }
+                        return@runCatching display
+                    }
                     lastFailure = IllegalStateException("DisplayManager returned null flags=${flags.names}")
                 } catch (error: Throwable) {
                     lastFailure = error
