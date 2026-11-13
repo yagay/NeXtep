@@ -45,15 +45,15 @@ internal object ScopeProcessRestarter {
                     [ "$(id -u)" = 0 ] || { echo ROOT_REQUIRED; exit 11; }
                     pids=$(pidof $processName) || { echo PROCESS_NOT_RUNNING; exit 12; }
                     count=0
-                    for pid in $pids; do
-                      case "$pid" in ''|*[!0-9]*) continue ;; esac
-                      [ "$pid" -gt 100 ] || continue
-                      actual=$(tr '\000' '\n' < "/proc/$pid/cmdline" | head -n 1)
-                      [ "$actual" = "$processName" ] || continue
-                      kill -TERM "$pid" || { echo SIGNAL_FAILED; exit 13; }
+                    for pid in ${'$'}pids; do
+                      case "${'$'}pid" in ''|*[!0-9]*) continue ;; esac
+                      [ "${'$'}pid" -gt 100 ] || continue
+                      actual=$(tr '\000' '\n' < "/proc/${'$'}pid/cmdline" | head -n 1)
+                      [ "${'$'}actual" = "$processName" ] || continue
+                      kill -TERM "${'$'}pid" || { echo SIGNAL_FAILED; exit 13; }
                       count=$((count+1))
                     done
-                    [ "$count" -gt 0 ] || { echo PROCESS_NOT_FOUND; exit 14; }
+                    [ "${'$'}count" -gt 0 ] || { echo PROCESS_NOT_FOUND; exit 14; }
                     echo SIGNAL_SENT
                 """.trimIndent()
                 val proc = ProcessBuilder("su", "-c", script)
