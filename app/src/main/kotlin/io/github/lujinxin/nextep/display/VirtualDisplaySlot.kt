@@ -15,6 +15,12 @@ import android.graphics.Matrix
 class VirtualDisplaySlot(
     context: Context,
     private val index: Int,
+    /**
+     * Floating mode opts in so hidden/locked windows retain a live output
+     * surface. The original workspace retains its existing safe disconnect
+     * behavior by default. This does not force an app into TOP_RESUMED.
+     */
+    private val keepOutputWhileSuspended: Boolean = false,
 ) : TextureView.SurfaceTextureListener {
     interface Listener {
         fun onDisplayReady(slotIndex: Int, displayId: Int)
@@ -64,6 +70,11 @@ class VirtualDisplaySlot(
 
     fun isSuspended(): Boolean = suspended
 
+    fun diagnosticOutputState(): String =
+        "slot=$index displayId=${displayId()} displayState=${virtualDisplay?.display?.state} " +
+            "active=$active suspended=$suspended outputConnected=$outputConnected " +
+            "surfaceValid=${surface?.isValid == true} keepOutputOnLock=$keepOutputWhileSuspended"
+
     fun activate() {
         active = true
         val textureView = if (freshSurfaceRequired) {
@@ -95,11 +106,17 @@ class VirtualDisplaySlot(
     fun setSuspended(value: Boolean) {
         if (value) {
             suspended = true
-            // A null Surface turns the display off without removing its tasks/windows.
-            // Keep our Surface alive so unlock can reconnect the same display.
-            runCatching { updateOutputSurface(connected = false) }.onFailure {
-                NeXtepLog.warn("virtual_display", "Unable to suspend output slot=$index", it)
+            // Original workspace: disconnect output to reduce exposure during
+            // lock. Floating workspace: keep the SAME live Surface connected
+            // while the parent UI is fully transparent and not touchable.
+            // This avoids powering down the VD merely because the user hides
+            // the floating panel or locks the physical screen.
+            val connected = VirtualDisplayOutputPolicy.connectedOnSuspend(keepOutputWhileSuspended)
+            runCatching { updateOutputSurface(connected) }.onFailure {
+                NeXtepLog.warn("virtual_display",
+                    "Unable to set suspended output slot=$index connected=$connected", it)
             }
+            NeXtepLog.info("virtual_display", "Suspension changed: ${diagnosticOutputState()}")
             return
         }
         if (!suspended) return
@@ -123,7 +140,8 @@ class VirtualDisplaySlot(
     /** Warm buffers behind hidden panels without resuming input, task moves or pending launches. */
     fun updateSuspendedOutput(screenAwake: Boolean) {
         if (!active || !suspended) return
-        updateOutputSurface(connected = screenAwake)
+        updateOutputSurface(connected =
+            VirtualDisplayOutputPolicy.connectedDuringSuspend(keepOutputWhileSuspended, screenAwake))
     }
 
     private fun updateOutputSurface(connected: Boolean): Boolean {

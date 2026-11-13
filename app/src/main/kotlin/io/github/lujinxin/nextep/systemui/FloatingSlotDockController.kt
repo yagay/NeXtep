@@ -153,7 +153,7 @@ internal class FloatingSlotDockController(
                 topMargin = layout.header
             })
             val newSlots = List(WORKSPACE_SLOT_COUNT) { index ->
-                VirtualDisplaySlot(context, index).apply {
+                VirtualDisplaySlot(context, index, keepOutputWhileSuspended = true).apply {
                     setLayoutProfile(recorded)
                     view.setBackgroundSwipeEnabled(true)
                     view.setBackgroundSwipeSide(SidebarSide.RIGHT)
@@ -254,7 +254,8 @@ internal class FloatingSlotDockController(
             pickerGeneration += 1
             picker?.visibility = View.GONE
             NeXtepLog.info("floating_dock",
-                "Hidden live dock without moving tasks or releasing VirtualDisplays")
+                "Hidden live dock without moving tasks or releasing VirtualDisplays; " +
+                    slots.joinToString { it.diagnosticOutputState() })
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
@@ -272,6 +273,11 @@ internal class FloatingSlotDockController(
         runCatching {
             coordinator?.setSuspended(true)
             suspendedForLock = true
+            // Input and preview are hidden at the keyguard; display output
+            // remains connected to keep application rendering alive where
+            // the platform permits background/virtual-display execution.
+            NeXtepLog.info("floating_dock", "Lock retained live outputs: " +
+                slots.joinToString { it.diagnosticOutputState() })
         }.onFailure { NeXtepLog.warn("floating_dock", "Output suspension failed during lock", it) }
     }
 
@@ -284,6 +290,27 @@ internal class FloatingSlotDockController(
             !isExpanded()
         }
         else -> collapse()
+    }
+
+    /**
+     * A lock suspends input and task reconciliation for privacy. Once the
+     * keyguard is gone, resume the SAME coordinator even while the overlay is
+     * still folded. This matches the original workspace's unlock behavior
+     * without making the hidden host touchable or visible.
+     */
+    fun resumeHiddenSessionAfterUnlock(): Boolean {
+        if (!hasSession() || !suspendedForLock) return true
+        return runCatching {
+            coordinator?.setSuspended(false)
+            suspendedForLock = false
+            coordinator?.onTasksChanged()
+            NeXtepLog.info("floating_dock", "Unlock restored retained hidden session; " +
+                slots.joinToString { it.diagnosticOutputState() })
+            true
+        }.getOrElse { error ->
+            NeXtepLog.warn("floating_dock", "Hidden session resume pending after unlock", error)
+            false
+        }
     }
 
     /** Re-expand the SAME session; do not create another VD or restart apps. */
@@ -312,7 +339,8 @@ internal class FloatingSlotDockController(
             panelVisible = true
             coordinator?.onTasksChanged()
             NeXtepLog.info("floating_dock",
-                "Reshowed retained dock with existing tasks, displays and slot positions")
+                "Reshowed retained dock with existing tasks, displays and slot positions; " +
+                    slots.joinToString { it.diagnosticOutputState() })
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
