@@ -95,7 +95,7 @@ object SystemUiRuntime {
                 // Disabling the feature fully shuts down only that session.
                 if (!workspaceConfig.floatingBubbleEnabled &&
                     ::floatingDock.isInitialized && floatingDock.hasSession()
-                ) floatingDock.destroySession()
+                ) floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.FEATURE_DISABLED)
             }
             NeXtepLog.info(
                 "workspace_config",
@@ -348,7 +348,7 @@ object SystemUiRuntime {
         val target = !workspaceController.isActive()
         if (target && isKeyguardLocked(applicationContext)) return
         if (target && ::floatingDock.isInitialized && floatingDock.hasSession() &&
-            !floatingDock.destroySession()) return
+            !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) return
         if (workspaceController.setActive(target)) {
             publishWorkspaceSurfaceState(target)
             if (!target) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -376,7 +376,7 @@ object SystemUiRuntime {
             workspaceController.isSuspended() || workspaceController.isActive() == active
         ) return
         if (active && ::floatingDock.isInitialized && floatingDock.hasSession() &&
-            !floatingDock.destroySession()) return
+            !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) return
         if (workspaceController.setActive(active)) {
             publishWorkspaceSurfaceState(active)
             if (!active) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -437,7 +437,8 @@ object SystemUiRuntime {
             }
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 TaskSurfaceCompat.finishWorkspaceExitAnimations()
-                if (::floatingDock.isInitialized) floatingDock.hideForLock()
+                if (::floatingDock.isInitialized)
+                    floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
             }
             if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
                 floatingDock.reconfigure()
@@ -562,7 +563,8 @@ object SystemUiRuntime {
                 !workspaceConfigReady || !workspaceConfig.floatingBubbleEnabled ||
                 !isScreenReady() || isKeyguardLocked(context)
             ) false
-            else if (floatingDock.isExpanded()) floatingDock.collapse()
+            else if (floatingDock.isExpanded())
+                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
             else if (workspaceController.isActive()) false
             else floatingDock.expand(bubbleAnchorFrom(intent))
         }
@@ -574,7 +576,7 @@ object SystemUiRuntime {
                     workspaceController.isActive())) true
             else if (target && isKeyguardLocked(context)) false
             else if (target && ::floatingDock.isInitialized && floatingDock.hasSession() &&
-                !floatingDock.destroySession()) false
+                !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) false
             else workspaceController.setActive(target).also { handled ->
                 // The tile/coordinated path must also restore the separate assistant panel.
                 if (handled) publishWorkspaceSurfaceState(target)
@@ -585,7 +587,7 @@ object SystemUiRuntime {
         TriggerBroadcastContract.ACTION_FOUR_FINGER_WORKSPACE -> fourFingerGestures.handleRequest(intent)
         TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST -> {
             val canSwitch = !::floatingDock.isInitialized || !floatingDock.hasSession() ||
-                floatingDock.destroySession()
+                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SLOT_TEST_SWITCH)
             val active = canSwitch &&
                 (workspaceController.isActive() || workspaceController.setActive(true))
             active && workspaceController.launchInSlot(
