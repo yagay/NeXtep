@@ -103,6 +103,8 @@ object DiagnosticReportExporter {
                     appendLine("Status-bar gesture: ${settings.statusBarGestureEnabled}")
                     appendLine("Four-finger gesture: ${settings.fourFingerGestureEnabled}")
                     appendLine("Floating bubble: ${settings.floatingBubbleEnabled}")
+                    appendLine("Floating Pad mode requested: ${settings.floatingPadModeEnabled}")
+                    appendLine("Pad profile applies only to newly created floating displays")
                     appendLine("Background swipe: ${settings.slotBackgroundSwipeEnabled}")
                     appendLine("Block system drag/share: ${settings.blockSystemDragShareEnabled}")
                     appendLine("Return after sharing: ${settings.returnAfterSharingEnabled}")

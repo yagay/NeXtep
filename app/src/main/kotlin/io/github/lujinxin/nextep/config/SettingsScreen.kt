@@ -187,6 +187,14 @@ object SettingsScreen {
                         isFocusable = false
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.floating_pad_mode_title),
+                        activity.getString(R.string.floating_pad_mode_summary),
+                        settings.floatingPadModeEnabled,
+                        repository::setFloatingPadModeEnabled,
+                    ), matchWidth())
             }, matchWidth().apply { bottomMargin = dp(activity, 12) })
             addView(collapsibleSettingCard(
                 activity, R.string.settings_group_gestures, R.string.settings_group_gestures_summary,

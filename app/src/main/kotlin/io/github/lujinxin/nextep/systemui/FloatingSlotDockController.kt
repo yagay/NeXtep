@@ -66,6 +66,11 @@ internal class FloatingSlotDockController(
     // from the trusted configuration IPC whenever the user changes Settings.
     private var orientation = FloatingDockRailLayout.Orientation.HORIZONTAL
     private var sizePercent = 100
+    // A VirtualDisplay's focus flags cannot change after creation. New
+    // settings are applied on the NEXT fresh session only, never by
+    // destroying running apps or replacing a folded four-slot dock.
+    private var padModeRequested = false
+    private var padModeForSession = false
     private var coordinator: SlotTaskCoordinator? = null
     private var slots: List<VirtualDisplaySlot> = emptyList()
     private var profile: WorkspaceLayoutProfile? = null
@@ -97,6 +102,15 @@ internal class FloatingSlotDockController(
             reconfigure()
         }
         NeXtepLog.info("floating_dock", "Settings updated orientation=$orientation scale=$sizePercent%")
+    }
+
+    /** Existing task and VirtualDisplay ownership always survives a mode change. */
+    fun applyPadModeSetting(enabled: Boolean) {
+        if (padModeRequested == enabled) return
+        padModeRequested = enabled
+        NeXtepLog.info("floating_pad",
+            "Pad mode requested=$enabled activeSession=$padModeForSession " +
+                "hasSession=${hasSession()} appliedOn=next_new_session")
     }
 
     /** Move the already visible panel without recreating its live task displays. */
@@ -152,8 +166,12 @@ internal class FloatingSlotDockController(
                 layout.height - layout.header, Gravity.TOP).apply {
                 topMargin = layout.header
             })
+            padModeForSession = padModeRequested
             val newSlots = List(WORKSPACE_SLOT_COUNT) { index ->
-                VirtualDisplaySlot(context, index, keepOutputWhileSuspended = true).apply {
+                VirtualDisplaySlot(context, index,
+                    keepOutputWhileSuspended = true,
+                    padMultiTaskMode = padModeForSession,
+                ).apply {
                     setLayoutProfile(recorded)
                     view.setBackgroundSwipeEnabled(true)
                     view.setBackgroundSwipeSide(SidebarSide.RIGHT)
@@ -221,6 +239,7 @@ internal class FloatingSlotDockController(
             checkNotNull(coordinator).activate()
             NeXtepLog.info("floating_dock",
                 "Expanded compact orientation=$orientation size=$sizePercent% " +
+                    "padFocus=$padModeForSession " +
                     "bounds=[${layout.x},${layout.y},${layout.width},${layout.height}] " +
                     "safe=${FloatingDockSafeArea.measure(context, manager)}")
             true

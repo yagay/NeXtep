@@ -237,4 +237,6 @@
     <string name="floating_layout_settings_title">悬浮窗排列与大小</string>
     <string name="floating_layout_settings_summary">横排或竖排，按比例缩放 60%–140%；只影响悬浮工作台。</string>
     <string name="floating_layout_apply">应用</string>
+    <string name="floating_pad_mode_title">Pad 多任务模式（实验性）</string>
+    <string name="floating_pad_mode_summary">优先使用平板式的独立显示器焦点，让多个小窗应用尽量同时保持活动。可能影响输入法及主屏焦点；下次新建悬浮工作台时生效，当前应用不会重启。</string>
 </resources>
