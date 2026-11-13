@@ -239,4 +239,11 @@
     <string name="floating_layout_apply">应用</string>
     <string name="floating_pad_mode_title">Pad 多任务模式（实验性）</string>
     <string name="floating_pad_mode_summary">优先使用平板式的独立显示器焦点，让多个小窗应用尽量同时保持活动。可能影响输入法及主屏焦点；下次新建悬浮工作台时生效，当前应用不会重启。</string>
+    <string name="playback_compat_enabled_title">小窗播放器后台兼容</string>
+    <string name="playback_compat_enabled_summary">只监测选中的小窗播放器及媒体会话；默认关闭。</string>
+    <string name="playback_compat_auto_title">折叠后尝试恢复播放（实验性）</string>
+    <string name="playback_compat_auto_summary">仅当选中应用在折叠前确实播放、随后异常暂停时，尝试一次媒体会话播放；锁屏、通话及其他播放器正在播放时不触发。需要媒体会话访问权限。</string>
+    <string name="playback_compat_apps_title">选择播放器应用</string>
+    <string name="playback_compat_apps_summary">仅对选定应用进行监测和恢复；未选中的应用不受影响。</string>
+    <string name="playback_compat_apps_count">已选 %1$d 个</string>
 </resources>
