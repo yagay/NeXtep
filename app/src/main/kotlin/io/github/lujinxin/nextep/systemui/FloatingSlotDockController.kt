@@ -66,10 +66,9 @@ internal class FloatingSlotDockController(
         context.createDeviceProtectedStorageContext()
             .getSharedPreferences("nextep_floating_dock_layout_v1", Context.MODE_PRIVATE)
     }
-    private var orientation: FloatingDockRailLayout.Orientation by kotlin.properties.Delegates.observable(
+    private var orientation: FloatingDockRailLayout.Orientation =
         if (settings.getString("orientation", "horizontal") == "vertical")
-            FloatingDockRailLayout.Orientation.VERTICAL else FloatingDockRailLayout.Orientation.HORIZONTAL,
-    ) { _, _, _ -> }
+            FloatingDockRailLayout.Orientation.VERTICAL else FloatingDockRailLayout.Orientation.HORIZONTAL
     private var sizePercent: Int = FloatingDockRailLayout.normalizedScale(
         settings.getInt("size_percent", 100),
     )
@@ -155,11 +154,12 @@ internal class FloatingSlotDockController(
                 nextControl = action(if (isVertical()) "↓" else "›", Color.WHITE) {
                     stepRail(forward = true)
                 }.also { addView(it, LinearLayout.LayoutParams(0, -1, 1f)) }
-                directionControl = action(if (isVertical()) "横排" else "竖排", Color.WHITE) {
+                directionControl = action(if (isVertical()) str(R.string.floating_dock_switch_horizontal)
+                    else str(R.string.floating_dock_switch_vertical), Color.WHITE) {
                     setOrientation(if (isVertical()) FloatingDockRailLayout.Orientation.HORIZONTAL
                         else FloatingDockRailLayout.Orientation.VERTICAL)
                 }.also { addView(it, LinearLayout.LayoutParams(0, -1, 1.5f)) }
-                addView(action("大小", 0xFF8CD5E8.toInt()) {
+                addView(action(str(R.string.floating_dock_size_settings), 0xFF8CD5E8.toInt()) {
                     openLayoutOptions()
                 }, LinearLayout.LayoutParams(0, -1, 1.5f))
                 addView(action("＋", Color.WHITE) { showPicker() }.apply {
@@ -198,23 +198,23 @@ internal class FloatingSlotDockController(
                 setPadding(dp(7), dp(7), dp(7), dp(7))
             }
             optionRows.addView(TextView(context).apply {
-                text = "排列方式"
+                text = str(R.string.floating_dock_arrangement)
                 textSize = 14f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
             }, LinearLayout.LayoutParams(-1, dp(27)))
             val orientationRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                addView(action("横排", Color.WHITE) {
+                addView(action(str(R.string.floating_dock_switch_horizontal), Color.WHITE) {
                     setOrientation(FloatingDockRailLayout.Orientation.HORIZONTAL)
                 }, LinearLayout.LayoutParams(0, dp(38), 1f))
-                addView(action("竖排", Color.WHITE) {
+                addView(action(str(R.string.floating_dock_switch_vertical), Color.WHITE) {
                     setOrientation(FloatingDockRailLayout.Orientation.VERTICAL)
                 }, LinearLayout.LayoutParams(0, dp(38), 1f))
             }
             optionRows.addView(orientationRow)
             optionRows.addView(TextView(context).apply {
-                text = "小窗大小 · 锁定宽高比例"
+                text = str(R.string.floating_dock_fixed_ratio)
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setTextColor(0xFFC4DBE4.toInt())
@@ -234,9 +234,9 @@ internal class FloatingSlotDockController(
                     LinearLayout.LayoutParams(0, dp(43), 1f))
             }
             optionRows.addView(sizeRow)
-            optionRows.addView(action("恢复 100%", Color.WHITE) { setSize(100) },
+            optionRows.addView(action(str(R.string.floating_dock_reset_size), Color.WHITE) { setSize(100) },
                 LinearLayout.LayoutParams(-1, dp(36)))
-            optionRows.addView(action("完成", Color.WHITE) { options.visibility = View.GONE },
+            optionRows.addView(action(str(R.string.floating_dock_settings_done), Color.WHITE) { options.visibility = View.GONE },
                 LinearLayout.LayoutParams(-1, dp(36)))
             options.addView(ScrollView(context).apply {
                 isFillViewport = false
@@ -403,7 +403,8 @@ internal class FloatingSlotDockController(
         orientation = next
         settings.edit().putString("orientation", if (isVertical()) "vertical" else "horizontal").apply()
         railOffsetPx = 0
-        directionControl?.text = if (isVertical()) "横排" else "竖排"
+        directionControl?.text = if (isVertical()) str(R.string.floating_dock_switch_horizontal)
+            else str(R.string.floating_dock_switch_vertical)
         previousControl?.text = if (isVertical()) "↑" else "‹"
         nextControl?.text = if (isVertical()) "↓" else "›"
         reconfigure()
