@@ -17,6 +17,7 @@ class SettingsRepository(private val context: Context) {
         val textSizeSp: Int,
         val textBold: Boolean,
         val statusBarGestureEnabled: Boolean,
+        val floatingBubbleEnabled: Boolean,
         val slotBackgroundSwipeEnabled: Boolean,
         val autoMinimizeMainOnTopAppSwitch: Boolean,
         val navigationButtonsEnabled: Boolean,
@@ -47,6 +48,7 @@ class SettingsRepository(private val context: Context) {
             .coerceIn(TopTextStyle.MIN_SIZE_SP, TopTextStyle.MAX_SIZE_SP),
         textBold = preferences.getBoolean("top_text_bold", false),
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
+        floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
         slotBackgroundSwipeEnabled = preferences.getBoolean("slot_background_swipe_enabled", true),
         autoMinimizeMainOnTopAppSwitch = preferences.getBoolean("auto_minimize_main_on_top_app_switch", false),
         navigationButtonsEnabled = preferences.getBoolean("navigation_buttons_enabled", false),
@@ -92,6 +94,11 @@ class SettingsRepository(private val context: Context) {
 
     fun setStatusBarGestureEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("status_bar_gesture_enabled", enabled).apply()
+        notifyTopContentChanged()
+    }
+
+    fun setFloatingBubbleEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean("floating_bubble_enabled", enabled).apply()
         notifyTopContentChanged()
     }
 

@@ -24,6 +24,9 @@
     <string name="tile_add_manually">Add NeXtep from the Quick Settings editor.</string>
     <string name="tile_entry_title">Quick Settings shortcut</string>
     <string name="tile_entry_summary">Add the NeXtep tile</string>
+    <string name="floating_bubble_title">Floating workspace icon (experimental)</string>
+    <string name="floating_bubble_summary">Show a draggable edge icon. Tap to open the four live small-window workspace; tap the workspace close control to return to the icon.</string>
+    <string name="floating_bubble_open">Open multiwindow workspace</string>
     <string name="gesture_title">Status bar gesture</string>
     <string name="gesture_summary">Swipe left from the right side to open or close the workspace.</string>
     <string name="background_swipe_title">Swipe small windows to background</string>

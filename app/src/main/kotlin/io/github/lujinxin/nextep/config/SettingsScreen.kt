@@ -144,6 +144,14 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
+                        activity.getString(R.string.floating_bubble_title),
+                        activity.getString(R.string.floating_bubble_summary),
+                        settings.floatingBubbleEnabled,
+                        repository::setFloatingBubbleEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
                         activity.getString(R.string.gesture_title),
                         activity.getString(R.string.gesture_summary),
                         settings.statusBarGestureEnabled,

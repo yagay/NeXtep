@@ -172,4 +172,7 @@
     <string name="block_system_drag_share_summary">阻止系统底部推荐栏接管图片等内容的拖拽；退出工作区后恢复系统行为。</string>
     <string name="return_after_sharing_title">分享后返回原应用</string>
     <string name="return_after_sharing_summary">分享流程结束后，自动将拖出内容的原应用换回主窗；关闭后保留分享目标应用。</string>
-</resources>
+    <string name="floating_bubble_title">悬浮工作台图标（实验性）</string>
+    <string name="floating_bubble_summary">显示可拖动的侧边悬浮按钮。点击展开四个实时小窗，关闭工作台后恢复悬浮图标。</string>
+    <string name="floating_bubble_open">展开多窗口工作台</string>
+    </resources>
