@@ -124,9 +124,10 @@ object SettingsScreen {
                 }
             }
 
-            addView(sectionCard(activity).apply {
-                addView(LinearLayout(activity).apply {
-                    orientation = LinearLayout.VERTICAL
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_general, R.string.settings_group_general_summary,
+                "general", true,
+            ) {
                     addView(settingRow(activity, activity.getString(R.string.tile_entry_title), activity.getString(R.string.tile_entry_summary), addTileButton), matchWidth())
                     addView(settingDivider(activity))
                     addView(settingRow(activity, activity.getString(R.string.language_title),
@@ -142,7 +143,11 @@ object SettingsScreen {
                         isFocusable = false
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, matchWidth())
-                    addView(settingDivider(activity))
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_floating, R.string.settings_group_floating_summary,
+                "floating", true,
+            ) {
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.floating_bubble_title),
@@ -165,7 +170,11 @@ object SettingsScreen {
                             setOnClickListener { FloatingBubbleController.requestPermission(activity) }
                         },
                     ), matchWidth())
-                    addView(settingDivider(activity))
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_gestures, R.string.settings_group_gestures_summary,
+                "gestures", false,
+            ) {
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.gesture_title),
@@ -198,7 +207,11 @@ object SettingsScreen {
                         isFocusable = false
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, matchWidth())
-                    addView(settingDivider(activity))
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_interaction, R.string.settings_group_interaction_summary,
+                "interaction", false,
+            ) {
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.background_swipe_title),
@@ -242,7 +255,11 @@ object SettingsScreen {
                         settings.autoMinimizeMainOnTopAppSwitch,
                         repository::setAutoMinimizeMainOnTopAppSwitch,
                     ), matchWidth())
-                    addView(settingDivider(activity))
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_display, R.string.settings_group_display_summary,
+                "display", false,
+            ) {
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.navigation_buttons_title),
@@ -262,8 +279,8 @@ object SettingsScreen {
                         { activity.getString(R.string.frost_strength_value, it) },
                         repository::setFrostStrength,
                     ), matchWidth())
-                }, matchWidth())
-            }, matchWidth().apply { bottomMargin = dp(activity, 16) })
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+
 
             val titleInput = TextInputEditText(activity).apply {
                 background = null
@@ -404,10 +421,11 @@ object SettingsScreen {
             }, matchWidth())
             updateEditorFont()
             selectContent(settings.contentMode)
-            addView(sectionCard(activity).apply {
+            addView(collapsibleSettingCard(
+                activity, R.string.top_content_title, R.string.top_content_summary,
+                "top_content", false,
+            ) {
                 addView(sectionContent(activity).apply {
-                    addView(sectionTitle(activity, activity.getString(R.string.top_content_title)), matchWidth())
-                    addView(sectionDescription(activity, activity.getString(R.string.top_content_summary)), matchWidth())
                     addView(com.google.android.material.chip.ChipGroup(activity).apply {
                         isSingleSelection = true
                         isSelectionRequired = true
@@ -486,10 +504,11 @@ object SettingsScreen {
                 }
             }
 
-            addView(sectionCard(activity).apply {
+            addView(collapsibleSettingCard(
+                activity, R.string.app_strip_title, R.string.app_strip_summary,
+                "app_strip", false,
+            ) {
                 addView(sectionContent(activity).apply {
-                    addView(sectionTitle(activity, activity.getString(R.string.app_strip_title)), matchWidth())
-                    addView(sectionDescription(activity, activity.getString(R.string.app_strip_summary)), matchWidth())
                     addView(modeSelector, matchWidth().apply { topMargin = dp(activity, 14) })
                     addView(modeDescription, matchWidth().apply { topMargin = dp(activity, 8) })
                     addView(manualContainer.apply {
@@ -698,6 +717,74 @@ object SettingsScreen {
                 ellipsize = TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
+
+    /**
+     * Compact, stateful sections: frequent controls stay visible while advanced
+     * ones are tucked away. The original child controls/listeners are unchanged.
+     */
+    private fun collapsibleSettingCard(
+        activity: AppCompatActivity,
+        titleRes: Int,
+        summaryRes: Int,
+        key: String,
+        initiallyExpanded: Boolean,
+        build: LinearLayout.() -> Unit,
+    ): MaterialCardView {
+        val prefs = activity.getSharedPreferences("nextep_settings_sections_v1",
+            android.content.Context.MODE_PRIVATE)
+        var expanded = prefs.getBoolean(key, initiallyExpanded)
+        val body = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            build()
+            visibility = if (expanded) View.VISIBLE else View.GONE
+        }
+        val arrow = TextView(activity).apply {
+            text = if (expanded) "⌃" else "⌄"
+            textSize = 23f
+            gravity = Gravity.CENTER
+            setTextColor(SettingsPalette.secondary(activity))
+        }
+        val header = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(activity, 66)
+            setPadding(dp(activity, 18), dp(activity, 9), dp(activity, 15), dp(activity, 9))
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(activity).apply {
+                    setText(titleRes)
+                    textSize = 17f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setTextColor(SettingsPalette.text(activity))
+                    ViewCompat.setAccessibilityHeading(this, true)
+                }, matchWidth())
+                addView(sectionDescription(activity, activity.getString(summaryRes)), matchWidth())
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(arrow, LinearLayout.LayoutParams(dp(activity, 38), dp(activity, 44)))
+            isClickable = true
+            isFocusable = true
+            fun updateAccessibility() {
+                contentDescription = activity.getString(titleRes) + ", " +
+                    activity.getString(if (expanded) R.string.settings_group_collapse
+                        else R.string.settings_group_expand)
+            }
+            updateAccessibility()
+            setOnClickListener {
+                expanded = !expanded
+                body.visibility = if (expanded) View.VISIBLE else View.GONE
+                arrow.text = if (expanded) "⌃" else "⌄"
+                prefs.edit().putBoolean(key, expanded).apply()
+                updateAccessibility()
+            }
+        }
+        return sectionCard(activity).apply {
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(header, matchWidth())
+                addView(body, matchWidth())
+            })
+        }
+    }
 
     private fun sectionCard(activity: AppCompatActivity) = MaterialCardView(activity).apply {
         radius = dp(activity, 16).toFloat()
