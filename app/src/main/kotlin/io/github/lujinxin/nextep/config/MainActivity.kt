@@ -17,6 +17,7 @@ import androidx.viewpager.widget.PagerAdapter
 import androidx.viewpager.widget.ViewPager
 import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.icons.LauncherIconManager
+import io.github.lujinxin.nextep.floating.FloatingBubbleController
 import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
@@ -139,6 +140,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         LauncherIconManager.onAppOpened(this)
+        // Settings returns here after the special-access grant.
+        FloatingBubbleController.sync(this)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

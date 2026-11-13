@@ -15,6 +15,9 @@
 
     <uses-permission android:name="io.github.lujinxin.nextep.permission.CONTROL_WORKSPACE" />
     <uses-permission android:name="android.permission.REORDER_TASKS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission
@@ -37,6 +40,16 @@
             android:name=".config.MainActivity"
             android:exported="true"
             android:label="@string/app_name" />
+
+        <!-- User-authorized overlay; real task windows remain in SystemUI. -->
+        <service
+            android:name=".floating.FloatingBubbleService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled persistent floating workspace launcher" />
+        </service>
 
         <activity
             android:name=".config.EnergyMonitorActivity"
