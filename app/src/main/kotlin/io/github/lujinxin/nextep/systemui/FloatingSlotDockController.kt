@@ -72,6 +72,8 @@ internal class FloatingSlotDockController(
     // destroying running apps or replacing a folded four-slot dock.
     private var padModeRequested = false
     private var padModeForSession = false
+    private var independentModeRequested = false
+    private var independentModeForSession = false
     // Bounded CPU wake lock, not a guarantee of virtual display power.
     private val independentCpuWakeLock by lazy {
         runCatching {
@@ -135,6 +137,12 @@ internal class FloatingSlotDockController(
     }
 
     /** Existing task and VirtualDisplay ownership always survives a mode change. */
+    fun applyIndependentDisplaySetting(enabled: Boolean) {
+        if (independentModeRequested == enabled) return
+        independentModeRequested = enabled
+        NeXtepLog.info("floating_dock", "Independent mode requested=$enabled appliedOn=next_new_session")
+    }
+
     fun applyPadModeSetting(enabled: Boolean) {
         if (padModeRequested == enabled) return
         padModeRequested = enabled
@@ -196,7 +204,8 @@ internal class FloatingSlotDockController(
                 layout.height - layout.header, Gravity.TOP).apply {
                 topMargin = layout.header
             })
-            padModeForSession = padModeRequested
+            independentModeForSession = independentModeRequested
+            padModeForSession = padModeRequested || independentModeForSession
             val newSlots = List(WORKSPACE_SLOT_COUNT) { index ->
                 VirtualDisplaySlot(context, index,
                     keepOutputWhileSuspended = true,
@@ -328,7 +337,7 @@ internal class FloatingSlotDockController(
         // Capture the last PLAYING MediaSessions before the system discards
         // their state, without making the hidden surface visible.
         playbackCompat.onScreenLocked(currentPlayerPackages())
-        if (padModeForSession) {
+        if (independentModeForSession) {
             runCatching {
                 independentCpuWakeLock?.acquire(120_000L)
                 NeXtepLog.info("floating_dock",
