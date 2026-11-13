@@ -31,4 +31,40 @@ class FloatingDockRailLayoutTest {
         assertEquals(sizes.map { it.second }, plan.cells.map { it.height })
         assertEquals(4, plan.cells.size)
     }
+    @Test fun verticalRailKeepsFourCardsInSingleColumn() {
+        val sizes = listOf(242 to 365, 242 to 364, 242 to 364, 242 to 363)
+        val plan = FloatingDockRailLayout.calculate(1080, 2400, 3f, sizes,
+            FloatingDockRailLayout.Orientation.VERTICAL, 100)
+        assertEquals(4, plan.cells.size)
+        assertEquals(sizes.map { it.first }, plan.cells.map { it.width })
+        assertEquals(sizes.map { it.second }, plan.cells.map { it.height })
+        for (i in 1 until plan.cells.size) {
+            assertEquals(plan.cells[i - 1].y + plan.cells[i - 1].height + plan.gap,
+                plan.cells[i].y)
+        }
+        assertTrue(plan.panelHeight <= 2400)
+        assertTrue(plan.railHeight > plan.panelHeight - plan.headerHeight)
+    }
+
+    @Test fun sizePresetsUseOneProportionalFactorForBothAxes() {
+        val w = 200
+        val h = 400
+        for (orientation in FloatingDockRailLayout.Orientation.entries) {
+            for (scale in 60..140 step 10) {
+                val plan = FloatingDockRailLayout.calculate(1080, 2400, 3f,
+                    List(4) { w to h }, orientation, scale)
+                plan.cells.forEach {
+                    assertEquals(w * scale / 100, it.width)
+                    assertEquals(h * scale / 100, it.height)
+                    assertEquals(2, it.height / it.width)
+                }
+            }
+        }
+    }
+
+    @Test fun sizeClampsToSafePresets() {
+        assertEquals(60, FloatingDockRailLayout.normalizedScale(-90))
+        assertEquals(140, FloatingDockRailLayout.normalizedScale(155))
+        assertEquals(90, FloatingDockRailLayout.normalizedScale(99))
+    }
 }
