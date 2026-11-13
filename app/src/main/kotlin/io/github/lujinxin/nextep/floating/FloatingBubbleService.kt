@@ -115,8 +115,8 @@ class FloatingBubbleService : Service() {
     private fun showBubble() {
         if (bubble != null || !Settings.canDrawOverlays(this)) return
         val safe = bubbleSafeRect()
-        val width = safe.right + dp(8)
-        val height = safe.bottom + dp(8)
+        val height = (windowManager?.maximumWindowMetrics?.bounds?.height()
+            ?: resources.displayMetrics.heightPixels).coerceAtLeast(size + dp(16))
         val side = prefs.getInt(KEY_SIDE, 1).coerceIn(0, 1)
         val fraction = prefs.getFloat(KEY_Y, 0.42f).coerceIn(0.08f, 0.88f)
         val params = WindowManager.LayoutParams(
