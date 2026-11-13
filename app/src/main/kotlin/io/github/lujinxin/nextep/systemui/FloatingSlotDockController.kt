@@ -72,6 +72,19 @@ internal class FloatingSlotDockController(
     private var padModeRequested = false
     private var padModeForSession = false
     private var coordinator: SlotTaskCoordinator? = null
+    private val playbackCompat = FloatingPlaybackCompatController(context)
+    private val playbackSlotRefresh = Runnable {
+        playbackCompat.onSlotPackagesChanged(currentPlayerPackages())
+    }
+    private fun currentPlayerPackages(): Set<String> =
+        coordinator?.slotStates().orEmpty().mapNotNull { state ->
+            (state as? SlotState.Occupied)?.component?.packageName
+        }.toSet()
+
+    fun applyPlaybackCompatSettings(enabled: Boolean, autoResume: Boolean, packages: Set<String>) {
+        playbackCompat.configure(enabled, autoResume, packages)
+        if (hasSession()) playbackCompat.onSlotPackagesChanged(currentPlayerPackages())
+    }
     private var slots: List<VirtualDisplaySlot> = emptyList()
     private var profile: WorkspaceLayoutProfile? = null
     private var panel: Panel? = null
@@ -237,6 +250,9 @@ internal class FloatingSlotDockController(
                 returnAfterSharing = { false },
             )
             checkNotNull(coordinator).activate()
+            playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
+            handler.removeCallbacks(playbackSlotRefresh)
+            handler.postDelayed(playbackSlotRefresh, 1_000L)
             NeXtepLog.info("floating_dock",
                 "Expanded compact orientation=$orientation size=$sizePercent% " +
                     "padFocus=$padModeForSession " +
@@ -259,7 +275,7 @@ internal class FloatingSlotDockController(
      * transparent and non-touchable. Do NOT detach TextureViews, deactivate
      * the coordinator, or move tasks between physical and virtual displays.
      */
-    fun collapse(): Boolean {
+    fun collapse(lockEvent: Boolean = false): Boolean {
         val root = host ?: return true
         if (!panelVisible) return true
         return runCatching {
@@ -270,6 +286,8 @@ internal class FloatingSlotDockController(
             // Keep the root itself VISIBLE and attached: setting GONE or
             // removeViewImmediate can destroy live TextureView surfaces.
             panelVisible = false
+            playbackCompat.onVisibilityChanged(false, currentPlayerPackages(), lockEvent = lockEvent)
+            handler.removeCallbacks(playbackSlotRefresh)
             pickerGeneration += 1
             picker?.visibility = View.GONE
             NeXtepLog.info("floating_dock",
@@ -286,7 +304,7 @@ internal class FloatingSlotDockController(
     /** Lock hides task previews and disconnects their output, not their tasks. */
     fun hideForLock() {
         if (!hasSession()) return
-        if (!collapse()) {
+        if (!collapse(lockEvent = true)) {
             NeXtepLog.warn("floating_dock", "Failed to hide window at lock")
         }
         runCatching {
@@ -356,6 +374,9 @@ internal class FloatingSlotDockController(
             wnd.flags = wnd.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
             manager?.updateViewLayout(root, wnd)
             panelVisible = true
+            playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
+            handler.removeCallbacks(playbackSlotRefresh)
+            handler.postDelayed(playbackSlotRefresh, 1_000L)
             coordinator?.onTasksChanged()
             NeXtepLog.info("floating_dock",
                 "Reshowed retained dock with existing tasks, displays and slot positions; " +
@@ -377,6 +398,8 @@ internal class FloatingSlotDockController(
         lastError = null
         return runCatching {
             coordinator?.deactivate()
+            playbackCompat.shutdown()
+            handler.removeCallbacks(playbackSlotRefresh)
             host?.let { manager?.removeViewImmediate(it) }
             clear()
             NeXtepLog.info("floating_dock", "Closed floating session; parked tasks safely")
@@ -389,7 +412,10 @@ internal class FloatingSlotDockController(
     }
 
     fun onTasksChanged() {
-        if (hasSession()) coordinator?.onTasksChanged()
+        if (!hasSession()) return
+        coordinator?.onTasksChanged()
+        handler.removeCallbacks(playbackSlotRefresh)
+        handler.postDelayed(playbackSlotRefresh, 900L)
     }
 
     /** Reflow cells on rotation; keep the original displays and their task ownership alive. */

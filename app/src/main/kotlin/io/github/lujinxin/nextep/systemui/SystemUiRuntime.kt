@@ -109,6 +109,11 @@ object SystemUiRuntime {
                         workspaceConfig.floatingDockSizePercent,
                     )
                     floatingDock.applyPadModeSetting(workspaceConfig.floatingPadModeEnabled)
+                    floatingDock.applyPlaybackCompatSettings(
+                        workspaceConfig.playbackCompatEnabled,
+                        workspaceConfig.playbackCompatAutoResume,
+                        workspaceConfig.playbackCompatPackages,
+                    )
                 }
                 // A hidden floating session still owns live VirtualDisplays.
                 // Disabling the feature fully shuts down only that session.

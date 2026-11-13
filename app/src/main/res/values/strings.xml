@@ -247,4 +247,11 @@
     <string name="floating_layout_apply">Apply</string>
     <string name="floating_pad_mode_title">Pad multi-task mode (experimental)</string>
     <string name="floating_pad_mode_summary">Prioritize independent per-display focus for floating apps and Android multi-resume. May change keyboard/main-screen focus. Takes effect on the next new floating session; existing apps are kept.</string>
+    <string name="playback_compat_enabled_title">Floating player compatibility</string>
+    <string name="playback_compat_enabled_summary">Monitor media sessions only for selected floating-window apps. Off by default.</string>
+    <string name="playback_compat_auto_title">One-time resume after folding (experimental)</string>
+    <string name="playback_compat_auto_summary">If a selected app was playing just before folding and stops unexpectedly, try MediaSession Play once. Never on lock, calls or when another player starts. Requires permitted media-session access.</string>
+    <string name="playback_compat_apps_title">Player apps</string>
+    <string name="playback_compat_apps_summary">Choose which apps may be monitored or resumed. Others remain untouched.</string>
+    <string name="playback_compat_apps_count">%1$d selected</string>
 </resources>

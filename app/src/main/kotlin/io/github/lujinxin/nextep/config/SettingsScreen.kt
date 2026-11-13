@@ -195,6 +195,34 @@ object SettingsScreen {
                         settings.floatingPadModeEnabled,
                         repository::setFloatingPadModeEnabled,
                     ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_enabled_title),
+                        activity.getString(R.string.playback_compat_enabled_summary),
+                        settings.playbackCompatEnabled,
+                        repository::setPlaybackCompatEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_auto_title),
+                        activity.getString(R.string.playback_compat_auto_summary),
+                        settings.playbackCompatAutoResume,
+                        repository::setPlaybackCompatAutoResume,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    val playerButton = createPlaybackPackageSelector(activity, repository, apps)
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_apps_title),
+                        activity.getString(R.string.playback_compat_apps_summary),
+                        playerButton,
+                    ).apply {
+                        setOnClickListener { playerButton.performClick() }
+                        isFocusable = false
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, matchWidth())
             }, matchWidth().apply { bottomMargin = dp(activity, 12) })
             addView(collapsibleSettingCard(
                 activity, R.string.settings_group_gestures, R.string.settings_group_gestures_summary,
@@ -617,6 +645,51 @@ object SettingsScreen {
             scaleType = ImageView.ScaleType.CENTER
             contentDescription = activity.getString(R.string.app_drag_position, option.label)
         }, LinearLayout.LayoutParams(dp(activity, 44), dp(activity, 48)))
+    }
+
+    /** Opt-in package allowlist. Never auto-resume an unselected player. */
+    private fun createPlaybackPackageSelector(
+        activity: AppCompatActivity,
+        repository: SettingsRepository,
+        apps: List<AppOption>,
+    ) = SettingsRowButton.create(activity).apply {
+        fun updateLabel() {
+            text = activity.getString(R.string.playback_compat_apps_count,
+                repository.topBarSettings().playbackCompatPackages.size)
+        }
+        updateLabel()
+        setOnClickListener {
+            val selected = repository.topBarSettings().playbackCompatPackages.toMutableSet()
+            val names = linkedMapOf<String, String>()
+            apps.forEach { option ->
+                ComponentName.unflattenFromString(option.key.substringAfter('|'))?.packageName
+                    ?.let { names.putIfAbsent(it, option.label) }
+            }
+            selected.filterNot(names::containsKey).forEach { pkg ->
+                names[pkg] = runCatching {
+                    activity.packageManager.getApplicationInfo(pkg, 0)
+                        .loadLabel(activity.packageManager).toString()
+                }.getOrDefault(pkg)
+            }
+            val options = names.entries.sortedWith(
+                compareBy<Map.Entry<String, String>> { it.value.lowercase() }.thenBy { it.key })
+            val checked = options.map { it.key in selected }.toBooleanArray()
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.playback_compat_apps_title)
+                .setMultiChoiceItems(options.map { it.value }.toTypedArray(), checked) { _, idx, enabled ->
+                    if (enabled) selected.add(options[idx].key) else selected.remove(options[idx].key)
+                }
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    repository.setPlaybackCompatPackages(selected)
+                    updateLabel()
+                }
+                .setNegativeButton(R.string.action_cancel, null)
+                .setNeutralButton(R.string.four_finger_blacklist_clear) { _, _ ->
+                    repository.setPlaybackCompatPackages(emptySet())
+                    updateLabel()
+                }
+                .show()
+        }
     }
 
     private fun createFourFingerBlacklistButton(

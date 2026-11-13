@@ -63,8 +63,21 @@ class NeXtepHookEntry : XposedModule() {
             return
         }
 
-        if (EmergencyDisable.isRequested() || !FeatureGate.LAUNCHER_TRANSFORM.defaultEnabled) return
+        if (EmergencyDisable.isRequested()) return
 
+        // LSPosed users may explicitly add a player package to the module's
+        // scope. Never run ColorOS launcher hooks inside those media apps.
+        if (packageName !in setOf(
+                "com.android.launcher", "com.oplus.launcher",
+                "com.coloros.assistantscreen", "android", "system",
+            )
+        ) {
+            HookGuard.run("playback_hook_attach") {
+                PlaybackCompatAppHook.install(this, packageName, param.defaultClassLoader)
+            }
+            return
+        }
+        if (!FeatureGate.LAUNCHER_TRANSFORM.defaultEnabled) return
         ColorOsLauncherHook.install(this, packageName, param.defaultClassLoader)
     }
 }
