@@ -106,6 +106,7 @@ object DiagnosticReportExporter {
                     appendLine("Floating Pad mode requested: ${settings.floatingPadModeEnabled}")
                     appendLine("Floating player compatibility: ${settings.playbackCompatEnabled}")
                     appendLine("One-shot MediaSession recovery: ${settings.playbackCompatAutoResume}")
+                    appendLine("One-shot screen-lock audio continuation: ${settings.playbackCompatLockAudio}")
                     appendLine("Selected player app count: ${settings.playbackCompatPackages.size}")
                     appendLine("App-process playback Hook is diagnostic-only and requires manual LSPosed scope")
                     appendLine("Pad profile applies only to newly created floating displays")
