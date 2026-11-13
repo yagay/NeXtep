@@ -161,6 +161,16 @@ resume after folding**.
   pauses soon after the dock is folded, NeXtep may request **one** MediaSession
   Play command. It also observes a selected player on the main display so that
   a one-time attempt can occur after that app is moved into a floating slot.
+- **Lockscreen audio (separate opt-in)**: "Continue playing after screen lock"
+  monitors the selected player's last known PLAYING MediaSession (including
+  already folded slots). On SCREEN_OFF, NeXtep hides the task surface and
+  attempts at most one MediaSession PLAY if that very session changed to
+  PAUSED, while audio mode is normal and no other player is playing. A
+  bounded 4.5-second CPU wake lock covers the screen-off transition only.
+  The phone remains locked and the physical display stays off. If the
+  player's Activity is STOPPED, its MediaSession disappears, or ColorOS
+  disallows background audio, a generic overlay **cannot guarantee playback**.
+  For such apps inspect the diagnostic ZIP and add an app-specific adapter.
 - The command is skipped during screen lock, calls/non-normal audio mode,
   another active media playback session, a missing MediaSession or a missing
   supported Play action. Repeated retries and unconditional Play are prohibited.
