@@ -4,6 +4,54 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WorkspaceLayoutProfileTest {
+    private fun legacyEncoding(profile: WorkspaceLayoutProfile, version: String): String {
+        require(version in setOf("2", "3", "4", "5"))
+        val fields = profile.encode().split(',').take(20).toMutableList()
+        fields[0] = version
+        val count = 3
+        val height = (profile.geometry.sidebarLogicalHeight - profile.gapPixels * (count - 1))
+            .coerceAtLeast(count)
+        val base = height / count
+        val remainder = height % count
+        repeat(count) { index ->
+            fields.add((profile.geometry.sidebarWidth - profile.gapPixels).toString())
+            fields.add((base + if (index < remainder) 1 else 0).toString())
+            fields.add((index * (base + profile.gapPixels) + minOf(index, remainder)).toString())
+        }
+        if (version == "5") fields.add(profile.geometry.displayRotation.toString())
+        return fields.joinToString(",")
+    }
+
+    @Test
+    fun fourSlotsShareOneRailWithoutOverlap() {
+        val profile = WorkspaceLayoutProfile.create(
+            1080, 2354, 480, WorkspaceNavigationInsets(bottom = 132),
+        )
+        assertEquals(4, profile.slots.size)
+        profile.slots.zipWithNext().forEach { (a, b) ->
+            assertEquals(a.top + a.height + profile.gapPixels, b.top)
+        }
+        assertEquals(profile.geometry.sidebarLogicalHeight,
+            profile.slots.last().top + profile.slots.last().height)
+        assertEquals("6", profile.encode().substringBefore(','))
+        assertEquals(33, profile.encode().split(',').size)
+    }
+
+    @Test
+    fun legacyThreeSlotV5MigratesToFourSlotLayoutAndPreservesRotation() {
+        val recorded = WorkspaceLayoutProfile(
+            WorkspaceGeometry(2354, 1080, 624, 286, SidebarSide.RIGHT,
+                WorkspaceNavigationInsets(left = 132), displayRotation = 3),
+            480, 3,
+        )
+        val decoded = checkNotNull(WorkspaceLayoutProfile.decode(legacyEncoding(recorded, "5")))
+        assertEquals(4, decoded.slots.size)
+        assertEquals(3, decoded.geometry.displayRotation)
+        assertEquals(recorded.geometry.navigationInsets, decoded.geometry.navigationInsets)
+        assertEquals("6", decoded.encode().substringBefore(','))
+        assertEquals(decoded, WorkspaceLayoutProfile.decode(decoded.encode()))
+    }
+
     @Test
     fun everySlotFillsItsRecordedBoundsInBothNavigationModesAndRotations() {
         for ((width, height, densityDpi) in listOf(
@@ -102,15 +150,13 @@ class WorkspaceLayoutProfileTest {
     @Test
     fun oldFullCanvasProfileMigratesUsingItsRecordedNavigationInsets() {
         val buttons = WorkspaceLayoutProfile.create(1080, 2354, 480, WorkspaceNavigationInsets(bottom = 132))
-        val old = buttons.encode().split(',').toMutableList()
-        old.removeAt(29)
-        old[0] = "2"
+        val old = legacyEncoding(buttons, "2").split(',').toMutableList()
         old[15] = "2354"
         old[19] = "2354"
         val migrated = checkNotNull(WorkspaceLayoutProfile.decode(old.joinToString(",")))
         assertEquals(buttons, migrated)
         assertEquals(2222, migrated.canvas.height)
-        assertEquals("5", migrated.encode().substringBefore(','))
+        assertEquals("6", migrated.encode().substringBefore(','))
     }
 
     @Test
@@ -120,9 +166,7 @@ class WorkspaceLayoutProfileTest {
                 if (insets.bottom == 0) 286 else 303, SidebarSide.RIGHT, insets)
             val recorded = WorkspaceLayoutProfile(oldGeometry, 480, 3)
             for (version in listOf("2", "3")) {
-                val old = recorded.encode().split(',').toMutableList()
-                old.removeAt(29)
-                old[0] = version
+                val old = legacyEncoding(recorded, version).split(',').toMutableList()
                 if (version == "2") {
                     old[15] = "2354"
                     old[19] = "2354"
@@ -142,9 +186,7 @@ class WorkspaceLayoutProfileTest {
     @Test
     fun oldLayoutProfileKeepsRecordedDimensionsWhenRotationIsAdded() {
         val profile = WorkspaceLayoutProfile.create(2354, 1080, 480, WorkspaceNavigationInsets(left = 132))
-        val old = profile.encode().split(',').toMutableList()
-        old[0] = "4"
-        old.removeAt(29)
+        val old = legacyEncoding(profile, "4").split(',').toMutableList()
         val restored = checkNotNull(WorkspaceLayoutProfile.decode(old.joinToString(",")))
         val reversed = restored.copy(geometry = restored.geometry.copy(displayRotation = 1))
         assertEquals(profile, restored)
