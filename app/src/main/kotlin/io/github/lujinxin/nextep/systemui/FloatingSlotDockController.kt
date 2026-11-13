@@ -7,6 +7,7 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -71,6 +72,20 @@ internal class FloatingSlotDockController(
     // destroying running apps or replacing a folded four-slot dock.
     private var padModeRequested = false
     private var padModeForSession = false
+    // Bounded CPU wake lock, not a guarantee of virtual display power.
+    private val independentCpuWakeLock by lazy {
+        runCatching {
+            context.getSystemService(PowerManager::class.java)
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NeXtep:independent-display")
+        }.getOrNull()
+    }
+    private fun releaseIndependentWakeLock() {
+        runCatching {
+            independentCpuWakeLock?.takeIf { it.isHeld }?.release()
+        }.onFailure {
+            NeXtepLog.warn("floating_dock", "Independent CPU wake lock release failed", it)
+        }
+    }
     private var coordinator: SlotTaskCoordinator? = null
     private val playbackCompat = FloatingPlaybackCompatController(context)
     private val playbackSlotRefresh = Runnable {
@@ -313,6 +328,16 @@ internal class FloatingSlotDockController(
         // Capture the last PLAYING MediaSessions before the system discards
         // their state, without making the hidden surface visible.
         playbackCompat.onScreenLocked(currentPlayerPackages())
+        if (padModeForSession) {
+            runCatching {
+                independentCpuWakeLock?.acquire(120_000L)
+                NeXtepLog.info("floating_dock",
+                    "Independent CPU continuation requested for up to 120 seconds; " +
+                        "virtual display ON and playback are not guaranteed")
+            }.onFailure {
+                NeXtepLog.warn("floating_dock", "Independent CPU wake lock unavailable", it)
+            }
+        }
         runCatching {
             coordinator?.setSuspended(true)
             suspendedForLock = true
@@ -346,6 +371,7 @@ internal class FloatingSlotDockController(
         return runCatching {
             coordinator?.setSuspended(false)
             suspendedForLock = false
+            releaseIndependentWakeLock()
             playbackCompat.onScreenUnlocked()
             coordinator?.onTasksChanged()
             NeXtepLog.info("floating_dock", "Unlock restored retained hidden session; " +
@@ -404,6 +430,7 @@ internal class FloatingSlotDockController(
         if (!hasSession()) return true
         lastError = null
         return runCatching {
+            releaseIndependentWakeLock()
             coordinator?.deactivate()
             playbackCompat.shutdown()
             handler.removeCallbacks(playbackSlotRefresh)
