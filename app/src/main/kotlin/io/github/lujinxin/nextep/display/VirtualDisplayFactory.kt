@@ -37,6 +37,13 @@ class VirtualDisplayFactory(
                                 "flags=${flags.names.joinToString()} " +
                                 "state=${display.display.state}",
                         )
+                        if (padMode && "ALWAYS_UNLOCKED" !in flags.names) {
+                            NeXtepLog.warn(
+                                "virtual_display",
+                                "Slot=$index using Pad fallback without ALWAYS_UNLOCKED; " +
+                                    "screen lock may still pause tasks on this device",
+                            )
+                        }
                         if ("OWN_FOCUS" !in flags.names) {
                             NeXtepLog.warn(
                                 "virtual_display",
