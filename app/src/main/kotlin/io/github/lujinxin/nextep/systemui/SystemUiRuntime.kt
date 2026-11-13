@@ -85,6 +85,11 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
+                // Disabling the optional bubble must close only the floating dock,
+                // never the original side workspace.
+                if (!workspaceConfig.floatingBubbleEnabled &&
+                    ::floatingDock.isInitialized && floatingDock.isExpanded()
+                ) floatingDock.collapse()
             }
             NeXtepLog.info(
                 "workspace_config",
@@ -413,10 +418,14 @@ object SystemUiRuntime {
 
     private val lifecycleReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == Intent.ACTION_USER_PRESENT) refreshWorkspaceConfig()
+            if (intent.action == Intent.ACTION_USER_PRESENT) {
+                refreshWorkspaceConfig()
+                // Retry any task-safe cleanup deferred while the screen was locked.
+                if (::floatingDock.isInitialized) floatingDock.collapse()
+            }
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 TaskSurfaceCompat.finishWorkspaceExitAnimations()
-                if (::floatingDock.isInitialized) floatingDock.collapse()
+                if (::floatingDock.isInitialized) floatingDock.hideForLock()
             }
             if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
                 floatingDock.reconfigure()
@@ -486,7 +495,7 @@ object SystemUiRuntime {
                 if (intent.action == TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL) {
                     setResultExtras(Bundle().apply {
                         putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
-                            floatingDock.lastError ?: "Floating dock cannot open while the main workspace is active")
+                            floatingDock.lastError ?: "Floating dock is disabled, locked, or the original workspace is active")
                     })
                 }
                 return
@@ -509,6 +518,7 @@ object SystemUiRuntime {
     private fun handleControl(context: Context, intent: Intent): Boolean = when (intent.action) {
         TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
             if (!::floatingDock.isInitialized || !::workspaceController.isInitialized ||
+                !workspaceConfigReady || !workspaceConfig.floatingBubbleEnabled ||
                 !isScreenReady() || isKeyguardLocked(context)
             ) false
             else if (floatingDock.isExpanded()) floatingDock.collapse()
@@ -532,7 +542,10 @@ object SystemUiRuntime {
         TriggerBroadcastContract.ACTION_QUERY_WORKSPACE -> true
         TriggerBroadcastContract.ACTION_FOUR_FINGER_WORKSPACE -> fourFingerGestures.handleRequest(intent)
         TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST -> {
-            val active = workspaceController.isActive() || workspaceController.setActive(true)
+            val canSwitch = !::floatingDock.isInitialized || !floatingDock.isExpanded() ||
+                floatingDock.collapse()
+            val active = canSwitch &&
+                (workspaceController.isActive() || workspaceController.setActive(true))
             active && workspaceController.launchInSlot(
                 Intent(Settings.ACTION_SETTINGS).setPackage("com.android.settings"),
             )

@@ -1,29 +1,33 @@
-# Floating workspace button — permission and lifecycle fix
+# Floating windows are an additional mode
 
-## Why the previous icon did not appear
+There are **two independent user entry points**:
 
-Previous implementation attempted to create a privileged `TYPE_PHONE` window
-from injected SystemUI; it never declared or requested `SYSTEM_ALERT_WINDOW`.
-OEM window policy or missing SystemUI initialization could reject the button.
+1. **Original workspace** — Status-bar gesture, four-finger gesture and Quick
+   Settings tile retain the existing one-main/four-small panel and their
+   original task presentation, window controls and side workspace semantics.
+2. **New floating panel** — Optional app-owned draggable bubble (overlay
+   permission + foreground service); a tap opens a SystemUI-hosted, independent
+   2x2 array of four real VirtualDisplay previews over the existing fullscreen
+   foreground app.
 
-## New app-owned overlay
+The floating mode does **not** replace the original workspace, its geometry,
+its triggers or its task coordinator instance. It has an independent task
+coordinator and a `MainTaskPresentationCoordinator(preserveFullscreen=true)`.
+The regular workspace uses `preserveFullscreen=false` as before.
 
-1. Enable **Floating workspace icon** in settings.
-2. When needed, **Display over other apps** authorization opens using
-   `Settings.ACTION_MANAGE_OVERLAY_PERMISSION` for the NeXtep package.
-3. Returning to the settings app resumes an app-owned foreground service
-   (Android 14+ `specialUse` type) with a persistent notification.
-4. The service creates a `TYPE_APPLICATION_OVERLAY` window. Drag the bubble
-   to either side; its position is remembered across service restarts.
-5. Tap the bubble to invoke the existing `TriggerCoordinator.requestToggle`.
-   All four real VirtualDisplay small windows and task exchanges remain in
-   SystemUI / LSPosed. An unavailable hook shows a user-visible failure.
-6. Disable the setting or use the notification's stop action to remove
-   the icon. Screen-off removes it; unlock restores it.
+To avoid two competing owners of the same application task, simultaneous
+expansion is blocked. Opening the original workspace after the floating mode
+first parks all floating tasks and closes the dock; on failure it refuses to
+enter the other mode rather than detaching live displays. Disabling the optional
+bubble closes only the floating dock. Screen off hides the floating dock before
+attempting task-safe cleanup, with another cleanup attempt after unlock.
 
-The old SystemUI-owned bubble class is no longer instantiated.
-Do not enable NeXtep and Panes in parallel.
+The floating dock has + Add for launchable apps, click on an occupied preview
+to exchange it with the fullscreen main app, and X to close. The app's
+`TYPE_APPLICATION_OVERLAY` bubble and SystemUI's floating panel are separate
+windows. The bubble permission is requested by the module's settings screen.
 
-**Limitation:** The bubble opens the existing resized main-window layout. It
-does not yet provide four independently floating live app previews over
-an unchanged full-screen foreground app.
+**Verification:** Debug compile and tests plus OxygenOS 16 device testing
+are required. No real-device UI or runtime stability is claimed solely from
+the CI result. If the SystemUI window type is rejected, the bubble displays
+the returned error; the original workspace still works independently.

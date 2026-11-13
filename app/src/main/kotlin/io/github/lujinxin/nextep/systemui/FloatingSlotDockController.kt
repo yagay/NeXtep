@@ -175,6 +175,15 @@ internal class FloatingSlotDockController(private val context: Context) {
         }
     }
 
+    /** Keep the overlay off the lockscreen even when task parking must retry. */
+    fun hideForLock() {
+        host?.visibility = View.GONE
+        runCatching { coordinator?.setSuspended(true) }.onFailure {
+            NeXtepLog.warn("floating_dock", "Output suspension failed during lock", it)
+        }
+        collapse()
+    }
+
     /** Park every slot task before detaching its TextureView; never strand a task on a dead display. */
     fun collapse(): Boolean {
         if (!isExpanded()) return true

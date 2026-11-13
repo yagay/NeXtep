@@ -173,7 +173,7 @@
     <string name="return_after_sharing_title">分享後返回原應用程式</string>
     <string name="return_after_sharing_summary">分享流程結束後，自動將拖出內容的原應用程式換回主視窗；關閉後保留分享目標應用程式。</string>
     <string name="floating_bubble_title">懸浮工作台圖示（實驗性）</string>
-    <string name="floating_bubble_summary">顯示可拖曳的側邊圖示；點擊展開四個即時小窗，關閉工作台後恢復圖示。</string>
+    <string name="floating_bubble_summary">新增獨立模式：點擊懸浮圖示展開四個即時小視窗，原應用程式保持全螢幕。原本工作台仍可透過手勢和快速設定使用。</string>
     <string name="floating_bubble_open">展開多視窗工作台</string>
         <string name="floating_permission_title">懸浮窗權限</string>
     <string name="floating_permission_summary">允許 NeXtep 顯示在其他應用程式上層，懸浮圖示才能正常顯示。</string>
