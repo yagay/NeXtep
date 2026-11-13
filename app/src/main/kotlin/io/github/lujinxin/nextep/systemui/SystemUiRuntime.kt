@@ -450,8 +450,14 @@ object SystemUiRuntime {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) {
                 refreshWorkspaceConfig()
-                // Keep existing floating tasks and recover task coordination
-                // even while the panel remains folded after unlock.
+            }
+            if (intent.action == Intent.ACTION_SCREEN_ON ||
+                intent.action == Intent.ACTION_USER_PRESENT
+            ) {
+                // Some Android configurations have no secure keyguard, hence
+                // USER_PRESENT may never arrive after a normal screen wake.
+                // Both events trigger bounded retries, but actual resume is
+                // gated on screenReady and a fully dismissed keyguard.
                 lifecycleHandler.removeCallbacks(hiddenFloatingResume)
                 hiddenFloatingResumeAttempts = 0
                 lifecycleHandler.postDelayed(hiddenFloatingResume, 250L)
