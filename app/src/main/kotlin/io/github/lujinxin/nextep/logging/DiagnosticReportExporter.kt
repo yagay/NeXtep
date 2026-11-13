@@ -28,7 +28,7 @@ import java.util.zip.ZipOutputStream
 /**
  * User-initiated SAF ZIP export. Never requests blanket logcat permissions.
  * App and SystemUI snapshots are bounded and scoped to NeXtep; an optional
- * root-only logcat capture is also restricted to the NeXtep tag.
+ * root-only logcat capture is limited to NeXtep diagnostic tags.
  */
 object DiagnosticReportExporter {
     fun suggestedName(): String =
@@ -104,6 +104,7 @@ object DiagnosticReportExporter {
                     appendLine("Four-finger gesture: ${settings.fourFingerGestureEnabled}")
                     appendLine("Floating bubble: ${settings.floatingBubbleEnabled}")
                     appendLine("Floating Pad mode requested: ${settings.floatingPadModeEnabled}")
+                    appendLine("Independent display experimental mode: ${settings.floatingIndependentDisplayEnabled}")
                     appendLine("Floating player compatibility: ${settings.playbackCompatEnabled}")
                     appendLine("One-shot MediaSession recovery: ${settings.playbackCompatAutoResume}")
                     appendLine("One-shot screen-lock audio continuation: ${settings.playbackCompatLockAudio}")
@@ -163,18 +164,18 @@ object DiagnosticReportExporter {
         // Root is optional, but report precisely why this capture did not
         // work. Long first-run KernelSU prompts must not be mistaken for
         // successful collection of an empty buffer.
-        val process = ProcessBuilder("su", "-c", "logcat -d -t 1500 -s NeXtep:*")
+        val process = ProcessBuilder("su", "-c", "logcat -d -t 4000 -s NeXtep:* NeXtepDisplayPower:*")
             .redirectErrorStream(true).start()
         val content = StringBuilder()
         val reader = Thread({
             runCatching {
                 process.inputStream.bufferedReader().use { input ->
                     val buffer = CharArray(2048)
-                    while (content.length < 130_000) {
+                    while (content.length < 220_000) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         synchronized(content) {
-                            content.append(buffer, 0, minOf(count, 130_000 - content.length))
+                            content.append(buffer, 0, minOf(count, 220_000 - content.length))
                         }
                     }
                 }
@@ -189,8 +190,8 @@ object DiagnosticReportExporter {
             !completed -> "Root logcat timed out after 10 seconds; check KernelSU authorization"
             process.exitValue() != 0 ->
                 "Root logcat command failed (exit=${process.exitValue()}): ${output.take(500)}"
-            output.isBlank() -> "Root logcat completed but returned no NeXtep-tagged lines"
-            else -> "Root logcat captured (NeXtep tag only)"
+            output.isBlank() -> "Root logcat completed but returned no NeXtep diagnostic lines"
+            else -> "Root logcat captured (NeXtep and NeXtepDisplayPower tags)"
         }
         RootCapture(if (completed && process.exitValue() == 0 && output.isNotBlank()) output else null,
             status)
