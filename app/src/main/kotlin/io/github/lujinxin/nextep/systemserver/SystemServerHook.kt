@@ -21,6 +21,9 @@ object SystemServerHook {
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         if (!installed.compareAndSet(false, true)) return
+        val displayPowerTracingInstalled = HookGuard.run("nextep_display_power_diagnostics") {
+            NeXtepDisplayPowerDiagnostics.install(module, classLoader)
+        }
         HookGuard.run("workspace_ime_target") { WorkspaceImeTargetHook.install(module, classLoader) }
         HookGuard.run("workspace_navigation") { WorkspaceNavigationBarHook.install(module, classLoader) }
         HookGuard.run("slot_native_layout") { WorkspaceSlotNativeLayoutHook.install(module, classLoader) }
@@ -94,7 +97,8 @@ object SystemServerHook {
                     "slot config=$slotConfigInstalled slot video exit=$slotVideoExitInstalled " +
                     "landscape rotation=$landscapeRotationInstalled native floating layers=$nativeLayersInstalled " +
                     "workspace task fitting=$workspaceTasksInstalled display hierarchy=$workspaceHierarchyInstalled " +
-                    "control video input=$controlVideoInputInstalled panel rotation=$panelRotationInstalled",
+                    "control video input=$controlVideoInputInstalled panel rotation=$panelRotationInstalled " +
+                    "display power tracing=$displayPowerTracingInstalled",
             )
         }
     }
