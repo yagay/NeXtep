@@ -67,4 +67,38 @@ class FloatingDockRailLayoutTest {
         assertEquals(140, FloatingDockRailLayout.normalizedScale(155))
         assertEquals(90, FloatingDockRailLayout.normalizedScale(99))
     }
+    @Test fun verticalDoesNotKeepGiantEmptyBackingPanel() {
+        // A 100px-wide scaled slot should have a compact ~2-button-width
+        // column, never a compulsory 240dp opaque block.
+        val plan = FloatingDockRailLayout.calculate(
+            1080, 2400, 3f, List(4) { 100 to 220 },
+            FloatingDockRailLayout.Orientation.VERTICAL, 100,
+        )
+        assertTrue(plan.panelWidth < 250)
+        assertTrue(plan.panelWidth >= plan.cells[0].width)
+        assertTrue(plan.panelHeight < 1300)
+        assertEquals(4, plan.cells.size)
+    }
+
+    @Test fun horizontalMeasuresTheLiveRowWithoutArtificialEmptyHeight() {
+        val plan = FloatingDockRailLayout.calculate(
+            1500, 2400, 3f, List(4) { 120 to 210 },
+            FloatingDockRailLayout.Orientation.HORIZONTAL, 100,
+        )
+        assertTrue(plan.panelHeight < 290)
+        assertTrue(plan.panelWidth >= plan.railContentWidth)
+        assertEquals(4, plan.cells.size)
+    }
+
+    @Test fun compactColumnKeepsAllFourSlotsAtOriginalAspectRatio() {
+        val plan = FloatingDockRailLayout.calculate(
+            1080, 2400, 3f, List(4) { 100 to 200 },
+            FloatingDockRailLayout.Orientation.VERTICAL, 60,
+        )
+        plan.cells.forEach { cell ->
+            assertEquals(60, cell.width)
+            assertEquals(120, cell.height)
+        }
+    }
+
 }
