@@ -147,7 +147,19 @@ data class WorkspaceGeometry(
             val count = WORKSPACE_SLOT_COUNT
             val contentLongSide = (count * (shortSide - gap).toDouble() * longSide / shortSide +
                 (count - 1) * gap) / (count + 1)
-            val controlThickness = (longSide - contentLongSide).roundToInt().coerceIn(1, longSide - 1)
+            // Four slots can make the mathematical control area too small for its
+            // fixed status/actions/app row. Keep the controls usable; previews
+            // letterbox rather than crop when the rail aspect ratio differs.
+            val minimumControls = ((
+                WorkspaceControlMetrics.STATUS_HEIGHT_DP +
+                WorkspaceControlMetrics.ACTION_HEIGHT_DP +
+                WorkspaceControlMetrics.APP_ICON_SIZE_DP +
+                WorkspaceControlMetrics.APP_BOTTOM_PADDING_DP +
+                WorkspaceControlMetrics.CONTENT_BOTTOM_PADDING_DP +
+                WorkspaceControlMetrics.MIN_MEDIA_HEIGHT_DP
+            ) * density).roundToInt()
+            val controlThickness = maxOf((longSide - contentLongSide).roundToInt(), minimumControls)
+                .coerceIn(1, longSide - 1)
             val mainShortSide = (shortSide.toDouble() * (longSide - controlThickness) / longSide)
                 .roundToInt().coerceIn(1, shortSide - 1)
             return WorkspaceGeometry(
