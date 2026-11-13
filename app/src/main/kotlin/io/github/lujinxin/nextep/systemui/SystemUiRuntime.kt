@@ -108,6 +108,7 @@ object SystemUiRuntime {
                         workspaceConfig.floatingDockOrientation,
                         workspaceConfig.floatingDockSizePercent,
                     )
+                    floatingDock.applyPadModeSetting(workspaceConfig.floatingPadModeEnabled)
                 }
                 // A hidden floating session still owns live VirtualDisplays.
                 // Disabling the feature fully shuts down only that session.
