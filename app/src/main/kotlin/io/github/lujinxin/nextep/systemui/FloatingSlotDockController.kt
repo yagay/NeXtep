@@ -292,6 +292,27 @@ internal class FloatingSlotDockController(
         else -> collapse()
     }
 
+    /**
+     * A lock suspends input and task reconciliation for privacy. Once the
+     * keyguard is gone, resume the SAME coordinator even while the overlay is
+     * still folded. This matches the original workspace's unlock behavior
+     * without making the hidden host touchable or visible.
+     */
+    fun resumeHiddenSessionAfterUnlock(): Boolean {
+        if (!hasSession() || !suspendedForLock) return true
+        return runCatching {
+            coordinator?.setSuspended(false)
+            suspendedForLock = false
+            coordinator?.onTasksChanged()
+            NeXtepLog.info("floating_dock", "Unlock restored retained hidden session; " +
+                slots.joinToString { it.diagnosticOutputState() })
+            true
+        }.getOrElse { error ->
+            NeXtepLog.warn("floating_dock", "Hidden session resume pending after unlock", error)
+            false
+        }
+    }
+
     /** Re-expand the SAME session; do not create another VD or restart apps. */
     private fun showRetainedSession(): Boolean {
         val root = host ?: return false
