@@ -69,7 +69,12 @@ class FloatingBubbleService : Service() {
                 }
                 Intent.ACTION_USER_PRESENT -> {
                     reconcileBubble(FloatingBubbleWakePolicy.Event.USER_PRESENT, "user_present")
+                    // Some OEMs dispatch USER_PRESENT before PowerManager
+                    // reports interactive. Do not discard the pending wake
+                    // retries or the icon may stay invisible until next wake.
                     handler.removeCallbacks(wakeRetry)
+                    handler.postDelayed(wakeRetry, 350L)
+                    handler.postDelayed(wakeRetry, 1_200L)
                 }
             }
         }
