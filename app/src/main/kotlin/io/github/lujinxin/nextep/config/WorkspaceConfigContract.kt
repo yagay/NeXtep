@@ -27,6 +27,8 @@ data class WorkspaceTopConfig(
     val textBold: Boolean = false,
     val statusBarGestureEnabled: Boolean = true,
     val floatingBubbleEnabled: Boolean = false,
+    val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
+    val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
     val slotBackgroundSwipeEnabled: Boolean = true,
     val autoMinimizeMainOnTopAppSwitch: Boolean = false,
     val navigationButtonsEnabled: Boolean = false,
@@ -54,6 +56,22 @@ object WorkspaceConfigContract {
     const val EXTRA_TEXT_BOLD = "io.github.lujinxin.nextep.extra.TOP_TEXT_BOLD"
     const val EXTRA_STATUS_BAR_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.STATUS_BAR_GESTURE_ENABLED"
     const val EXTRA_FLOATING_BUBBLE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_ENABLED"
+    const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
+    const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
+    const val DEFAULT_FLOATING_DOCK_ORIENTATION = "horizontal"
+    const val DEFAULT_FLOATING_DOCK_SIZE_PERCENT = 100
+    const val MIN_FLOATING_DOCK_SIZE_PERCENT = 60
+    const val MAX_FLOATING_DOCK_SIZE_PERCENT = 140
+    const val FLOATING_DOCK_SIZE_STEP_PERCENT = 10
+
+    fun normalizeFloatingDockOrientation(value: String?): String =
+        if (value == "vertical") "vertical" else DEFAULT_FLOATING_DOCK_ORIENTATION
+
+    fun normalizeFloatingDockSizePercent(value: Int): Int {
+        val safe = value.coerceIn(MIN_FLOATING_DOCK_SIZE_PERCENT, MAX_FLOATING_DOCK_SIZE_PERCENT)
+        return ((safe + FLOATING_DOCK_SIZE_STEP_PERCENT / 2) / FLOATING_DOCK_SIZE_STEP_PERCENT) *
+            FLOATING_DOCK_SIZE_STEP_PERCENT
+    }
     const val EXTRA_FOUR_FINGER_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.FOUR_FINGER_GESTURE_ENABLED"
     const val EXTRA_FOUR_FINGER_GESTURE_BLOCK_GAMES = "io.github.lujinxin.nextep.extra.FOUR_FINGER_GESTURE_BLOCK_GAMES"
     const val EXTRA_FOUR_FINGER_GESTURE_BLACKLIST = "io.github.lujinxin.nextep.extra.FOUR_FINGER_GESTURE_BLACKLIST"
@@ -108,6 +126,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putBoolean(WorkspaceConfigContract.EXTRA_TEXT_BOLD, settings.textBold)
                 putBoolean(WorkspaceConfigContract.EXTRA_STATUS_BAR_GESTURE_ENABLED, settings.statusBarGestureEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, settings.floatingBubbleEnabled)
+                putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
+                putInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT, settings.floatingDockSizePercent)
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, settings.fourFingerGestureEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_BLOCK_GAMES, settings.fourFingerGestureBlockGames)
                 putStringArrayList(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_BLACKLIST,
@@ -249,6 +269,13 @@ object WorkspaceConfigClient {
             ) ?: true,
             floatingBubbleEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, false,
+            ),
+            floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
+                extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION),
+            ),
+            floatingDockSizePercent = WorkspaceConfigContract.normalizeFloatingDockSizePercent(
+                extras.getInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT,
+                    WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT),
             ),
             fourFingerGestureEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, true,
