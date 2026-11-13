@@ -27,7 +27,15 @@ internal object NeXtepDisplayPowerDiagnostics {
                 method.parameterTypes[0] == Int::class.javaPrimitiveType &&
                 method.parameterTypes[2] == Boolean::class.javaPrimitiveType
         }
-        check(candidates.isNotEmpty()) { "DisplayManagerService#requestPowerState not found" }
+        if (candidates.isEmpty()) {
+            val available = service.declaredMethods.filter {
+                it.name.contains("Power", ignoreCase = true) ||
+                    it.name.contains("DisplayState", ignoreCase = true)
+            }.take(16).joinToString { it.name + "/" + it.parameterCount }
+            Log.w(TAG, "No compatible requestPowerState hook on this OS; candidates=$available")
+            Log.w("NeXtep", "Display power tracing unsupported; no system state changed")
+            return
+        }
         candidates.forEach { method ->
             method.isAccessible = true
             module.hook(method).intercept(object : XposedInterface.Hooker {
@@ -81,6 +89,7 @@ internal object NeXtepDisplayPowerDiagnostics {
             })
         }
         Log.i(TAG, "Installed passive group power tracing for NeXtep slots")
+        Log.i("NeXtep", "Display power tracing installed methods=${candidates.size}")
     }
 
     private fun getField(target: Any, name: String): Any? =
