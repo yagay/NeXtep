@@ -59,7 +59,9 @@ object DiagnosticReportExporter {
                         val systemUiLogs = if (resultCode == TriggerBroadcastContract.RESULT_HANDLED)
                             extras?.getString(TriggerBroadcastContract.EXTRA_DIAGNOSTICS_LOG) else null
                         val reason = if (systemUiLogs == null) {
-                            "No authorized SystemUI response; check LSPosed scope and reboot"
+                            "SystemUI diagnostic broadcast not handled (result=$resultCode); " +
+                                "the injected SystemUI may be running an older module. " +
+                                "Check LSPosed scope and restart SystemUI or the phone."
                         } else null
                         writeAsync(app, uri, appSnapshot, systemUiLogs, reason)
                     }
@@ -109,9 +111,8 @@ object DiagnosticReportExporter {
                     appendLine("Swap animation ms: ${settings.swapAnimationDurationMs}")
                     appendLine("No contacts, accounts, identifiers or selected-app lists are exported.")
                 }
-                val rootLogcat = captureRootLogcat()
-                val rootNote = if (rootLogcat != null) "Root logcat captured (NeXtep tag only)" else
-                    "Root logcat unavailable, missing su access, or timed out"
+                val rootCapture = captureRootLogcat()
+                val rootNote = rootCapture.status
                 context.contentResolver.openOutputStream(uri, "w")?.use { output ->
                     ZipOutputStream(output).use { zip ->
                         zip.putText("README.txt", buildString {
@@ -126,7 +127,7 @@ object DiagnosticReportExporter {
                         zip.putText("settings-safe.txt", safeSettings)
                         zip.putText("logs/app-NeXtep.txt", appLogs.ifEmpty { "No app logs recorded in this process yet." })
                         zip.putText("logs/systemui-NeXtep.txt", systemLogs ?: "UNAVAILABLE: ${error ?: "No response"}")
-                        zip.putText("logs/root-NeXtep-logcat.txt", rootLogcat ?: rootNote)
+                        zip.putText("logs/root-NeXtep-logcat.txt", rootCapture.text ?: rootNote)
                     }
                 } ?: error("Could not open the selected destination")
             }
@@ -149,9 +150,12 @@ object DiagnosticReportExporter {
         closeEntry()
     }
 
-    private fun captureRootLogcat(): String? = runCatching {
-        // Explicitly capture only our module tag, never the user's entire
-        // device log. Optional root is used only on a user-requested export.
+    private data class RootCapture(val text: String?, val status: String)
+
+    private fun captureRootLogcat(): RootCapture = runCatching {
+        // Root is optional, but report precisely why this capture did not
+        // work. Long first-run KernelSU prompts must not be mistaken for
+        // successful collection of an empty buffer.
         val process = ProcessBuilder("su", "-c", "logcat -d -t 1500 -s NeXtep:*")
             .redirectErrorStream(true).start()
         val content = StringBuilder()
@@ -162,15 +166,28 @@ object DiagnosticReportExporter {
                     while (content.length < 130_000) {
                         val count = input.read(buffer)
                         if (count < 0) break
-                        content.append(buffer, 0, minOf(count, 130_000 - content.length))
+                        synchronized(content) {
+                            content.append(buffer, 0, minOf(count, 130_000 - content.length))
+                        }
                     }
                 }
             }
         }, "NeXtep-LogcatReader").apply { isDaemon = true }
         reader.start()
-        val completed = process.waitFor(3, TimeUnit.SECONDS)
+        val completed = process.waitFor(10, TimeUnit.SECONDS)
         if (!completed) process.destroyForcibly()
-        reader.join(700)
-        if (!completed || process.exitValue() != 0 || content.isEmpty()) null else content.toString()
-    }.getOrNull()
+        reader.join(750)
+        val output = synchronized(content) { content.toString() }
+        val status = when {
+            !completed -> "Root logcat timed out after 10 seconds; check KernelSU authorization"
+            process.exitValue() != 0 ->
+                "Root logcat command failed (exit=${process.exitValue()}): ${output.take(500)}"
+            output.isBlank() -> "Root logcat completed but returned no NeXtep-tagged lines"
+            else -> "Root logcat captured (NeXtep tag only)"
+        }
+        RootCapture(if (completed && process.exitValue() == 0 && output.isNotBlank()) output else null,
+            status)
+    }.getOrElse { error ->
+        RootCapture(null, "Root logcat could not execute: ${error.javaClass.simpleName}: ${error.message}")
+    }
 }
