@@ -183,4 +183,13 @@
     <string name="block_system_drag_share_summary">Prevents the system’s bottom share panel from taking over content drags in the workspace. Normal behavior returns when you exit.</string>
     <string name="return_after_sharing_title">Return to source app after sharing</string>
     <string name="return_after_sharing_summary">Automatically switch back to the app you dragged from when the share flow ends. Turn off to keep the receiving app in the main window.</string>
+    <string name="floating_permission_title">Overlay permission</string>
+    <string name="floating_permission_summary">Allow NeXtep to display over other apps to show the floating icon.</string>
+    <string name="floating_permission_action">Grant permission</string>
+    <string name="floating_permission_guide">Enable Display over other apps for NeXtep, then return to the app.</string>
+    <string name="floating_service_title">NeXtep floating workspace</string>
+    <string name="floating_service_text">Floating control running · tap to configure</string>
+    <string name="floating_service_stop">Turn off floating icon</string>
+    <string name="floating_start_failed">Unable to start floating icon. Check overlay and background permissions.</string>
+    <string name="floating_module_not_ready">Workspace unavailable: %1$s</string>
 </resources>

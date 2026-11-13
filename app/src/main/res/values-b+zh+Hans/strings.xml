@@ -175,4 +175,13 @@
     <string name="floating_bubble_title">悬浮工作台图标（实验性）</string>
     <string name="floating_bubble_summary">显示可拖动的侧边悬浮按钮。点击展开四个实时小窗，关闭工作台后恢复悬浮图标。</string>
     <string name="floating_bubble_open">展开多窗口工作台</string>
-    </resources>
+        <string name="floating_permission_title">悬浮窗权限</string>
+    <string name="floating_permission_summary">允许 NeXtep 显示在其他应用上层，悬浮图标才能正常显示。</string>
+    <string name="floating_permission_action">授权悬浮窗</string>
+    <string name="floating_permission_guide">请为 NeXtep 开启“显示在其他应用上层”，然后返回应用。</string>
+    <string name="floating_service_title">NeXtep 悬浮工作台</string>
+    <string name="floating_service_text">悬浮图标正在运行，点击进入设置</string>
+    <string name="floating_service_stop">关闭悬浮图标</string>
+    <string name="floating_start_failed">悬浮图标启动失败，请检查悬浮窗权限和后台运行限制。</string>
+    <string name="floating_module_not_ready">无法展开工作台：%1$s</string>
+</resources>

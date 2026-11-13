@@ -29,6 +29,7 @@ import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import io.github.lujinxin.nextep.R
+import io.github.lujinxin.nextep.floating.FloatingBubbleController
 import io.github.lujinxin.nextep.apps.LauncherAppCatalogContract
 import io.github.lujinxin.nextep.apps.LauncherAppRepository
 import io.github.lujinxin.nextep.trigger.NeXtepTileService
@@ -147,7 +148,22 @@ object SettingsScreen {
                         activity.getString(R.string.floating_bubble_title),
                         activity.getString(R.string.floating_bubble_summary),
                         settings.floatingBubbleEnabled,
-                        repository::setFloatingBubbleEnabled,
+                        { enabled ->
+                            repository.setFloatingBubbleEnabled(enabled)
+                            if (enabled && !FloatingBubbleController.hasPermission(activity)) {
+                                FloatingBubbleController.requestPermission(activity)
+                            } else FloatingBubbleController.sync(activity)
+                        },
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.floating_permission_title),
+                        activity.getString(R.string.floating_permission_summary),
+                        MaterialButton(activity).apply {
+                            text = activity.getString(R.string.floating_permission_action)
+                            setOnClickListener { FloatingBubbleController.requestPermission(activity) }
+                        },
                     ), matchWidth())
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
