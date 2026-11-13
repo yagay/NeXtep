@@ -275,6 +275,17 @@ internal class FloatingSlotDockController(
         }.onFailure { NeXtepLog.warn("floating_dock", "Output suspension failed during lock", it) }
     }
 
+    /** Centralized exit semantics, so future callers cannot inadvertently
+     * destroy parked apps simply because a dock was folded away. */
+    fun closeFor(reason: FloatingDockSessionPolicy.CloseReason): Boolean = when {
+        FloatingDockSessionPolicy.shouldReleaseDisplays(reason) -> destroySession()
+        reason == FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK -> {
+            hideForLock()
+            !isExpanded()
+        }
+        else -> collapse()
+    }
+
     /** Re-expand the SAME session; do not create another VD or restart apps. */
     private fun showRetainedSession(): Boolean {
         val root = host ?: return false
@@ -445,7 +456,9 @@ internal class FloatingSlotDockController(
             stepRail(forward = true)
         }
         val add = tiny("＋", str(R.string.floating_dock_add)) { showPicker() }
-        val close = tiny("×", "Close floating windows") { collapse() }
+        val close = tiny("×", "Hide floating windows") {
+            closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
+        }
         if (isVertical()) {
             fun row(left: TextView, right: TextView): LinearLayout =
                 LinearLayout(context).apply {
