@@ -23,8 +23,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
+      # GitHub's Ubuntu image already includes sdkmanager. The setup-android
+      # action currently tries to install the removed legacy 'tools' package.
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
       - name: Install Android platform
