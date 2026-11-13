@@ -29,7 +29,6 @@ import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.task.MainTaskPresentationCoordinator
 import io.github.lujinxin.nextep.workspace.SidebarSide
 import io.github.lujinxin.nextep.workspace.WorkspaceLayoutProfile
-import io.github.lujinxin.nextep.workspace.WorkspaceNavigationInsets
 import kotlin.math.roundToInt
 
 /**
@@ -41,7 +40,10 @@ import kotlin.math.roundToInt
  * including migrations and rollback. The special presenter is intentionally a
  * no-op for the physical main surface only.
  */
-internal class FloatingSlotDockController(private val context: Context) {
+internal class FloatingSlotDockController(
+    private val context: Context,
+    private val recordedLayoutProfile: (Boolean) -> WorkspaceLayoutProfile,
+) {
     private data class Panel(
         val width: Int, val height: Int, val header: Int, val gap: Int, val pad: Int,
         val railWidth: Int, val railHeight: Int, val cells: List<FloatingDockRailLayout.Cell>,
@@ -72,14 +74,10 @@ internal class FloatingSlotDockController(private val context: Context) {
             return false
         }
         return runCatching {
-            val metrics = context.resources.displayMetrics
-            val recorded = WorkspaceLayoutProfile.create(
-                metrics.widthPixels.coerceAtLeast(2),
-                metrics.heightPixels.coerceAtLeast(2),
-                metrics.densityDpi,
-                WorkspaceNavigationInsets(),
-            )
-            val layout = calculatePanel(metrics.widthPixels, metrics.heightPixels, recorded)
+            val recorded = recordedLayoutProfile(true)
+            val screenWidth = recorded.geometry.screenWidth
+            val screenHeight = recorded.geometry.screenHeight
+            val layout = calculatePanel(screenWidth, screenHeight, recorded)
             profile = recorded
             panel = layout
             val root = FrameLayout(context).apply {
@@ -91,9 +89,11 @@ internal class FloatingSlotDockController(private val context: Context) {
                 clipChildren = false
             }
             grid = frames
-            // Keep every live card at exactly the original workspace slot size.
-            // The header chevrons scroll the rail without stealing the slot's
-            // own swipe-to-background, click, long-press or drag gestures.
+            // Each card is the SAME TaskSwitcherView as the original sidebar:
+            // one tap on '+' parks the currently fullscreen app; one tap on an
+            // occupied slot exchanges it with the main app. Never intercept
+            // child touches with the horizontal viewport.
+            // Chevrons move the rail without shrinking the original card sizes.
             val scroller = object : HorizontalScrollView(context) {
                 override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = false
             }.apply {
@@ -170,8 +170,8 @@ internal class FloatingSlotDockController(private val context: Context) {
                 PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.TOP or Gravity.LEFT
-                x = (metrics.widthPixels - layout.width - dp(12)).coerceAtLeast(0)
-                y = ((metrics.heightPixels - layout.height) / 2).coerceAtLeast(0)
+                x = (screenWidth - layout.width - dp(12)).coerceAtLeast(0)
+                y = ((screenHeight - layout.height) / 2).coerceAtLeast(0)
                 title = "NeXtepFloatingSlotDock"
                 setFitInsetsTypes(0)
                 layoutInDisplayCutoutMode =
@@ -188,7 +188,7 @@ internal class FloatingSlotDockController(private val context: Context) {
                 returnAfterSharing = { false },
             )
             checkNotNull(coordinator).activate()
-            NeXtepLog.info("floating_dock", "Expanded original-size horizontal slots without resizing Display 0")
+            NeXtepLog.info("floating_dock", "Expanded original-profile horizontal slots; single-tap add and swap active")
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
@@ -234,20 +234,18 @@ internal class FloatingSlotDockController(private val context: Context) {
     fun reconfigure() {
         val root = host ?: return
         runCatching {
-            val metrics = context.resources.displayMetrics
-            val recorded = WorkspaceLayoutProfile.create(
-                metrics.widthPixels.coerceAtLeast(2), metrics.heightPixels.coerceAtLeast(2),
-                metrics.densityDpi, WorkspaceNavigationInsets(),
-            )
+            val recorded = recordedLayoutProfile(true)
             profile = recorded
-            val dimensions = calculatePanel(metrics.widthPixels, metrics.heightPixels, recorded)
+            val screenWidth = recorded.geometry.screenWidth
+            val screenHeight = recorded.geometry.screenHeight
+            val dimensions = calculatePanel(screenWidth, screenHeight, recorded)
             panel = dimensions
             slots.forEach { it.setLayoutProfile(recorded) }
             val wnd = root.layoutParams as WindowManager.LayoutParams
             wnd.width = dimensions.width
             wnd.height = dimensions.height
-            wnd.x = (metrics.widthPixels - dimensions.width - dp(12)).coerceAtLeast(0)
-            wnd.y = ((metrics.heightPixels - dimensions.height) / 2).coerceAtLeast(0)
+            wnd.x = (screenWidth - dimensions.width - dp(12)).coerceAtLeast(0)
+            wnd.y = ((screenHeight - dimensions.height) / 2).coerceAtLeast(0)
             railScroll?.layoutParams = FrameLayout.LayoutParams(dimensions.width,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
             grid?.layoutParams = FrameLayout.LayoutParams(dimensions.railWidth, dimensions.railHeight)
