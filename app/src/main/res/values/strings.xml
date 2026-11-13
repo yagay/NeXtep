@@ -245,4 +245,6 @@
     <string name="floating_layout_settings_title">Floating layout and size</string>
     <string name="floating_layout_settings_summary">Horizontal or vertical, 60–140% proportional size. Changes apply to the floating dock only.</string>
     <string name="floating_layout_apply">Apply</string>
+    <string name="floating_pad_mode_title">Pad multi-task mode (experimental)</string>
+    <string name="floating_pad_mode_summary">Prioritize independent per-display focus for floating apps and Android multi-resume. May change keyboard/main-screen focus. Takes effect on the next new floating session; existing apps are kept.</string>
 </resources>
