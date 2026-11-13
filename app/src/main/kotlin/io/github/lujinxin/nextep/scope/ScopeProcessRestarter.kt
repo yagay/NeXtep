@@ -39,7 +39,6 @@ internal object ScopeProcessRestarter {
         // cannot inject shell syntax. A second exact /proc cmdline check keeps
         // pidof results from targeting unexpected processes.
         check(processName.matches(Regex("[A-Za-z0-9._]+")))
-        val app = context.applicationContext ?: context
         Thread({
             val result = runCatching {
                 val script = """
