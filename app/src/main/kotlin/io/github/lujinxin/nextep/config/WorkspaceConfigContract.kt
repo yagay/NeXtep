@@ -27,6 +27,7 @@ data class WorkspaceTopConfig(
     val textBold: Boolean = false,
     val statusBarGestureEnabled: Boolean = true,
     val floatingBubbleEnabled: Boolean = false,
+    val floatingPadModeEnabled: Boolean = false,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
     val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
     val slotBackgroundSwipeEnabled: Boolean = true,
@@ -56,6 +57,7 @@ object WorkspaceConfigContract {
     const val EXTRA_TEXT_BOLD = "io.github.lujinxin.nextep.extra.TOP_TEXT_BOLD"
     const val EXTRA_STATUS_BAR_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.STATUS_BAR_GESTURE_ENABLED"
     const val EXTRA_FLOATING_BUBBLE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_ENABLED"
+    const val EXTRA_FLOATING_PAD_MODE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_PAD_MODE_ENABLED"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
     const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
     const val DEFAULT_FLOATING_DOCK_ORIENTATION = "horizontal"
@@ -125,6 +127,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putBoolean(WorkspaceConfigContract.EXTRA_TEXT_BOLD, settings.textBold)
                 putBoolean(WorkspaceConfigContract.EXTRA_STATUS_BAR_GESTURE_ENABLED, settings.statusBarGestureEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, settings.floatingBubbleEnabled)
+                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_PAD_MODE_ENABLED,
+                    settings.floatingPadModeEnabled)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
                 putInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT, settings.floatingDockSizePercent)
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, settings.fourFingerGestureEnabled)
@@ -268,6 +272,9 @@ object WorkspaceConfigClient {
             ) ?: true,
             floatingBubbleEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, false,
+            ),
+            floatingPadModeEnabled = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_FLOATING_PAD_MODE_ENABLED, false,
             ),
             floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
                 extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION),
