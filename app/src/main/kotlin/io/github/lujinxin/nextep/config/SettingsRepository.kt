@@ -116,11 +116,16 @@ class SettingsRepository(private val context: Context) {
     fun setFloatingDockLayout(orientation: String, sizePercent: Int) {
         val normalizedOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(orientation)
         val normalizedSize = WorkspaceConfigContract.normalizeFloatingDockSizePercent(sizePercent)
-        preferences.edit()
+        // Commit before broadcasting: SystemUI reads settings from a
+        // different process and must not observe the previous value.
+        val saved = preferences.edit()
             .putString(KEY_FLOATING_DOCK_ORIENTATION, normalizedOrientation)
             .putInt(KEY_FLOATING_DOCK_SIZE_PERCENT, normalizedSize)
-            .apply()
-        notifyTopContentChanged()
+            .commit()
+        if (saved) notifyTopContentChanged()
+        else io.github.lujinxin.nextep.logging.NeXtepLog.warn(
+            "floating_settings", "Could not persist layout preference changes",
+        )
     }
 
     fun resetFloatingDockLayout() {
