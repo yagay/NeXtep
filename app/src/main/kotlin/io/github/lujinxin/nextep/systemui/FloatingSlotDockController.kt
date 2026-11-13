@@ -212,7 +212,9 @@ internal class FloatingSlotDockController(
             )
             checkNotNull(coordinator).activate()
             NeXtepLog.info("floating_dock",
-                "Expanded beside bubble x=${layout.x} y=${layout.y}, horizontal original-size slots")
+                "Expanded compact orientation=$orientation size=$sizePercent% " +
+                    "bounds=[${layout.x},${layout.y},${layout.width},${layout.height}] " +
+                    "safe=${FloatingDockSafeArea.measure(context, manager)}")
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
