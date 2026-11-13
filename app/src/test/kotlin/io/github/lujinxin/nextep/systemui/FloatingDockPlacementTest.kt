@@ -45,4 +45,51 @@ class FloatingDockPlacementTest {
             dock.x >= bubble.x + bubble.size)
         assertTrue(dock.x >= 0 && dock.x + dock.width <= 1080)
     }
+    @Test fun portraitNeverTouchesStatusBarOrThreeButtonNavigationArea() {
+        val safe = FloatingDockPlacement.Insets(top = 110, bottom = 160)
+        val bubble = FloatingDockPlacement.Anchor(900, 30, 140)
+        for (requestedHeight in listOf(300, 1500, 3000)) {
+            val dock = FloatingDockPlacement.calculate(
+                1080, 2400, 650, requestedHeight, bubble, 3f, safe,
+            )
+            assertTrue("Top: ${dock.y}", dock.y >= safe.top)
+            assertTrue("Bottom: ${dock.y + dock.height}", dock.y + dock.height <= 2400 - safe.bottom)
+            assertTrue(dock.x >= safe.left)
+            assertTrue(dock.x + dock.width <= 1080 - safe.right)
+        }
+    }
+
+    @Test fun horizontalAndVerticalOverlaysShareTheSameProtectedRectangle() {
+        val safe = FloatingDockPlacement.Insets(top = 90, bottom = 130, right = 20)
+        for (dimensions in listOf(1000 to 300, 220 to 1600)) {
+            val (width, height) = dimensions
+            val dock = FloatingDockPlacement.calculate(
+                1080, 2350, width, height,
+                FloatingDockPlacement.Anchor(930, 2200, 130), 3f, safe,
+            )
+            assertTrue(dock.y >= safe.top)
+            assertTrue(dock.y + dock.height <= 2350 - safe.bottom)
+            assertTrue(dock.x + dock.width <= 1080 - safe.right)
+        }
+    }
+
+    @Test fun landscapeSideNavigationAndCutoutCannotBeCovered() {
+        val safe = FloatingDockPlacement.Insets(left = 125, top = 52, right = 170, bottom = 36)
+        val dock = FloatingDockPlacement.calculate(
+            2400, 1080, 1900, 940,
+            FloatingDockPlacement.Anchor(2100, 100, 140), 3f, safe,
+        )
+        assertTrue(dock.x >= safe.left)
+        assertTrue(dock.x + dock.width <= 2400 - safe.right)
+        assertTrue(dock.y >= safe.top)
+        assertTrue(dock.y + dock.height <= 1080 - safe.bottom)
+    }
+
+    @Test fun noBubbleFallbackAlsoRespectsBars() {
+        val safe = FloatingDockPlacement.Insets(top = 130, bottom = 150)
+        val dock = FloatingDockPlacement.calculate(1080, 2200, 800, 2400, null, 3f, safe)
+        assertTrue(dock.y >= 130)
+        assertTrue(dock.y + dock.height <= 2050)
+    }
+
 }

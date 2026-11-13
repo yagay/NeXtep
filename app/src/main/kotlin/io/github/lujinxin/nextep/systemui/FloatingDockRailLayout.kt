@@ -45,9 +45,17 @@ internal object FloatingDockRailLayout {
         require(density.isFinite() && density > 0f)
         require(slotSizes.isNotEmpty() && slotSizes.all { it.first > 0 && it.second > 0 })
         fun dp(value: Int) = (value * density).roundToInt().coerceAtLeast(1)
-        val pad = dp(10)
-        val gap = dp(8)
-        val header = dp(48)
+        // No decorative full-size backing panel. Reserve only the live
+        // card strip and a two-row (vertical) or one-row (horizontal) toolbar.
+        val pad = dp(4)
+        val gap = dp(6)
+        val button = dp(30)
+        val controlGap = dp(4)
+        val header = if (orientation == Orientation.VERTICAL)
+            button * 2 + dp(12) else button + dp(8)
+        val toolbarWidth = if (orientation == Orientation.VERTICAL)
+            button * 2 + controlGap + pad * 2
+        else button * 4 + controlGap * 3 + pad * 2
         val percent = normalizedScale(scalePercent)
         // A single proportional factor locks the source aspect ratio. Integer
         // pixels can vary by at most a rounding pixel, never a freeform resize.
@@ -64,8 +72,11 @@ internal object FloatingDockRailLayout {
         } else pad * 2 + scaled.sumOf { it.second } + gap * (scaled.size - 1)
         val availableWidth = (screenWidth - dp(16)).coerceAtLeast(1)
         val availableHeight = (screenHeight - dp(16)).coerceAtLeast(1)
-        val panelWidth = minOf(maxOf(railWidth, dp(240)), availableWidth)
-        val panelHeight = minOf(maxOf(header + railHeight, dp(230)), availableHeight)
+        // Never force the previous 240dp / 230dp backing rectangle:
+        // in portrait mode this left hundreds of empty pixels beside a
+        // single narrow live preview. Scroll the content when space is tight.
+        val panelWidth = minOf(maxOf(railWidth, toolbarWidth), availableWidth)
+        val panelHeight = minOf(header + railHeight, availableHeight)
         var x = pad
         var y = pad
         val cells = scaled.map { (w, h) ->

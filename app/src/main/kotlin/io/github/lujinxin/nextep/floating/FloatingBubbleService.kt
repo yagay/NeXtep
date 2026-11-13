@@ -13,6 +13,7 @@ import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.IBinder
@@ -28,6 +29,7 @@ import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.config.MainActivity
 import io.github.lujinxin.nextep.config.SettingsRepository
 import io.github.lujinxin.nextep.logging.NeXtepLog
+import io.github.lujinxin.nextep.systemui.FloatingDockSafeArea
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -112,9 +114,9 @@ class FloatingBubbleService : Service() {
 
     private fun showBubble() {
         if (bubble != null || !Settings.canDrawOverlays(this)) return
-        val metrics = resources.displayMetrics
-        val width = metrics.widthPixels.coerceAtLeast(size + dp(16))
-        val height = metrics.heightPixels.coerceAtLeast(size + dp(80))
+        val safe = bubbleSafeRect()
+        val height = (windowManager?.maximumWindowMetrics?.bounds?.height()
+            ?: resources.displayMetrics.heightPixels).coerceAtLeast(size + dp(16))
         val side = prefs.getInt(KEY_SIDE, 1).coerceIn(0, 1)
         val fraction = prefs.getFloat(KEY_Y, 0.42f).coerceIn(0.08f, 0.88f)
         val params = WindowManager.LayoutParams(
@@ -125,9 +127,9 @@ class FloatingBubbleService : Service() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.LEFT
-            x = if (side == 0) dp(8) else (width - size - dp(8)).coerceAtLeast(0)
+            x = if (side == 0) safe.left else (safe.right - size).coerceAtLeast(safe.left)
             y = (height * fraction).roundToInt()
-                .coerceIn(dp(36), (height - size - dp(36)).coerceAtLeast(dp(36)))
+                .coerceIn(safe.top, (safe.bottom - size).coerceAtLeast(safe.top))
             title = "NeXtepFloatingWorkspace"
             setFitInsetsTypes(0)
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -198,24 +200,26 @@ class FloatingBubbleService : Service() {
                 val dy = event.rawY - downRawY
                 if (!dragged && abs(dx) < dp(8) && abs(dy) < dp(8)) return true
                 dragged = true
-                val metrics = resources.displayMetrics
-                params.x = (downX + dx.roundToInt()).coerceIn(0,
-                    (metrics.widthPixels - size).coerceAtLeast(0))
-                params.y = (downY + dy.roundToInt()).coerceIn(dp(32),
-                    (metrics.heightPixels - size - dp(32)).coerceAtLeast(dp(32)))
+                val safe = bubbleSafeRect()
+                params.x = (downX + dx.roundToInt()).coerceIn(
+                    safe.left, (safe.right - size).coerceAtLeast(safe.left))
+                params.y = (downY + dy.roundToInt()).coerceIn(
+                    safe.top, (safe.bottom - size).coerceAtLeast(safe.top))
                 updateBubble()
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 if (!dragged) bubble?.performClick()
                 else {
-                    val metrics = resources.displayMetrics
-                    val right = params.x + size / 2 >= metrics.widthPixels / 2
-                    params.x = if (right) (metrics.widthPixels - size - dp(8)).coerceAtLeast(0) else dp(8)
+                    val safe = bubbleSafeRect()
+                    val right = params.x + size / 2 >= (safe.left + safe.right) / 2
+                    params.x = if (right) (safe.right - size).coerceAtLeast(safe.left) else safe.left
                     updateBubble()
                     prefs.edit()
                         .putInt(KEY_SIDE, if (right) 1 else 0)
-                        .putFloat(KEY_Y, params.y.toFloat() / metrics.heightPixels.coerceAtLeast(1))
+                        .putFloat(KEY_Y, params.y.toFloat() /
+                            (windowManager?.maximumWindowMetrics?.bounds?.height()
+                                ?: resources.displayMetrics.heightPixels).coerceAtLeast(1))
                         .apply()
                     // Move only the dock viewport: preserve all four live
                     // displays and task assignments while the icon moves.
@@ -253,6 +257,19 @@ class FloatingBubbleService : Service() {
         removeBubble()
         runCatching { unregisterReceiver(screenEvents) }
         super.onDestroy()
+    }
+
+    private fun bubbleSafeRect(): Rect {
+        val metrics = resources.displayMetrics
+        val physical = runCatching { windowManager?.maximumWindowMetrics?.bounds }.getOrNull()
+        val width = (physical?.width() ?: metrics.widthPixels).coerceAtLeast(size + dp(16))
+        val height = (physical?.height() ?: metrics.heightPixels).coerceAtLeast(size + dp(16))
+        val insets = FloatingDockSafeArea.measure(this, windowManager)
+        val left = (insets.left + dp(8)).coerceIn(0, width - 1)
+        val top = (insets.top + dp(8)).coerceIn(0, height - 1)
+        return Rect(left, top,
+            (width - insets.right - dp(8)).coerceIn(left + 1, width),
+            (height - insets.bottom - dp(8)).coerceIn(top + 1, height))
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
