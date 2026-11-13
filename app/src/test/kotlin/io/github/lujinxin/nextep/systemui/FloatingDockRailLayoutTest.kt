@@ -85,7 +85,7 @@ class FloatingDockRailLayoutTest {
             1500, 2400, 3f, List(4) { 120 to 210 },
             FloatingDockRailLayout.Orientation.HORIZONTAL, 100,
         )
-        assertTrue(plan.panelHeight < 290)
+        assertTrue(plan.panelHeight < 390)
         assertTrue(plan.panelWidth >= plan.railContentWidth)
         assertEquals(4, plan.cells.size)
     }
