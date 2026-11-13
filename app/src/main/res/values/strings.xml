@@ -192,4 +192,12 @@
     <string name="floating_service_stop">Turn off floating icon</string>
     <string name="floating_start_failed">Unable to start floating icon. Check overlay and background permissions.</string>
     <string name="floating_module_not_ready">Workspace unavailable: %1$s</string>
+    <string name="floating_dock_title">Floating windows</string>
+    <string name="floating_dock_add">+ Add</string>
+    <string name="floating_dock_close">×</string>
+    <string name="floating_dock_no_slot">All four small windows are occupied. Swipe one away first.</string>
+    <string name="floating_dock_loading">Loading apps… Tap to cancel</string>
+    <string name="floating_dock_back">‹ Back to windows</string>
+    <string name="floating_dock_empty">No apps available</string>
+    <string name="floating_dock_launch_failed">Unable to add this app. Check module diagnostics.</string>
 </resources>

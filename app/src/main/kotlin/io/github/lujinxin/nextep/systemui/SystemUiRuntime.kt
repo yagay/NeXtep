@@ -52,6 +52,7 @@ object SystemUiRuntime {
     private val taskRefresh = Runnable {
         taskRefreshQueued.set(false)
         if (::windowController.isInitialized) windowController.onTasksChanged()
+        if (::floatingDock.isInitialized) floatingDock.onTasksChanged()
     }
 
     fun onTasksChanged() {
@@ -329,6 +330,8 @@ object SystemUiRuntime {
         if (!isStatusBarGestureEnabled() || !::workspaceController.isInitialized) return
         val target = !workspaceController.isActive()
         if (target && isKeyguardLocked(applicationContext)) return
+        if (target && ::floatingDock.isInitialized && floatingDock.isExpanded() &&
+            !floatingDock.collapse()) return
         if (workspaceController.setActive(target)) {
             publishWorkspaceSurfaceState(target)
             if (!target) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -355,6 +358,8 @@ object SystemUiRuntime {
             !::workspaceController.isInitialized || !isScreenReady() || isKeyguardLocked(applicationContext) ||
             workspaceController.isSuspended() || workspaceController.isActive() == active
         ) return
+        if (active && ::floatingDock.isInitialized && floatingDock.isExpanded() &&
+            !floatingDock.collapse()) return
         if (workspaceController.setActive(active)) {
             publishWorkspaceSurfaceState(active)
             if (!active) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -477,7 +482,15 @@ object SystemUiRuntime {
                 return
             }
             val handled = handleControl(context, intent)
-            if (!handled) return
+            if (!handled) {
+                if (intent.action == TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL) {
+                    setResultExtras(Bundle().apply {
+                        putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
+                            floatingDock.lastError ?: "Floating dock cannot open while the main workspace is active")
+                    })
+                }
+                return
+            }
 
             resultCode = TriggerBroadcastContract.RESULT_HANDLED
             setResultExtras(responseBundle(getResultExtras(true)))
@@ -509,6 +522,8 @@ object SystemUiRuntime {
                     intent.getBooleanExtra(TriggerBroadcastContract.EXTRA_ONLY_IF_INACTIVE, false),
                     workspaceController.isActive())) true
             else if (target && isKeyguardLocked(context)) false
+            else if (target && ::floatingDock.isInitialized && floatingDock.isExpanded() &&
+                !floatingDock.collapse()) false
             else workspaceController.setActive(target).also { handled ->
                 // The tile/coordinated path must also restore the separate assistant panel.
                 if (handled) publishWorkspaceSurfaceState(target)

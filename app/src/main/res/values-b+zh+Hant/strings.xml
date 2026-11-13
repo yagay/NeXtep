@@ -184,4 +184,12 @@
     <string name="floating_service_stop">關閉懸浮圖示</string>
     <string name="floating_start_failed">無法啟動懸浮圖示，請檢查權限及背景執行限制。</string>
     <string name="floating_module_not_ready">無法展開工作台：%1$s</string>
+    <string name="floating_dock_title">懸浮小視窗</string>
+    <string name="floating_dock_add">＋新增</string>
+    <string name="floating_dock_close">×</string>
+    <string name="floating_dock_no_slot">四個小視窗已滿，請先將其中一個向右滑至背景。</string>
+    <string name="floating_dock_loading">正在讀取應用程式…點擊取消</string>
+    <string name="floating_dock_back">‹ 返回小視窗</string>
+    <string name="floating_dock_empty">找不到應用程式</string>
+    <string name="floating_dock_launch_failed">無法新增此應用程式，請查看模組診斷紀錄。</string>
 </resources>
