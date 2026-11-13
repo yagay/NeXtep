@@ -8,6 +8,7 @@ import org.junit.Test
 class FloatingPadFocusPolicyTest {
     private val all = setOf(
         "TRUSTED", "OWN_FOCUS", "OWN_DISPLAY_GROUP", "STEAL_TOP_FOCUS_DISABLED",
+        "ALWAYS_UNLOCKED",
     )
 
     @Test fun standardModePreservesExistingNonStealingFocusPreference() {
@@ -50,8 +51,24 @@ class FloatingPadFocusPolicyTest {
         )
     }
 
-    @Test fun padModeNeverDisablesKeyguardOnVirtualDisplay() {
+    @Test fun padModeTriesIsolatedUnlockedDisplayBeforeLegacyFallback() {
         val candidates = FloatingPadFocusPolicy.candidates(all, padMode = true)
+        assertTrue("ALWAYS_UNLOCKED" in candidates.first())
+        assertTrue("OWN_DISPLAY_GROUP" in candidates.first())
+        assertTrue("TRUSTED" in candidates.first())
+        assertTrue(candidates.drop(1).all { "ALWAYS_UNLOCKED" !in it })
+        assertEquals(listOf("OWN_CONTENT_ONLY", "PRESENTATION"), candidates.last())
+    }
+
+    @Test fun standardModeNeverRequestsUnlockedDisplay() {
+        val candidates = FloatingPadFocusPolicy.candidates(all, padMode = false)
+        assertTrue(candidates.all { "ALWAYS_UNLOCKED" !in it })
+    }
+
+    @Test fun cannotRequestUnlockedDisplayWithoutOwnDisplayGroup() {
+        val candidates = FloatingPadFocusPolicy.candidates(
+            all - "OWN_DISPLAY_GROUP", padMode = true,
+        )
         assertTrue(candidates.all { "ALWAYS_UNLOCKED" !in it })
     }
 }
