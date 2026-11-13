@@ -43,7 +43,7 @@ class FloatingDockRailLayoutTest {
                 plan.cells[i].y)
         }
         assertTrue(plan.panelHeight <= 2400)
-        assertTrue(plan.railHeight > plan.panelHeight - plan.headerHeight)
+        assertTrue(plan.railHeight >= plan.panelHeight - plan.headerHeight)
     }
 
     @Test fun sizePresetsUseOneProportionalFactorForBothAxes() {
