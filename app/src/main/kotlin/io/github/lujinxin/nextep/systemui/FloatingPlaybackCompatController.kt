@@ -38,25 +38,42 @@ internal class FloatingPlaybackCompatController(context: Context) {
     }
 
     private data class Playing(val packageName: String, val at: Long)
-    private data class Config(val enabled: Boolean, val autoResume: Boolean, val packages: Set<String>)
-    @Volatile private var config = Config(false, false, emptySet())
+    private data class Config(
+        val enabled: Boolean, val autoResume: Boolean,
+        val lockAudio: Boolean, val packages: Set<String>,
+    )
+    @Volatile private var config = Config(false, false, false, emptySet())
     @Volatile private var slotPackages: Set<String> = emptySet()
     @Volatile private var generation = 0L
     private var visible = false
     private var lastPlaying: Map<MediaSession.Token, Playing> = emptyMap()
     private var accessFailureLogged = false
+    private val lockWakeLock = runCatching {
+        powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NeXtep:floating-lock-audio")
+    }.getOrNull()
 
-    fun configure(enabled: Boolean, autoResume: Boolean, packages: Set<String>) {
-        val next = Config(enabled, autoResume, packages.toSet())
+    private fun releaseLockWakeLock() {
+        runCatching {
+            lockWakeLock?.takeIf { it.isHeld }?.release()
+        }.onFailure { NeXtepLog.warn("playback_compat", "Wake lock release failed", it) }
+    }
+
+    fun configure(
+        enabled: Boolean, autoResume: Boolean, lockAudio: Boolean, packages: Set<String>,
+    ) {
+        val next = Config(enabled, autoResume, lockAudio, packages.toSet())
         if (config == next) return
         config = next
         generation += 1
         lastPlaying = emptyMap()
         handler.removeCallbacks(sampleVisible)
+        releaseLockWakeLock()
         NeXtepLog.info("playback_compat",
-            "Policy enabled=$enabled auto=$autoResume appCount=${packages.size}; " +
+            "Policy enabled=$enabled auto=$autoResume lockAudio=$lockAudio " +
+                "appCount=${packages.size}; " +
                 "MediaSession-only, never changes audio-focus policy")
-        if (visible) handler.post(sampleVisible)
+        if (visible || (lockAudio && powerManager?.isInteractive == true))
+            handler.post(sampleVisible)
     }
 
     fun onSlotPackagesChanged(packages: Set<String>) {
@@ -97,7 +114,9 @@ internal class FloatingPlaybackCompatController(context: Context) {
         }
         if (lockEvent || !setting.autoResume) {
             NeXtepLog.info("playback_compat",
-                "Hidden without playback control lock=$lockEvent auto=${setting.autoResume}")
+                "Hidden without folding recovery lock=$lockEvent auto=${setting.autoResume}")
+            if (!lockEvent && setting.lockAudio && powerManager?.isInteractive == true)
+                handler.post(sampleVisible)
             return
         }
         val now = SystemClock.elapsedRealtime()
@@ -112,6 +131,105 @@ internal class FloatingPlaybackCompatController(context: Context) {
         }
         NeXtepLog.info("playback_compat", "Fold observed ${eligible.size} recently playing session(s)")
         scheduleRecovery(nextGeneration, now, eligible, requireHidden = true)
+        if (setting.lockAudio && powerManager?.isInteractive == true)
+            handler.post(sampleVisible)
+    }
+
+    /**
+     * Called on every SCREEN_OFF even if the dock was folded a long time ago.
+     * Never reveals a private virtual-display frame over the keyguard.
+     * Attempts one MediaSession transport play only for a recently playing
+     * session the user explicitly selected for lockscreen audio.
+     */
+    fun onScreenLocked(packages: Set<String>) {
+        slotPackages = packages.toSet()
+        val token = ++generation
+        handler.removeCallbacks(sampleVisible)
+        val setting = config
+        if (!setting.enabled || !setting.lockAudio || setting.packages.isEmpty()) return
+        val now = SystemClock.elapsedRealtime()
+        val eligible = lastPlaying.filterValues {
+            it.packageName in packages && it.packageName in setting.packages &&
+                now - it.at in 0L..3_500L
+        }
+        if (eligible.isEmpty()) {
+            NeXtepLog.info("playback_compat",
+                "No recent selected PLAYING MediaSession at screen off; lock recovery skipped")
+            return
+        }
+        NeXtepLog.info("playback_compat",
+            "Lock audio: tracking ${eligible.size} playing sessions, max one command each")
+        runCatching { lockWakeLock?.acquire(4_500L) }.onFailure {
+            NeXtepLog.warn("playback_compat", "Short CPU wake lock unavailable", it)
+        }
+        val tried = mutableSetOf<MediaSession.Token>()
+        for (delay in listOf(700L, 1_650L)) {
+            handler.postDelayed({
+                if (generation == token) worker.execute {
+                    tryRecoverOnLock(token, now, eligible, tried)
+                }
+            }, delay)
+        }
+        handler.postDelayed({
+            if (generation == token) releaseLockWakeLock()
+        }, 2_650L)
+    }
+
+    fun onScreenUnlocked() {
+        generation++
+        releaseLockWakeLock()
+        handler.removeCallbacks(sampleVisible)
+        if (config.enabled && (visible || config.lockAudio))
+            handler.post(sampleVisible)
+    }
+
+    private fun tryRecoverOnLock(
+        token: Long,
+        lockedAt: Long,
+        eligible: Map<MediaSession.Token, Playing>,
+        tried: MutableSet<MediaSession.Token>,
+    ) {
+        if (generation != token || powerManager?.isInteractive != false) return
+        val setting = config
+        if (!setting.enabled || !setting.lockAudio) return
+        val controllers = sessionsOrNull() ?: return
+        val now = SystemClock.elapsedRealtime()
+        val audioNormal = audioManager?.mode == AudioManager.MODE_NORMAL
+        val playingTokens = controllers.filter {
+            it.playbackState?.state == PlaybackState.STATE_PLAYING
+        }.map { it.sessionToken }.toSet()
+        controllers.forEach { controller ->
+            val session = controller.sessionToken
+            val prior = eligible[session] ?: return@forEach
+            val state = controller.playbackState
+            val canPlay = state != null &&
+                (state.actions and (PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PLAY_PAUSE)) != 0L
+            val allowed = FloatingLockscreenPlaybackPolicy.mayResume(
+                enabled = setting.enabled,
+                optedIn = setting.lockAudio,
+                appSelected = controller.packageName in setting.packages,
+                stillInFloatingSlot = controller.packageName in slotPackages,
+                previouslyPlaying = prior.packageName == controller.packageName,
+                sameSession = true,
+                paused = state?.state == PlaybackState.STATE_PAUSED,
+                supportsPlay = canPlay,
+                screenOff = powerManager?.isInteractive == false,
+                audioModeNormal = audioNormal,
+                otherMediaPlaying = playingTokens.any { it != session },
+                alreadyAttempted = session in tried,
+                millisecondsSinceLock = now - lockedAt,
+            )
+            if (!allowed || generation != token || !tried.add(session)) return@forEach
+            runCatching { controller.transportControls.play() }
+                .onSuccess {
+                    NeXtepLog.info("playback_compat",
+                        "Lock audio one-shot PLAY sent package=${controller.packageName} " +
+                            "display=off; activity lifecycle unchanged")
+                }.onFailure {
+                    NeXtepLog.warn("playback_compat",
+                        "Lock audio MediaSession PLAY rejected package=${controller.packageName}", it)
+                }
+        }
     }
 
     private fun scheduleRecovery(token: Long, eventAt: Long,
@@ -135,12 +253,14 @@ internal class FloatingPlaybackCompatController(context: Context) {
         lastPlaying = emptyMap()
         slotPackages = emptySet()
         handler.removeCallbacks(sampleVisible)
+        releaseLockWakeLock()
     }
 
     private val sampleVisible: Runnable = object : Runnable {
         override fun run() {
             val setting = config
-            if (!visible || !setting.enabled || setting.packages.isEmpty()) return
+            if ((!visible && !setting.lockAudio) || !setting.enabled ||
+                setting.packages.isEmpty() || powerManager?.isInteractive != true) return
             val token = generation
             // Observe only user-selected apps, including a player that is
             // *about to be moved* from the main screen into an empty slot.
@@ -154,11 +274,13 @@ internal class FloatingPlaybackCompatController(context: Context) {
                     else controller.sessionToken to Playing(controller.packageName, at)
                 }.toMap()
                 handler.post {
-                    if (generation != token || !visible) return@post
+                    if (generation != token ||
+                        (!visible && !config.lockAudio) ||
+                        powerManager?.isInteractive != true) return@post
                     // Preserve short-lived playing history so a session does
                     // not disappear when the user folds between two polls.
                     lastPlaying = (lastPlaying.filterValues { at - it.at <= 3_000L } + playing)
-                    handler.postDelayed(this, 1_350L)
+                    handler.postDelayed(this, if (visible) 1_350L else 2_200L)
                 }
             }
         }
