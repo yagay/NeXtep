@@ -28,6 +28,7 @@ data class WorkspaceTopConfig(
     val statusBarGestureEnabled: Boolean = true,
     val floatingBubbleEnabled: Boolean = false,
     val floatingPadModeEnabled: Boolean = false,
+    val floatingIndependentDisplayEnabled: Boolean = false,
     val playbackCompatEnabled: Boolean = false,
     val playbackCompatAutoResume: Boolean = false,
     val playbackCompatLockAudio: Boolean = false,
@@ -62,6 +63,7 @@ object WorkspaceConfigContract {
     const val EXTRA_STATUS_BAR_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.STATUS_BAR_GESTURE_ENABLED"
     const val EXTRA_FLOATING_BUBBLE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_ENABLED"
     const val EXTRA_FLOATING_PAD_MODE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_PAD_MODE_ENABLED"
+    const val EXTRA_FLOATING_INDEPENDENT_DISPLAY_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_INDEPENDENT_DISPLAY_ENABLED"
     const val EXTRA_PLAYBACK_COMPAT_ENABLED = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_ENABLED"
     const val EXTRA_PLAYBACK_COMPAT_AUTO_RESUME = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_AUTO_RESUME"
     const val EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_LOCK_AUDIO"
@@ -137,6 +139,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, settings.floatingBubbleEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_PAD_MODE_ENABLED,
                     settings.floatingPadModeEnabled)
+                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_INDEPENDENT_DISPLAY_ENABLED,
+                    settings.floatingIndependentDisplayEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_ENABLED,
                     settings.playbackCompatEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_AUTO_RESUME,
@@ -291,6 +295,9 @@ object WorkspaceConfigClient {
             ),
             floatingPadModeEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_PAD_MODE_ENABLED, false,
+            ),
+            floatingIndependentDisplayEnabled = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_FLOATING_INDEPENDENT_DISPLAY_ENABLED, false,
             ),
             playbackCompatEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_ENABLED, false,
