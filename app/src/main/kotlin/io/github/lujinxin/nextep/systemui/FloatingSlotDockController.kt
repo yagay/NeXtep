@@ -81,8 +81,10 @@ internal class FloatingSlotDockController(
             (state as? SlotState.Occupied)?.component?.packageName
         }.toSet()
 
-    fun applyPlaybackCompatSettings(enabled: Boolean, autoResume: Boolean, packages: Set<String>) {
-        playbackCompat.configure(enabled, autoResume, packages)
+    fun applyPlaybackCompatSettings(
+        enabled: Boolean, autoResume: Boolean, lockAudio: Boolean, packages: Set<String>,
+    ) {
+        playbackCompat.configure(enabled, autoResume, lockAudio, packages)
         if (hasSession()) playbackCompat.onSlotPackagesChanged(currentPlayerPackages())
     }
     private var slots: List<VirtualDisplaySlot> = emptyList()
@@ -307,6 +309,10 @@ internal class FloatingSlotDockController(
         if (!collapse(lockEvent = true)) {
             NeXtepLog.warn("floating_dock", "Failed to hide window at lock")
         }
+        // Even if already folded, SCREEN_OFF must notify the audio adapter.
+        // Capture the last PLAYING MediaSessions before the system discards
+        // their state, without making the hidden surface visible.
+        playbackCompat.onScreenLocked(currentPlayerPackages())
         runCatching {
             coordinator?.setSuspended(true)
             suspendedForLock = true
@@ -340,6 +346,7 @@ internal class FloatingSlotDockController(
         return runCatching {
             coordinator?.setSuspended(false)
             suspendedForLock = false
+            playbackCompat.onScreenUnlocked()
             coordinator?.onTasksChanged()
             NeXtepLog.info("floating_dock", "Unlock restored retained hidden session; " +
                 slots.joinToString { it.diagnosticOutputState() })
