@@ -3,13 +3,18 @@ package io.github.lujinxin.nextep.systemui
 import kotlin.math.roundToInt
 
 /**
- * Arrange the four live previews in a single horizontal rail using the *exact*
- * slot width and height from the original WorkspaceLayoutProfile.
- *
- * Never shrink the cards to fit the viewport. If the rail exceeds the
- * physical screen, keep every original-size card and use page controls.
+ * The optional floating dock reuses the original sidebar's slot dimensions,
+ * then applies ONE uniform scale factor to each width and height. The actual
+ * VirtualDisplay canvas is unchanged; only the TextureView viewport is resized.
+ * Neither orientation nor size ever stretches a card to fill its rail.
  */
 internal object FloatingDockRailLayout {
+    enum class Orientation { HORIZONTAL, VERTICAL }
+
+    const val MIN_SCALE_PERCENT = 60
+    const val MAX_SCALE_PERCENT = 140
+    const val SCALE_STEP_PERCENT = 10
+
     data class Cell(val x: Int, val y: Int, val width: Int, val height: Int)
     data class Plan(
         val panelWidth: Int,
@@ -20,39 +25,69 @@ internal object FloatingDockRailLayout {
         val padding: Int,
         val gap: Int,
         val cells: List<Cell>,
+        val orientation: Orientation,
+        val scalePercent: Int,
     )
+
+    fun normalizedScale(percent: Int): Int =
+        (percent.coerceIn(MIN_SCALE_PERCENT, MAX_SCALE_PERCENT) / SCALE_STEP_PERCENT) *
+            SCALE_STEP_PERCENT
 
     fun calculate(
         screenWidth: Int,
         screenHeight: Int,
         density: Float,
         slotSizes: List<Pair<Int, Int>>,
+        orientation: Orientation = Orientation.HORIZONTAL,
+        scalePercent: Int = 100,
     ): Plan {
         require(screenWidth > 1 && screenHeight > 1)
         require(density.isFinite() && density > 0f)
         require(slotSizes.isNotEmpty() && slotSizes.all { it.first > 0 && it.second > 0 })
-        fun dp(value: Int) = (value * density).roundToInt()
+        fun dp(value: Int) = (value * density).roundToInt().coerceAtLeast(1)
         val pad = dp(10)
         val gap = dp(8)
         val header = dp(48)
-        val contentHeight = slotSizes.maxOf { it.second }
-        val railWidth = pad * 2 + slotSizes.sumOf { it.first } + gap * (slotSizes.size - 1)
-        val railHeight = contentHeight + pad * 2
+        val percent = normalizedScale(scalePercent)
+        // A single proportional factor locks the source aspect ratio. Integer
+        // pixels can vary by at most a rounding pixel, never a freeform resize.
+        val scaled = slotSizes.map { (w, h) ->
+            ((w.toLong() * percent + 50) / 100).toInt().coerceAtLeast(1) to
+                ((h.toLong() * percent + 50) / 100).toInt().coerceAtLeast(1)
+        }
+        val horizontal = orientation == Orientation.HORIZONTAL
+        val railWidth = if (horizontal) {
+            pad * 2 + scaled.sumOf { it.first } + gap * (scaled.size - 1)
+        } else pad * 2 + scaled.maxOf { it.first }
+        val railHeight = if (horizontal) {
+            pad * 2 + scaled.maxOf { it.second }
+        } else pad * 2 + scaled.sumOf { it.second } + gap * (scaled.size - 1)
         val availableWidth = (screenWidth - dp(16)).coerceAtLeast(1)
         val availableHeight = (screenHeight - dp(16)).coerceAtLeast(1)
+        val panelWidth = minOf(maxOf(railWidth, dp(240)), availableWidth)
+        val panelHeight = minOf(maxOf(header + railHeight, dp(230)), availableHeight)
         var x = pad
-        val cells = slotSizes.map { (w,h) ->
-            Cell(x, pad + (contentHeight - h) / 2, w, h).also { x += w + gap }
+        var y = pad
+        val cells = scaled.map { (w, h) ->
+            if (horizontal) {
+                Cell(x, pad + (railHeight - 2 * pad - h) / 2, w, h)
+                    .also { x += w + gap }
+            } else {
+                Cell(pad + (railWidth - 2 * pad - w) / 2, y, w, h)
+                    .also { y += h + gap }
+            }
         }
         return Plan(
-            panelWidth = minOf(railWidth, availableWidth),
-            panelHeight = minOf(header + railHeight, availableHeight),
+            panelWidth = panelWidth,
+            panelHeight = panelHeight,
             headerHeight = header,
             railContentWidth = railWidth,
             railHeight = railHeight,
             padding = pad,
             gap = gap,
             cells = cells,
+            orientation = orientation,
+            scalePercent = percent,
         )
     }
 }
