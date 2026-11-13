@@ -8,14 +8,17 @@ import android.view.Surface
 import io.github.lujinxin.nextep.framework.VirtualDisplayFlagsCompat
 import io.github.lujinxin.nextep.logging.NeXtepLog
 
-class VirtualDisplayFactory(context: Context) {
+class VirtualDisplayFactory(
+    context: Context,
+    private val padMode: Boolean = false,
+) {
     private val displayManager = context.getSystemService(DisplayManager::class.java)
 
     fun create(index: Int, geometry: SlotGeometry, surface: Surface): Result<VirtualDisplay> =
         runCatching {
             val manager = checkNotNull(displayManager) { "DisplayManager unavailable" }
             var lastFailure: Throwable? = null
-            VirtualDisplayFlagsCompat.resolveCandidates().forEach { flags ->
+            VirtualDisplayFlagsCompat.resolveCandidates(padMode = padMode).forEach { flags ->
                 try {
                     // Preview displays need no 120/144 Hz mode simply because
                     // the physical display is fast. The main display stays native.
@@ -30,6 +33,7 @@ class VirtualDisplayFactory(context: Context) {
                         NeXtepLog.info(
                             "virtual_display",
                             "Allocated slot=$index displayId=${display.display.displayId} " +
+                                "profile=${if (padMode) "pad" else "standard"} " +
                                 "flags=${flags.names.joinToString()} " +
                                 "state=${display.display.state}",
                         )
