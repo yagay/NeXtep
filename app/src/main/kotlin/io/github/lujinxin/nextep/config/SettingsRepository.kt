@@ -19,6 +19,9 @@ class SettingsRepository(private val context: Context) {
         val statusBarGestureEnabled: Boolean,
         val floatingBubbleEnabled: Boolean,
         val floatingPadModeEnabled: Boolean,
+        val playbackCompatEnabled: Boolean,
+        val playbackCompatAutoResume: Boolean,
+        val playbackCompatPackages: Set<String>,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
         val slotBackgroundSwipeEnabled: Boolean,
@@ -53,6 +56,10 @@ class SettingsRepository(private val context: Context) {
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
         floatingPadModeEnabled = preferences.getBoolean(KEY_FLOATING_PAD_MODE_ENABLED, false),
+        playbackCompatEnabled = preferences.getBoolean(KEY_PLAYBACK_COMPAT_ENABLED, false),
+        playbackCompatAutoResume = preferences.getBoolean(KEY_PLAYBACK_COMPAT_AUTO_RESUME, false),
+        playbackCompatPackages = preferences.getStringSet(KEY_PLAYBACK_COMPAT_PACKAGES, emptySet())
+            .orEmpty().toSet(),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
             preferences.getString(KEY_FLOATING_DOCK_ORIENTATION,
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION),
@@ -123,6 +130,29 @@ class SettingsRepository(private val context: Context) {
             io.github.lujinxin.nextep.logging.NeXtepLog.warn(
                 "floating_pad", "Failed to save Pad multi-task preference")
         }
+    }
+
+    /** Opt-in. Nothing is controlled or resumed until the user selects apps. */
+    fun setPlaybackCompatEnabled(enabled: Boolean) =
+        savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_ENABLED, enabled) }
+
+    fun setPlaybackCompatAutoResume(enabled: Boolean) =
+        savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_AUTO_RESUME, enabled) }
+
+    fun setPlaybackCompatPackages(packages: Set<String>) =
+        savePlaybackCompat {
+            it.putStringSet(KEY_PLAYBACK_COMPAT_PACKAGES,
+                packages.filter { name ->
+                    name.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+"))
+                }.take(60).toSet())
+        }
+
+    private inline fun savePlaybackCompat(block: (android.content.SharedPreferences.Editor) -> Unit) {
+        val editor = preferences.edit()
+        block(editor)
+        if (editor.commit()) notifyTopContentChanged()
+        else io.github.lujinxin.nextep.logging.NeXtepLog.warn(
+            "playback_compat", "Could not persist selected-player preferences")
     }
 
     /** One canonical source for the app's settings and the injected SystemUI dock. */
@@ -242,6 +272,9 @@ class SettingsRepository(private val context: Context) {
     private companion object {
         const val KEY_TOP_TITLE = "top_title"
         const val KEY_FLOATING_PAD_MODE_ENABLED = "floating_pad_mode_enabled"
+        const val KEY_PLAYBACK_COMPAT_ENABLED = "playback_compat_enabled"
+        const val KEY_PLAYBACK_COMPAT_AUTO_RESUME = "playback_compat_auto_resume"
+        const val KEY_PLAYBACK_COMPAT_PACKAGES = "playback_compat_packages"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
         const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
         const val KEY_TOP_APPS = "top_apps"
