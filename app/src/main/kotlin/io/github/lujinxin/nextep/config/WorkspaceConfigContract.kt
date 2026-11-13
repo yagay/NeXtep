@@ -69,8 +69,7 @@ object WorkspaceConfigContract {
 
     fun normalizeFloatingDockSizePercent(value: Int): Int {
         val safe = value.coerceIn(MIN_FLOATING_DOCK_SIZE_PERCENT, MAX_FLOATING_DOCK_SIZE_PERCENT)
-        return ((safe + FLOATING_DOCK_SIZE_STEP_PERCENT / 2) / FLOATING_DOCK_SIZE_STEP_PERCENT) *
-            FLOATING_DOCK_SIZE_STEP_PERCENT
+        return (safe / FLOATING_DOCK_SIZE_STEP_PERCENT) * FLOATING_DOCK_SIZE_STEP_PERCENT
     }
     const val EXTRA_FOUR_FINGER_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.FOUR_FINGER_GESTURE_ENABLED"
     const val EXTRA_FOUR_FINGER_GESTURE_BLOCK_GAMES = "io.github.lujinxin.nextep.extra.FOUR_FINGER_GESTURE_BLOCK_GAMES"
