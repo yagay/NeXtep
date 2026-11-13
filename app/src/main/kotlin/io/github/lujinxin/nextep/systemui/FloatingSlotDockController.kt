@@ -52,6 +52,8 @@ internal class FloatingSlotDockController(
     private val manager = context.getSystemService(WindowManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
     private var host: FrameLayout? = null
+    private var panelVisible = false
+    private var suspendedForLock = false
     private var picker: FrameLayout? = null
     private var pickerList: LinearLayout? = null
     private var grid: FrameLayout? = null
@@ -75,7 +77,11 @@ internal class FloatingSlotDockController(
     var lastErrorTrace: String? = null
         private set
 
-    fun isExpanded(): Boolean = host != null
+    /** Visible and interactive, as opposed to a retained hidden live session. */
+    fun isExpanded(): Boolean = host != null && panelVisible
+
+    /** A hidden dock still owns the original live VirtualDisplays and tasks. */
+    fun hasSession(): Boolean = host != null
 
     /** Reflow without releasing any VirtualDisplay or moving the running tasks. */
     fun applyLayoutSettings(orientationValue: String, scalePercent: Int) {
@@ -86,7 +92,7 @@ internal class FloatingSlotDockController(
         orientation = nextOrientation
         sizePercent = nextSize
         railOffsetPx = 0
-        if (isExpanded()) {
+        if (hasSession()) {
             buildToolbarControls()
             reconfigure()
         }
@@ -97,13 +103,13 @@ internal class FloatingSlotDockController(
     fun updateAnchor(anchor: FloatingDockPlacement.Anchor) {
         if (bubbleAnchor == anchor) return
         bubbleAnchor = anchor
-        if (isExpanded()) reconfigure()
+        if (hasSession()) reconfigure()
     }
 
     fun expand(anchor: FloatingDockPlacement.Anchor? = null): Boolean {
-        if (isExpanded()) {
-            if (anchor != null) updateAnchor(anchor)
-            return true
+        if (hasSession()) {
+            if (anchor != null) bubbleAnchor = anchor
+            return showRetainedSession()
         }
         bubbleAnchor = anchor
         lastError = null
@@ -202,6 +208,8 @@ internal class FloatingSlotDockController(
             }
             checkNotNull(manager).addView(root, wnd)
             host = root
+            panelVisible = true
+            suspendedForLock = false
             coordinator = SlotTaskCoordinator(
                 context = context,
                 slots = newSlots,
@@ -227,34 +235,103 @@ internal class FloatingSlotDockController(
         }
     }
 
-    /** Keep the overlay off the lockscreen even when task parking must retry. */
-    fun hideForLock() {
-        host?.visibility = View.GONE
-        runCatching { coordinator?.setSuspended(true) }.onFailure {
-            NeXtepLog.warn("floating_dock", "Output suspension failed during lock", it)
+    /**
+     * A normal tap on the bubble or the panel's X merely makes the host
+     * transparent and non-touchable. Do NOT detach TextureViews, deactivate
+     * the coordinator, or move tasks between physical and virtual displays.
+     */
+    fun collapse(): Boolean {
+        val root = host ?: return true
+        if (!panelVisible) return true
+        return runCatching {
+            val wnd = root.layoutParams as WindowManager.LayoutParams
+            wnd.alpha = 0f
+            wnd.flags = wnd.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            manager?.updateViewLayout(root, wnd)
+            // Keep the root itself VISIBLE and attached: setting GONE or
+            // removeViewImmediate can destroy live TextureView surfaces.
+            panelVisible = false
+            pickerGeneration += 1
+            picker?.visibility = View.GONE
+            NeXtepLog.info("floating_dock",
+                "Hidden live dock without moving tasks or releasing VirtualDisplays")
+            true
+        }.getOrElse { error ->
+            lastError = error.message ?: error.javaClass.simpleName
+            NeXtepLog.warn("floating_dock", "Failed to hide retained dock", error)
+            false
         }
-        collapse()
     }
 
-    /** Park every slot task before detaching its TextureView; never strand a task on a dead display. */
-    fun collapse(): Boolean {
-        if (!isExpanded()) return true
+    /** Lock hides task previews and disconnects their output, not their tasks. */
+    fun hideForLock() {
+        if (!hasSession()) return
+        if (!collapse()) {
+            NeXtepLog.warn("floating_dock", "Failed to hide window at lock")
+        }
+        runCatching {
+            coordinator?.setSuspended(true)
+            suspendedForLock = true
+        }.onFailure { NeXtepLog.warn("floating_dock", "Output suspension failed during lock", it) }
+    }
+
+    /** Re-expand the SAME session; do not create another VD or restart apps. */
+    private fun showRetainedSession(): Boolean {
+        val root = host ?: return false
+        if (!root.isAttachedToWindow) {
+            lastError = "Retained floating surface was detached by WindowManager"
+            NeXtepLog.warn("floating_dock", lastError.orEmpty())
+            // Do not attempt to create a second set of VirtualDisplays over
+            // unparked tasks. A separate explicit shutdown must precede retry.
+            return false
+        }
+        return runCatching {
+            if (suspendedForLock) {
+                coordinator?.setSuspended(false)
+                suspendedForLock = false
+            }
+            pickerGeneration += 1
+            picker?.visibility = View.GONE
+            reconfigure()
+            check(host === root) { "Floating host changed during retained reflow" }
+            val wnd = root.layoutParams as WindowManager.LayoutParams
+            wnd.alpha = 1f
+            wnd.flags = wnd.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            manager?.updateViewLayout(root, wnd)
+            panelVisible = true
+            coordinator?.onTasksChanged()
+            NeXtepLog.info("floating_dock",
+                "Reshowed retained dock with existing tasks, displays and slot positions")
+            true
+        }.getOrElse { error ->
+            lastError = error.message ?: error.javaClass.simpleName
+            NeXtepLog.warn("floating_dock", "Could not show retained dock", error)
+            false
+        }
+    }
+
+    /**
+     * Explicit full shutdown ONLY for disabling the feature or switching to
+     * the original workspace. Safely park tasks before releasing displays.
+     */
+    fun destroySession(): Boolean {
+        if (!hasSession()) return true
         lastError = null
         return runCatching {
             coordinator?.deactivate()
             host?.let { manager?.removeViewImmediate(it) }
             clear()
-            NeXtepLog.info("floating_dock", "Collapsed; all slot tasks parked safely")
+            NeXtepLog.info("floating_dock", "Closed floating session; parked tasks safely")
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
-            NeXtepLog.warn("floating_dock", "Collapse deferred to preserve task displays", error)
+            NeXtepLog.warn("floating_dock", "Refused to release display with retained tasks", error)
             false
         }
     }
 
     fun onTasksChanged() {
-        if (isExpanded()) coordinator?.onTasksChanged()
+        if (hasSession()) coordinator?.onTasksChanged()
     }
 
     /** Reflow cells on rotation; keep the original displays and their task ownership alive. */
@@ -304,6 +381,8 @@ internal class FloatingSlotDockController(
         profile = null
         panel = null
         host = null
+        panelVisible = false
+        suspendedForLock = false
     }
 
     private fun calculatePanel(width: Int, height: Int, recorded: WorkspaceLayoutProfile): Panel {
