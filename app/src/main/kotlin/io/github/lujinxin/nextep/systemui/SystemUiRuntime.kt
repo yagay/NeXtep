@@ -230,6 +230,7 @@ object SystemUiRuntime {
                 addAction(TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR)
                 addAction(TriggerBroadcastContract.ACTION_SET_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_QUERY_WORKSPACE)
+                addAction(TriggerBroadcastContract.ACTION_QUERY_DIAGNOSTICS)
                 addAction(TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST)
                 addAction(TriggerBroadcastContract.ACTION_FOUR_FINGER_WORKSPACE)
             }
@@ -507,7 +508,12 @@ object SystemUiRuntime {
             }
 
             resultCode = TriggerBroadcastContract.RESULT_HANDLED
-            setResultExtras(responseBundle(getResultExtras(true)))
+            setResultExtras(responseBundle(getResultExtras(true)).apply {
+                if (intent.action == TriggerBroadcastContract.ACTION_QUERY_DIAGNOSTICS) {
+                    putString(TriggerBroadcastContract.EXTRA_DIAGNOSTICS_LOG, NeXtepLog.snapshot(60_000))
+                    putString(TriggerBroadcastContract.EXTRA_DIAGNOSTICS_PROCESS, "com.android.systemui")
+                }
+            })
         }
     }
 
@@ -565,7 +571,8 @@ object SystemUiRuntime {
                 if (handled) publishWorkspaceSurfaceState(target)
             }
         }
-        TriggerBroadcastContract.ACTION_QUERY_WORKSPACE -> true
+        TriggerBroadcastContract.ACTION_QUERY_WORKSPACE,
+        TriggerBroadcastContract.ACTION_QUERY_DIAGNOSTICS -> true
         TriggerBroadcastContract.ACTION_FOUR_FINGER_WORKSPACE -> fourFingerGestures.handleRequest(intent)
         TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST -> {
             val canSwitch = !::floatingDock.isInitialized || !floatingDock.isExpanded() ||

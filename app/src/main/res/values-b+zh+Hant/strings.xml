@@ -199,4 +199,22 @@
     <string name="floating_dock_fixed_ratio">小視窗大小 · 鎖定長寬比例</string>
     <string name="floating_dock_reset_size">恢復 100%</string>
     <string name="floating_dock_settings_done">完成</string>
+    <string name="diagnostic_export_title">匯出診斷日誌</string>
+    <string name="diagnostic_export_action">匯出</string>
+    <string name="diagnostic_export_summary">儲存 ZIP：包括 NeXtep 應用與 SystemUI 日誌、裝置資訊及部分非敏感設定；可用時加入 Root logcat。</string>
+    <string name="diagnostic_export_privacy">日誌可能包含應用程式套件名稱和錯誤詳情，分享前請檢查。</string>
+    <string name="diagnostic_export_success">診斷 ZIP 已儲存</string>
+    <string name="diagnostic_export_failed">日誌匯出失敗：%1$s</string>
+    <string name="settings_group_general">基本設定</string>
+    <string name="settings_group_general_summary">快速設定、語言與桌面圖示</string>
+    <string name="settings_group_floating">懸浮工作台</string>
+    <string name="settings_group_floating_summary">懸浮圖示與權限</string>
+    <string name="settings_group_gestures">手勢與快速操作</string>
+    <string name="settings_group_gestures_summary">狀態列手勢及四指操作</string>
+    <string name="settings_group_interaction">視窗與互動</string>
+    <string name="settings_group_interaction_summary">拖曳、分享、動畫與自動化</string>
+    <string name="settings_group_display">顯示與外觀</string>
+    <string name="settings_group_display_summary">導覽列及霧面效果</string>
+    <string name="settings_group_expand">展開</string>
+    <string name="settings_group_collapse">收起</string>
 </resources>

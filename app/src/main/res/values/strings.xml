@@ -207,4 +207,22 @@
     <string name="floating_dock_fixed_ratio">Window size · Lock aspect ratio</string>
     <string name="floating_dock_reset_size">Reset to 100%</string>
     <string name="floating_dock_settings_done">Done</string>
+    <string name="diagnostic_export_title">Export diagnostic logs</string>
+    <string name="diagnostic_export_action">Export</string>
+    <string name="diagnostic_export_summary">Save a ZIP with NeXtep App and SystemUI logs, device data and selected non-sensitive settings. Root logcat is included when available.</string>
+    <string name="diagnostic_export_privacy">Logs may contain app package names and error details. Review the ZIP before sharing.</string>
+    <string name="diagnostic_export_success">Diagnostic ZIP saved successfully</string>
+    <string name="diagnostic_export_failed">Log export failed: %1$s</string>
+    <string name="settings_group_general">Getting started</string>
+    <string name="settings_group_general_summary">Quick Settings, language and launcher icon</string>
+    <string name="settings_group_floating">Floating workspace</string>
+    <string name="settings_group_floating_summary">Floating button and display permission</string>
+    <string name="settings_group_gestures">Gestures and shortcuts</string>
+    <string name="settings_group_gestures_summary">Status-bar and four-finger actions</string>
+    <string name="settings_group_interaction">Window behavior</string>
+    <string name="settings_group_interaction_summary">Drag, sharing, transitions and automation</string>
+    <string name="settings_group_display">Display and appearance</string>
+    <string name="settings_group_display_summary">Navigation bar and glass effects</string>
+    <string name="settings_group_expand">Expand</string>
+    <string name="settings_group_collapse">Collapse</string>
 </resources>

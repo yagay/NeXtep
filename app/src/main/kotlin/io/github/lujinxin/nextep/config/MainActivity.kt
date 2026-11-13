@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ScrollView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -18,10 +19,20 @@ import androidx.viewpager.widget.ViewPager
 import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.icons.LauncherIconManager
 import io.github.lujinxin.nextep.floating.FloatingBubbleController
+import io.github.lujinxin.nextep.logging.DiagnosticReportExporter
 import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
     private var navigation: GlassBottomNavigation? = null
+    private val diagnosticDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) DiagnosticReportExporter.export(this, uri)
+    }
+
+    fun exportDiagnosticLogs() {
+        diagnosticDocument.launch(DiagnosticReportExporter.suggestedName())
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
