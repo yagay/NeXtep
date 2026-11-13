@@ -51,7 +51,7 @@ object NeXtepLog {
         Log.println(priority, TAG, output)
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
         val shortMessage = output.replace("\r", "").take(MAX_LINE_CHARS)
-        val line = "$timestamp ${Log.priorityToString(priority)} ${SystemClock.uptimeMillis()}ms $shortMessage"
+        val line = "$timestamp ${when (priority) { Log.DEBUG -> "D"; Log.INFO -> "I"; Log.WARN -> "W"; else -> "E" }} ${SystemClock.uptimeMillis()}ms $shortMessage"
         synchronized(guard) {
             entries.addLast(line)
             while (entries.size > MAX_ENTRIES) entries.removeFirst()
