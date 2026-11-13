@@ -185,7 +185,7 @@
     <string name="floating_start_failed">悬浮图标启动失败，请检查悬浮窗权限和后台运行限制。</string>
     <string name="floating_module_not_ready">无法展开工作台：%1$s</string>
     <string name="floating_dock_title">悬浮小窗</string>
-    <string name="floating_dock_add">＋添加</string>
+    <string name="floating_dock_add">选应用</string>
     <string name="floating_dock_close">×</string>
     <string name="floating_dock_no_slot">四个小窗已满，请先将一个小窗向右滑动移到后台。</string>
     <string name="floating_dock_loading">正在读取应用…点击取消</string>

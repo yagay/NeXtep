@@ -29,6 +29,8 @@ class SlotTaskCoordinator(
     private val slots: List<VirtualDisplaySlot>,
     private val mainTaskPresenter: MainTaskPresentationCoordinator,
     private val geometryProvider: () -> WorkspaceGeometry,
+    /** Only the optional floating dock sets this: the original workspace stays unchanged. */
+    private val preserveFullscreenMain: Boolean = false,
     private val returnAfterSharing: () -> Boolean,
     private val onDragActiveChanged: (Boolean) -> Unit = {},
     private val onSwapAnimation: (SlotTaskDrag, Int?, () -> Boolean, () -> Unit) -> Unit =
@@ -1159,8 +1161,11 @@ class SlotTaskCoordinator(
             ?: error("Slot task ${occupied.taskId} exited")
         val mainTask = taskRepository.foregroundTask()
         val record = slotRecords[slotIndex]
-        val slotOriginalLayout = record.originalLayout
-            ?: defaultMainLayout(slotTask.resizeMode)
+        val slotOriginalLayout = if (preserveFullscreenMain) {
+            // A floating dock's selected app must fill Display 0, regardless
+            // of where the task originally entered its VirtualDisplay slot.
+            defaultMainLayout(slotTask.resizeMode)
+        } else record.originalLayout ?: defaultMainLayout(slotTask.resizeMode)
         val mainIsExchangeable = mainTask != null &&
             isExchangeableMainTask(mainTask) &&
             mainTask.taskId != slotTask.taskId
@@ -1194,6 +1199,16 @@ class SlotTaskCoordinator(
             moveTaskToDisplayAndWait(slotTask.taskId, Display.DEFAULT_DISPLAY)
             slotMovedToMain = true
             restoreTaskLayout(slotTask, slotOriginalLayout, restoreResizeMode = false)
+            if (preserveFullscreenMain) {
+                // The ordinary workspace reserves a *scaled* surface during
+                // promotion. The floating dock must instead remove every
+                // stored SurfaceControl matrix/crop before revealing the app.
+                WindowContainerTransactionCompat.applyTaskBounds(
+                    checkNotNull(taskRepository.findTask(slotTask.taskId)?.token),
+                    Rect(),
+                ).getOrThrow()
+                NeXtepLog.info("floating_dock", "Restored fullscreen taskId=${slotTask.taskId}")
+            }
             taskRepository.bringTaskToFront(slotTask.taskId).getOrThrow()
 
             if (mainIsExchangeable) {
@@ -1226,6 +1241,20 @@ class SlotTaskCoordinator(
             val presentation = mainTaskPresenter.presentTask(slotTask.taskId, geometryProvider())
             if (presentation.isFailure && taskRepository.findTask(slotTask.taskId) != null) {
                 presentation.getOrThrow()
+            }
+            if (preserveFullscreenMain) {
+                // The old virtual display may have left a compositor crop on
+                // this task's leash. A no-op main presenter cannot clear it.
+                TaskSurfaceCompat.resetPromotedSlotToFullscreen(slotTask.taskId).onFailure {
+                    NeXtepLog.warn("floating_dock", "Fullscreen compositor reset pending", it)
+                }
+                handler.postDelayed({
+                    if (taskRepository.findTask(slotTask.taskId)?.displayId == Display.DEFAULT_DISPLAY) {
+                        TaskSurfaceCompat.resetPromotedSlotToFullscreen(slotTask.taskId).onFailure {
+                            NeXtepLog.warn("floating_dock", "Fullscreen compositor retry failed", it)
+                        }
+                    }
+                }, 350L)
             }
             schedulePromotedTaskRecovery()
         } catch (error: Throwable) {
@@ -1895,8 +1924,14 @@ class SlotTaskCoordinator(
     private fun moveTaskToDisplayAndWait(taskId: Int, displayId: Int) {
         TaskSurfaceCompat.markDisplayExchange(taskId, displayId)
         if (displayId == Display.DEFAULT_DISPLAY) {
-            TaskSurfaceCompat.preparePromotion(taskId, geometryProvider()).onFailure {
-                NeXtepLog.warn("task_surface", "Early promotion fitting unavailable taskId=$taskId", it)
+            if (preserveFullscreenMain) {
+                // Important: never prepare the original workspace's reduced
+                // main-screen transform for a fullscreen floating-dock swap.
+                TaskSurfaceCompat.cancelPreparedPromotion(taskId)
+            } else {
+                TaskSurfaceCompat.preparePromotion(taskId, geometryProvider()).onFailure {
+                    NeXtepLog.warn("task_surface", "Early promotion fitting unavailable taskId=$taskId", it)
+                }
             }
         } else {
             TaskSurfaceCompat.cancelPreparedPromotion(taskId)

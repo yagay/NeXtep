@@ -193,7 +193,7 @@
     <string name="floating_start_failed">Unable to start floating icon. Check overlay and background permissions.</string>
     <string name="floating_module_not_ready">Workspace unavailable: %1$s</string>
     <string name="floating_dock_title">Floating windows</string>
-    <string name="floating_dock_add">+ Add</string>
+    <string name="floating_dock_add">Choose app</string>
     <string name="floating_dock_close">×</string>
     <string name="floating_dock_no_slot">All four small windows are occupied. Swipe one away first.</string>
     <string name="floating_dock_loading">Loading apps… Tap to cancel</string>

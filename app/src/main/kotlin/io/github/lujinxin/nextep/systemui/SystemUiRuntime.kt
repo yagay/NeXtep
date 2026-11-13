@@ -197,7 +197,6 @@ object SystemUiRuntime {
             TaskSurfaceCompat.initializeTaskAccess(applicationContext)
             WorkspaceDisplayTransitionHook.initialize(applicationContext)
             val mainTaskPresenter = MainTaskPresentationCoordinator(applicationContext)
-            floatingDock = FloatingSlotDockController(applicationContext)
             windowController = NeXtepWindowController(
                 context = applicationContext,
                 mainTaskPresenter = mainTaskPresenter,
@@ -205,6 +204,11 @@ object SystemUiRuntime {
                 onSettingsRequested = ::openSettingsFromTopBar,
                 onExitRequested = ::closeWorkspaceFromGesture,
                 onViewportChanged = ::reconfigureForViewport,
+            )
+            // Share the exact saved slot dimensions/rotation profile with the
+            // optional horizontal dock, but never share task or window ownership.
+            floatingDock = FloatingSlotDockController(
+                applicationContext, windowController::recordedLayoutProfile,
             )
             workspaceController = WorkspaceController(
                 applicationContext = applicationContext,
