@@ -10,7 +10,10 @@ package io.github.lujinxin.nextep.framework
  * display to participate in top focus/IME, but may move focus away from the
  * phone's main display. Users can disable Pad mode to restore that behavior.
  *
- * Never request ALWAYS_UNLOCKED or show lockscreen task content.
+ * PAD first tries an independent unlocked virtual display. This is internal
+ * to NeXtep; the host preview remains hidden behind the physical keyguard.
+ * ALWAYS_UNLOCKED affects keyguard treatment, not display power, and is
+ * always paired with OWN_DISPLAY_GROUP. Rejected combinations fall back.
  */
 object FloatingPadFocusPolicy {
     private val base = listOf("OWN_CONTENT_ONLY", "PRESENTATION")
@@ -20,6 +23,7 @@ object FloatingPadFocusPolicy {
         val focus = trusted && "OWN_FOCUS" in available
         val group = "OWN_DISPLAY_GROUP" in available
         val noSteal = focus && "STEAL_TOP_FOCUS_DISABLED" in available
+        val unlocked = trusted && group && "ALWAYS_UNLOCKED" in available
         val focusFlags = buildList {
             if (trusted) add("TRUSTED")
             if (focus) add("OWN_FOCUS")
@@ -32,7 +36,10 @@ object FloatingPadFocusPolicy {
 
         if (!focus) return legacy.distinct()
         val noGroup = base + listOf("TRUSTED", "OWN_FOCUS")
+        val unlockedPreferred =
+            if (unlocked) preferred + "ALWAYS_UNLOCKED" else preferred
         return listOf(
+            unlockedPreferred, // Separate keyguard domain when OEM supports it
             preferred, // Pad: allow focus / IME on the virtual display
             antiSteal, // Compatible if Android rejects non-anti-steal focus
             noGroup, // Some OEM builds disallow own display groups
