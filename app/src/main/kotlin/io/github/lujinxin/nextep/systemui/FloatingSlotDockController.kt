@@ -59,6 +59,7 @@ internal class FloatingSlotDockController(
     private var railOffsetPx = 0
     private var previousControl: TextView? = null
     private var nextControl: TextView? = null
+    private var toolbar: LinearLayout? = null
     // The app's SettingsRepository is the source of truth. These are updated
     // from the trusted configuration IPC whenever the user changes Settings.
     private var orientation = FloatingDockRailLayout.Orientation.HORIZONTAL
@@ -85,9 +86,10 @@ internal class FloatingSlotDockController(
         orientation = nextOrientation
         sizePercent = nextSize
         railOffsetPx = 0
-        previousControl?.text = if (isVertical()) "↑" else "‹"
-        nextControl?.text = if (isVertical()) "↓" else "›"
-        if (isExpanded()) reconfigure()
+        if (isExpanded()) {
+            buildToolbarControls()
+            reconfigure()
+        }
         NeXtepLog.info("floating_dock", "Settings updated orientation=$orientation scale=$sizePercent%")
     }
 
@@ -118,9 +120,13 @@ internal class FloatingSlotDockController(
             profile = recorded
             panel = layout
             val root = FrameLayout(context).apply {
-                clipChildren = false
-                background = rounded(Color.argb(245, 21, 32, 44), dp(18))
-                elevation = dp(8).toFloat()
+                clipChildren = true
+                clipToPadding = true
+                // The old opaque full-size backing rectangle is removed.
+                // Only the real preview tiles and compact control buttons
+                // draw; empty space is never a blue/black panel.
+                setBackgroundColor(Color.TRANSPARENT)
+                elevation = 0f
             }
             val frames = FrameLayout(context).apply {
                 clipChildren = false
@@ -151,25 +157,12 @@ internal class FloatingSlotDockController(
             }
             slots = newSlots
             layoutCells(layout)
-            val controls = LinearLayout(context).apply {
-                gravity = Gravity.CENTER_VERTICAL
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(3), 0, dp(3), 0)
-                // Compact controls remain reachable even in the one-column
-                // portrait dock positioned beside the bubble.
-                previousControl = action(if (isVertical()) "↑" else "‹", Color.WHITE) {
-                    stepRail(forward = false)
-                }.also { addView(it, LinearLayout.LayoutParams(0, -1, 1f)) }
-                nextControl = action(if (isVertical()) "↓" else "›", Color.WHITE) {
-                    stepRail(forward = true)
-                }.also { addView(it, LinearLayout.LayoutParams(0, -1, 1f)) }
-                addView(action("＋", Color.WHITE) { showPicker() }.apply {
-                    contentDescription = str(R.string.floating_dock_add)
-                }, LinearLayout.LayoutParams(0, -1, 1f))
-                addView(action("×", Color.WHITE) { collapse() },
-                    LinearLayout.LayoutParams(0, -1, 1f))
+            toolbar = LinearLayout(context).apply {
+                gravity = Gravity.CENTER
+                orientation = if (isVertical()) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             }
-            root.addView(controls, FrameLayout.LayoutParams(-1, layout.header, Gravity.TOP))
+            root.addView(toolbar, FrameLayout.LayoutParams(-1, layout.header, Gravity.TOP))
+            buildToolbarControls()
             val pick = FrameLayout(context).apply {
                 visibility = View.GONE
                 background = rounded(Color.argb(252, 20, 33, 45), dp(14))
@@ -201,6 +194,8 @@ internal class FloatingSlotDockController(
                 x = layout.x
                 y = layout.y
                 title = "NeXtepFloatingSlotDock"
+                // We own a precisely clamped OS safe rectangle even though
+                // the WindowManager layer can physically cover system bars.
                 setFitInsetsTypes(0)
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -278,12 +273,14 @@ internal class FloatingSlotDockController(
             wnd.y = dimensions.y
             railViewport?.layoutParams = FrameLayout.LayoutParams(dimensions.width,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
+            toolbar?.layoutParams = FrameLayout.LayoutParams(-1, dimensions.header, Gravity.TOP)
             grid?.layoutParams = FrameLayout.LayoutParams(dimensions.railWidth, dimensions.railHeight)
             picker?.layoutParams = FrameLayout.LayoutParams(-1,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
             layoutCells(dimensions)
             applyRailOffset()
             manager?.updateViewLayout(root, wnd)
+            if (picker?.visibility == View.VISIBLE) placeExpandedPicker()
         }.onFailure {
             NeXtepLog.warn("floating_dock", "Rotation reflow failed; closing dock", it)
             collapse()
@@ -299,6 +296,7 @@ internal class FloatingSlotDockController(
         railOffsetPx = 0
         previousControl = null
         nextControl = null
+        toolbar = null
         picker = null
         pickerList = null
         profile = null
@@ -317,6 +315,7 @@ internal class FloatingSlotDockController(
         val position = FloatingDockPlacement.calculate(
             width, height, plan.panelWidth, plan.panelHeight, bubbleAnchor,
             recorded.densityDpi / 160f,
+            FloatingDockSafeArea.measure(context, manager),
         )
         return Panel(position.width, position.height, plan.headerHeight, plan.gap,
             plan.padding, plan.railContentWidth, plan.railHeight, plan.cells,
@@ -332,6 +331,63 @@ internal class FloatingSlotDockController(
                 leftMargin = cell.x
                 topMargin = cell.y
             }
+        }
+    }
+
+    /**
+     * Horizontal mode uses one short toolbar row; vertical mode uses a tight
+     * 2x2 control cluster so a narrow live preview never reserves 240dp.
+     * Buttons have their own small background, not a full-width backdrop.
+     */
+    private fun buildToolbarControls() {
+        val target = toolbar ?: return
+        target.removeAllViews()
+        target.orientation = if (isVertical()) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        target.gravity = Gravity.CENTER
+        val button = dp(30)
+        val separation = dp(4)
+        fun tiny(label: String, description: String, onClick: () -> Unit): TextView =
+            action(label, Color.WHITE, onClick).apply {
+                contentDescription = description
+                textSize = 18f
+                setPadding(0, 0, 0, 0)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.argb(229, 24, 39, 52))
+                    setStroke(dp(1), Color.argb(120, 140, 200, 218))
+                }
+            }
+        previousControl = tiny(if (isVertical()) "↑" else "‹", "Previous floating window") {
+            stepRail(forward = false)
+        }
+        nextControl = tiny(if (isVertical()) "↓" else "›", "Next floating window") {
+            stepRail(forward = true)
+        }
+        val add = tiny("＋", str(R.string.floating_dock_add)) { showPicker() }
+        val close = tiny("×", "Close floating windows") { collapse() }
+        if (isVertical()) {
+            fun row(left: TextView, right: TextView): LinearLayout =
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER
+                    addView(left, LinearLayout.LayoutParams(button, button).apply {
+                        marginEnd = separation / 2
+                    })
+                    addView(right, LinearLayout.LayoutParams(button, button).apply {
+                        marginStart = separation / 2
+                    })
+                }
+            target.addView(row(checkNotNull(previousControl), checkNotNull(nextControl)),
+                LinearLayout.LayoutParams(-2, button).apply { bottomMargin = separation })
+            target.addView(row(add, close), LinearLayout.LayoutParams(-2, button))
+        } else {
+            listOf(checkNotNull(previousControl), checkNotNull(nextControl), add, close)
+                .forEachIndexed { index, buttonView ->
+                    target.addView(buttonView,
+                        LinearLayout.LayoutParams(button, button).apply {
+                            if (index > 0) marginStart = separation
+                        })
+                }
         }
     }
 
@@ -364,7 +420,10 @@ internal class FloatingSlotDockController(
             else layout.railWidth - viewport.width)).coerceAtLeast(0)
         railOffsetPx = railOffsetPx.coerceIn(0, max)
         grid.animate().cancel()
-        val x = if (vertical) 0f else -railOffsetPx.toFloat()
+        // Center narrow columns under their compact 2x2 toolbar, avoiding
+        // a large unused strip beside the actual live cards.
+        val centeredX = ((viewport.width - layout.railWidth).coerceAtLeast(0)) / 2f
+        val x = centeredX - if (vertical) 0f else railOffsetPx.toFloat()
         val y = if (vertical) -railOffsetPx.toFloat() else 0f
         if (animate) grid.animate().translationX(x).translationY(y).setDuration(170).start()
         else {
