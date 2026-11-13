@@ -8,6 +8,8 @@ import android.app.PendingIntent
 
 object TriggerBroadcastContract {
     const val ACTION_TOGGLE_WORKSPACE = "io.github.lujinxin.nextep.action.TOGGLE_WORKSPACE"
+    const val ACTION_TOGGLE_FLOATING_PANEL = "io.github.lujinxin.nextep.action.TOGGLE_FLOATING_PANEL"
+    const val EXTRA_FLOATING_PANEL_ACTIVE = "io.github.lujinxin.nextep.extra.FLOATING_PANEL_ACTIVE"
     const val ACTION_SET_WORKSPACE = "io.github.lujinxin.nextep.action.SET_WORKSPACE"
     const val ACTION_QUERY_WORKSPACE = "io.github.lujinxin.nextep.action.QUERY_WORKSPACE"
     const val ACTION_HOST_TOGGLE_REQUEST = "io.github.lujinxin.nextep.action.HOST_TOGGLE_REQUEST"

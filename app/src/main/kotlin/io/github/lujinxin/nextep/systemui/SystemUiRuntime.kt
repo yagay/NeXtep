@@ -38,6 +38,7 @@ object SystemUiRuntime {
     private val initialized = AtomicBoolean(false)
     private lateinit var applicationContext: Context
     private lateinit var windowController: NeXtepWindowController
+    private lateinit var floatingDock: FloatingSlotDockController
     private lateinit var workspaceController: WorkspaceController
     private lateinit var fourFingerGestures: FourFingerGestureController
     private val lifecycleHandler = Handler(Looper.getMainLooper())
@@ -190,6 +191,7 @@ object SystemUiRuntime {
             TaskSurfaceCompat.initializeTaskAccess(applicationContext)
             WorkspaceDisplayTransitionHook.initialize(applicationContext)
             val mainTaskPresenter = MainTaskPresentationCoordinator(applicationContext)
+            floatingDock = FloatingSlotDockController(applicationContext)
             windowController = NeXtepWindowController(
                 context = applicationContext,
                 mainTaskPresenter = mainTaskPresenter,
@@ -214,6 +216,7 @@ object SystemUiRuntime {
 
             val filter = IntentFilter().apply {
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE)
+                addAction(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL)
                 addAction(TriggerBroadcastContract.ACTION_SET_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_QUERY_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST)
@@ -406,7 +409,13 @@ object SystemUiRuntime {
     private val lifecycleReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) refreshWorkspaceConfig()
-            if (intent.action == Intent.ACTION_SCREEN_OFF) TaskSurfaceCompat.finishWorkspaceExitAnimations()
+            if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                TaskSurfaceCompat.finishWorkspaceExitAnimations()
+                if (::floatingDock.isInitialized) floatingDock.collapse()
+            }
+            if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
+                floatingDock.reconfigure()
+            }
             if (!::workspaceController.isInitialized || !workspaceController.isActive()) return
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
@@ -485,6 +494,14 @@ object SystemUiRuntime {
     }
 
     private fun handleControl(context: Context, intent: Intent): Boolean = when (intent.action) {
+        TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
+            if (!::floatingDock.isInitialized || !::workspaceController.isInitialized ||
+                !isScreenReady() || isKeyguardLocked(context)
+            ) false
+            else if (floatingDock.isExpanded()) floatingDock.collapse()
+            else if (workspaceController.isActive()) false
+            else floatingDock.expand()
+        }
         TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE,
         TriggerBroadcastContract.ACTION_SET_WORKSPACE -> {
             val target = requestedTarget(intent) ?: false
@@ -512,6 +529,10 @@ object SystemUiRuntime {
         putBoolean(
             TriggerBroadcastContract.EXTRA_ACTIVE,
             workspaceController.isActive(),
+        )
+        putBoolean(
+            TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ACTIVE,
+            ::floatingDock.isInitialized && floatingDock.isExpanded(),
         )
         putString(
             TriggerBroadcastContract.EXTRA_HOME_PACKAGE,

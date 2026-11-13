@@ -28,8 +28,7 @@ import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.config.MainActivity
 import io.github.lujinxin.nextep.config.SettingsRepository
 import io.github.lujinxin.nextep.logging.NeXtepLog
-import io.github.lujinxin.nextep.trigger.TriggerCoordinator
-import io.github.lujinxin.nextep.trigger.TriggerSource
+import io.github.lujinxin.nextep.trigger.FloatingPanelCommand
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -166,9 +165,9 @@ class FloatingBubbleService : Service() {
     }
 
     private fun toggleWorkspace() {
-        TriggerCoordinator.requestToggle(this, TriggerSource.FLOATING_BUBBLE) { result ->
-            if (result is TriggerCoordinator.RequestResult.NotReady) {
-                NeXtepLog.warn("floating_workspace", "Workspace toggle rejected: ${result.reason}")
+        FloatingPanelCommand.toggle(this) { result ->
+            if (result is FloatingPanelCommand.Result.Failed) {
+                NeXtepLog.warn("floating_workspace", "Floating panel toggle rejected: ${result.reason}")
                 handler.post {
                     Toast.makeText(this, getString(R.string.floating_module_not_ready, result.reason),
                         Toast.LENGTH_LONG).show()
