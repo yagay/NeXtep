@@ -239,4 +239,11 @@
     <string name="floating_layout_apply">套用</string>
     <string name="floating_pad_mode_title">Pad 多工模式（實驗性）</string>
     <string name="floating_pad_mode_summary">優先使用平板式獨立顯示器焦點，讓多個小視窗應用盡量同時保持活動。可能影響輸入法與主畫面焦點；下次新建懸浮工作台時生效，現有應用不會重啟。</string>
+    <string name="playback_compat_enabled_title">小視窗播放器背景相容</string>
+    <string name="playback_compat_enabled_summary">僅監測選取的小視窗播放器與媒體工作階段；預設關閉。</string>
+    <string name="playback_compat_auto_title">折疊後嘗試恢復播放（實驗性）</string>
+    <string name="playback_compat_auto_summary">僅在選取應用折疊前正在播放、其後意外暫停時，嘗試一次媒體播放；鎖定、通話及其他播放器播放時不觸發。需要媒體工作階段存取權限。</string>
+    <string name="playback_compat_apps_title">選擇播放器應用</string>
+    <string name="playback_compat_apps_summary">僅對選取應用監測與恢復；其他應用不受影響。</string>
+    <string name="playback_compat_apps_count">已選 %1$d 個</string>
 </resources>
