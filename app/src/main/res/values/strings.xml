@@ -225,4 +225,21 @@
     <string name="settings_group_display_summary">Navigation bar and glass effects</string>
     <string name="settings_group_expand">Expand</string>
     <string name="settings_group_collapse">Collapse</string>
+    <string name="scope_restart_title">Restart LSPosed scope</string>
+    <string name="scope_restart_summary">Restart selected hooked app processes individually (Root required). Does not change enabled scopes.</string>
+    <string name="scope_restart_manage">Choose</string>
+    <string name="scope_restart_select_title">Select a process</string>
+    <string name="scope_restart_systemui">System UI · com.android.systemui</string>
+    <string name="scope_restart_launcher_oplus">OPlus Launcher · com.oplus.launcher</string>
+    <string name="scope_restart_launcher_aosp">Android Launcher · com.android.launcher</string>
+    <string name="scope_restart_multiapp">Cloned apps service · com.oplus.multiapp</string>
+    <string name="scope_restart_assistant">Assistant screen · com.coloros.assistantscreen</string>
+    <string name="scope_restart_framework">Android framework · android / system (device reboot required)</string>
+    <string name="scope_restart_framework_warning">system_server is a core Android process. It cannot be safely restarted in isolation. Reboot the phone to reload its hooks.</string>
+    <string name="scope_restart_confirm_title">Restart %1$s?</string>
+    <string name="scope_restart_confirm_summary">Root will send a termination signal to this specific process. Its UI may disappear temporarily, and Android may restart it when needed. Save unsaved work before continuing.</string>
+    <string name="scope_restart_action">Restart process</string>
+    <string name="scope_restart_requested">Restart signal sent to %1$s. The process may relaunch automatically.</string>
+    <string name="scope_restart_failed">Could not request restart: %1$s</string>
+    <string name="scope_restart_busy">Requesting…</string>
 </resources>

@@ -217,4 +217,21 @@
     <string name="settings_group_display_summary">導覽列及霧面效果</string>
     <string name="settings_group_expand">展開</string>
     <string name="settings_group_collapse">收起</string>
+    <string name="scope_restart_title">單獨重啟作用域</string>
+    <string name="scope_restart_summary">分別重啟已注入的應用程式程序，需 Root；不會更改 LSPosed 作用域開關。</string>
+    <string name="scope_restart_manage">選擇</string>
+    <string name="scope_restart_select_title">選擇要重啟的程序</string>
+    <string name="scope_restart_systemui">系統介面 · com.android.systemui</string>
+    <string name="scope_restart_launcher_oplus">OPlus 桌面 · com.oplus.launcher</string>
+    <string name="scope_restart_launcher_aosp">Android 桌面 · com.android.launcher</string>
+    <string name="scope_restart_multiapp">應用程式分身 · com.oplus.multiapp</string>
+    <string name="scope_restart_assistant">負一屏 · com.coloros.assistantscreen</string>
+    <string name="scope_restart_framework">系統框架 · android / system（需重啟手機）</string>
+    <string name="scope_restart_framework_warning">system_server 是 Android 核心程序，無法安全地單獨重啟。需要重新載入這部分 Hook 時，請重啟手機。</string>
+    <string name="scope_restart_confirm_title">重啟 %1$s？</string>
+    <string name="scope_restart_confirm_summary">將使用 Root 向該程序發送終止訊號。相應介面可能短暫消失，系統通常會按需重新啟動。請先儲存尚未完成的操作。</string>
+    <string name="scope_restart_action">重啟程序</string>
+    <string name="scope_restart_requested">已向 %1$s 發送重啟請求，系統可能自動重新啟動該程序。</string>
+    <string name="scope_restart_failed">重啟請求失敗：%1$s</string>
+    <string name="scope_restart_busy">正在執行…</string>
 </resources>
