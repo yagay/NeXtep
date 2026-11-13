@@ -72,6 +72,36 @@ internal object AdvancedScreen {
                 isFocusable = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, LinearLayout.LayoutParams(-1, -2))
+            // One-tap SAF export for App, SystemUI and optional root NeXtep logs.
+            // The ZIP is created only at the location explicitly selected by the user.
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(80)
+                setPadding(0, dp(12), 0, dp(12))
+                addView(LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    addView(heading(R.string.diagnostic_export_title, 16f))
+                    addView(paragraph(activity.getString(R.string.diagnostic_export_summary)).apply {
+                        textSize = 13f
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
+                val button = SettingsRowButton.create(activity).apply {
+                    setText(R.string.diagnostic_export_action)
+                    minWidth = dp(72)
+                    setOnClickListener {
+                        (activity as? MainActivity)?.exportDiagnosticLogs()
+                    }
+                }
+                addView(button)
+                setOnClickListener { button.performClick() }
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(-1, -2))
+            addView(paragraph(activity.getString(R.string.diagnostic_export_privacy)).apply {
+                textSize = 12f
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
             addView(sectionHeading(activity, R.string.advanced_commands_title),
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(28); bottomMargin = dp(12) })
             addView(paragraph(activity.getString(R.string.advanced_intro)),
