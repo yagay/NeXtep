@@ -91,11 +91,11 @@ object SystemUiRuntime {
                         workspaceConfig.floatingDockSizePercent,
                     )
                 }
-                // Disabling the optional bubble must close only the floating dock,
-                // never the original side workspace.
+                // A hidden floating session still owns live VirtualDisplays.
+                // Disabling the feature fully shuts down only that session.
                 if (!workspaceConfig.floatingBubbleEnabled &&
-                    ::floatingDock.isInitialized && floatingDock.isExpanded()
-                ) floatingDock.collapse()
+                    ::floatingDock.isInitialized && floatingDock.hasSession()
+                ) floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.FEATURE_DISABLED)
             }
             NeXtepLog.info(
                 "workspace_config",
@@ -347,8 +347,8 @@ object SystemUiRuntime {
         if (!isStatusBarGestureEnabled() || !::workspaceController.isInitialized) return
         val target = !workspaceController.isActive()
         if (target && isKeyguardLocked(applicationContext)) return
-        if (target && ::floatingDock.isInitialized && floatingDock.isExpanded() &&
-            !floatingDock.collapse()) return
+        if (target && ::floatingDock.isInitialized && floatingDock.hasSession() &&
+            !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) return
         if (workspaceController.setActive(target)) {
             publishWorkspaceSurfaceState(target)
             if (!target) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -375,8 +375,8 @@ object SystemUiRuntime {
             !::workspaceController.isInitialized || !isScreenReady() || isKeyguardLocked(applicationContext) ||
             workspaceController.isSuspended() || workspaceController.isActive() == active
         ) return
-        if (active && ::floatingDock.isInitialized && floatingDock.isExpanded() &&
-            !floatingDock.collapse()) return
+        if (active && ::floatingDock.isInitialized && floatingDock.hasSession() &&
+            !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) return
         if (workspaceController.setActive(active)) {
             publishWorkspaceSurfaceState(active)
             if (!active) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -432,12 +432,13 @@ object SystemUiRuntime {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) {
                 refreshWorkspaceConfig()
-                // Retry any task-safe cleanup deferred while the screen was locked.
-                if (::floatingDock.isInitialized) floatingDock.collapse()
+                // Keep existing floating tasks across unlock. The panel
+                // remains hidden until the user taps the bubble again.
             }
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 TaskSurfaceCompat.finishWorkspaceExitAnimations()
-                if (::floatingDock.isInitialized) floatingDock.hideForLock()
+                if (::floatingDock.isInitialized)
+                    floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
             }
             if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
                 floatingDock.reconfigure()
@@ -562,7 +563,8 @@ object SystemUiRuntime {
                 !workspaceConfigReady || !workspaceConfig.floatingBubbleEnabled ||
                 !isScreenReady() || isKeyguardLocked(context)
             ) false
-            else if (floatingDock.isExpanded()) floatingDock.collapse()
+            else if (floatingDock.isExpanded())
+                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
             else if (workspaceController.isActive()) false
             else floatingDock.expand(bubbleAnchorFrom(intent))
         }
@@ -573,8 +575,8 @@ object SystemUiRuntime {
                     intent.getBooleanExtra(TriggerBroadcastContract.EXTRA_ONLY_IF_INACTIVE, false),
                     workspaceController.isActive())) true
             else if (target && isKeyguardLocked(context)) false
-            else if (target && ::floatingDock.isInitialized && floatingDock.isExpanded() &&
-                !floatingDock.collapse()) false
+            else if (target && ::floatingDock.isInitialized && floatingDock.hasSession() &&
+                !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) false
             else workspaceController.setActive(target).also { handled ->
                 // The tile/coordinated path must also restore the separate assistant panel.
                 if (handled) publishWorkspaceSurfaceState(target)
@@ -584,8 +586,8 @@ object SystemUiRuntime {
         TriggerBroadcastContract.ACTION_QUERY_DIAGNOSTICS -> true
         TriggerBroadcastContract.ACTION_FOUR_FINGER_WORKSPACE -> fourFingerGestures.handleRequest(intent)
         TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST -> {
-            val canSwitch = !::floatingDock.isInitialized || !floatingDock.isExpanded() ||
-                floatingDock.collapse()
+            val canSwitch = !::floatingDock.isInitialized || !floatingDock.hasSession() ||
+                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SLOT_TEST_SWITCH)
             val active = canSwitch &&
                 (workspaceController.isActive() || workspaceController.setActive(true))
             active && workspaceController.launchInSlot(
