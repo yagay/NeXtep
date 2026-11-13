@@ -53,7 +53,7 @@ class WorkspaceLayoutProfileTest {
     }
 
     @Test
-    fun everySlotFillsItsRecordedBoundsInBothNavigationModesAndRotations() {
+    fun everySlotFitsItsRecordedBoundsInBothNavigationModesAndRotations() {
         for ((width, height, densityDpi) in listOf(
             Triple(1080, 2354, 480), Triple(2354, 1080, 480),
             Triple(1600, 2560, 320), Triple(2560, 1600, 320),
@@ -70,8 +70,12 @@ class WorkspaceLayoutProfileTest {
                         val drawnHeight = slot.height * transform.scaleY
                         val message = "$width x $height navigation=$insets side=$side slot=$index"
                         // Whole-buffer fitting may leave at most integer-pixel rounding.
-                        assertEquals(message, slot.width.toFloat(), drawnWidth, 1.5f)
-                        assertEquals(message, slot.height.toFloat(), drawnHeight, 1.5f)
+                        // Keep the entire app visible even when the control bar
+                        // minimum makes a four-slot rail slightly letterboxed.
+                        assertTrue(message, drawnWidth <= slot.width + 1.5f)
+                        assertTrue(message, drawnHeight <= slot.height + 1.5f)
+                        assertTrue(message, kotlin.math.abs(slot.width - drawnWidth) <= 1.5f ||
+                            kotlin.math.abs(slot.height - drawnHeight) <= 1.5f)
                         assertEquals(message, slot.width / positioned.canvas.width.toFloat() * transform.scaleX,
                             slot.height / positioned.canvas.height.toFloat() * transform.scaleY, .000001f)
                     }
