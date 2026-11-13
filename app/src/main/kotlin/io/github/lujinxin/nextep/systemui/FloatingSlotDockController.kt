@@ -47,6 +47,7 @@ internal class FloatingSlotDockController(
     private data class Panel(
         val width: Int, val height: Int, val header: Int, val gap: Int, val pad: Int,
         val railWidth: Int, val railHeight: Int, val cells: List<FloatingDockRailLayout.Cell>,
+        val x: Int, val y: Int,
     )
 
     private val manager = context.getSystemService(WindowManager::class.java)
@@ -60,14 +61,26 @@ internal class FloatingSlotDockController(
     private var slots: List<VirtualDisplaySlot> = emptyList()
     private var profile: WorkspaceLayoutProfile? = null
     private var panel: Panel? = null
+    private var bubbleAnchor: FloatingDockPlacement.Anchor? = null
     private var pickerGeneration = 0
     var lastError: String? = null
         private set
 
     fun isExpanded(): Boolean = host != null
 
-    fun expand(): Boolean {
-        if (isExpanded()) return true
+    /** Move the already visible panel without recreating its live task displays. */
+    fun updateAnchor(anchor: FloatingDockPlacement.Anchor) {
+        if (bubbleAnchor == anchor) return
+        bubbleAnchor = anchor
+        if (isExpanded()) reconfigure()
+    }
+
+    fun expand(anchor: FloatingDockPlacement.Anchor? = null): Boolean {
+        if (isExpanded()) {
+            if (anchor != null) updateAnchor(anchor)
+            return true
+        }
+        bubbleAnchor = anchor
         lastError = null
         val type = SystemUiWindowTypeResolver.resolve() ?: run {
             lastError = "SystemUI overlay window type unsupported"
@@ -170,8 +183,8 @@ internal class FloatingSlotDockController(
                 PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.TOP or Gravity.LEFT
-                x = (screenWidth - layout.width - dp(12)).coerceAtLeast(0)
-                y = ((screenHeight - layout.height) / 2).coerceAtLeast(0)
+                x = layout.x
+                y = layout.y
                 title = "NeXtepFloatingSlotDock"
                 setFitInsetsTypes(0)
                 layoutInDisplayCutoutMode =
@@ -188,7 +201,8 @@ internal class FloatingSlotDockController(
                 returnAfterSharing = { false },
             )
             checkNotNull(coordinator).activate()
-            NeXtepLog.info("floating_dock", "Expanded original-profile horizontal slots; single-tap add and swap active")
+            NeXtepLog.info("floating_dock",
+                "Expanded beside bubble x=${layout.x} y=${layout.y}, horizontal original-size slots")
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
@@ -244,8 +258,8 @@ internal class FloatingSlotDockController(
             val wnd = root.layoutParams as WindowManager.LayoutParams
             wnd.width = dimensions.width
             wnd.height = dimensions.height
-            wnd.x = (screenWidth - dimensions.width - dp(12)).coerceAtLeast(0)
-            wnd.y = ((screenHeight - dimensions.height) / 2).coerceAtLeast(0)
+            wnd.x = dimensions.x
+            wnd.y = dimensions.y
             railScroll?.layoutParams = FrameLayout.LayoutParams(dimensions.width,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
             grid?.layoutParams = FrameLayout.LayoutParams(dimensions.railWidth, dimensions.railHeight)
@@ -279,8 +293,13 @@ internal class FloatingSlotDockController(
             width, height, context.resources.displayMetrics.density,
             recorded.slots.map { it.width to it.height },
         )
-        return Panel(plan.panelWidth, plan.panelHeight, plan.headerHeight, plan.gap,
-            plan.padding, plan.railContentWidth, plan.railHeight, plan.cells)
+        val position = FloatingDockPlacement.calculate(
+            width, height, plan.panelWidth, plan.panelHeight, bubbleAnchor,
+            recorded.densityDpi / 160f,
+        )
+        return Panel(position.width, position.height, plan.headerHeight, plan.gap,
+            plan.padding, plan.railContentWidth, plan.railHeight, plan.cells,
+            position.x, position.y)
     }
 
     private fun layoutCells(sizes: Panel) {
