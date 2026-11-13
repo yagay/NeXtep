@@ -11,6 +11,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import io.github.lujinxin.nextep.R
+import io.github.lujinxin.nextep.config.AppLanguage
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -46,7 +47,7 @@ internal class FloatingWorkspaceBubble(
             textSize = 27f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            contentDescription = context.getString(R.string.floating_bubble_open)
+            contentDescription = AppLanguage.string(context, R.string.floating_bubble_open)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.argb(238, 30, 52, 65))
@@ -55,7 +56,7 @@ internal class FloatingWorkspaceBubble(
             elevation = dp(5).toFloat()
         }
         addView(button, LayoutParams(diameter, diameter, Gravity.CENTER))
-        contentDescription = context.getString(R.string.floating_bubble_open)
+        contentDescription = AppLanguage.string(context, R.string.floating_bubble_open)
         isClickable = true
         isFocusable = false
         setOnClickListener { onOpen() }
