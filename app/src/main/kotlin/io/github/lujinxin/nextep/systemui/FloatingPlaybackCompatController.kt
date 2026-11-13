@@ -227,7 +227,16 @@ internal class FloatingPlaybackCompatController(context: Context) {
                 alreadyAttempted = session in tried,
                 millisecondsSinceLock = now - lockedAt,
             )
-            if (!allowed || generation != token || !tried.add(session)) return@forEach
+            if (!allowed) {
+                NeXtepLog.info("playback_compat",
+                    "Lock audio skipped package=${controller.packageName} state=${state?.state} " +
+                        "supportsPlay=$canPlay screenOff=${powerManager?.isInteractive == false} " +
+                        "audioNormal=$audioNormal competing=${playingTokens.any { it != session }} " +
+                        "sessionStillSelected=${controller.packageName in slotPackages} " +
+                        "ageMs=${now - lockedAt}")
+                return@forEach
+            }
+            if (generation != token || !tried.add(session)) return@forEach
             runCatching { controller.transportControls.play() }
                 .onSuccess {
                     NeXtepLog.info("playback_compat",
