@@ -60,10 +60,28 @@ internal class FloatingPlaybackCompatController(context: Context) {
     }
 
     fun onSlotPackagesChanged(packages: Set<String>) {
+        val previous = slotPackages
         slotPackages = packages.toSet()
-        if (visible && config.enabled) handler.removeCallbacks(sampleVisible).also {
-            handler.post(sampleVisible)
+        val setting = config
+        if (!visible || !setting.enabled) return
+        // When a playing app is moved from display 0 into a floating slot,
+        // its MediaSession may pause even though the panel is still visible.
+        // The visible monitor observes selected packages on BOTH displays,
+        // but only tries recovery once the app actually occupies a slot.
+        val added = packages - previous
+        val now = SystemClock.elapsedRealtime()
+        val eligible = lastPlaying.filterValues {
+            it.packageName in added && it.packageName in setting.packages &&
+                now - it.at in 0L..3_000L
         }
+        if (setting.autoResume && eligible.isNotEmpty()) {
+            val token = ++generation
+            NeXtepLog.info("playback_compat",
+                "Selected playing app entered floating slot count=${eligible.size}")
+            scheduleRecovery(token, now, eligible, requireHidden = false)
+        }
+        handler.removeCallbacks(sampleVisible)
+        handler.post(sampleVisible)
     }
 
     fun onVisibilityChanged(show: Boolean, packages: Set<String>, lockEvent: Boolean = false) {
@@ -93,12 +111,19 @@ internal class FloatingPlaybackCompatController(context: Context) {
             return
         }
         NeXtepLog.info("playback_compat", "Fold observed ${eligible.size} recently playing session(s)")
+        scheduleRecovery(nextGeneration, now, eligible, requireHidden = true)
+    }
+
+    private fun scheduleRecovery(token: Long, eventAt: Long,
+                                 eligible: Map<MediaSession.Token, Playing>,
+                                 requireHidden: Boolean) {
         val tried = mutableSetOf<MediaSession.Token>()
-        // One short window of checks. The user can still pause normally later.
+        // Only two checks and at most ONE play command per session.
+        // A later manual pause is never subjected to a retry loop.
         for (delay in listOf(850L, 1_850L)) {
             handler.postDelayed({
-                if (generation == nextGeneration && !visible) {
-                    worker.execute { tryRecover(nextGeneration, now, eligible, tried) }
+                if (generation == token && (!requireHidden || !visible)) {
+                    worker.execute { tryRecover(token, eventAt, eligible, tried, requireHidden) }
                 }
             }, delay)
         }
@@ -117,11 +142,9 @@ internal class FloatingPlaybackCompatController(context: Context) {
             val setting = config
             if (!visible || !setting.enabled || setting.packages.isEmpty()) return
             val token = generation
-            val tracked = slotPackages.intersect(setting.packages)
-            if (tracked.isEmpty()) {
-                handler.postDelayed(this, 1_800L)
-                return
-            }
+            // Observe only user-selected apps, including a player that is
+            // *about to be moved* from the main screen into an empty slot.
+            val tracked = setting.packages
             worker.execute {
                 val controllers = sessionsOrNull()
                 val at = SystemClock.elapsedRealtime()
@@ -157,8 +180,9 @@ internal class FloatingPlaybackCompatController(context: Context) {
         foldedAt: Long,
         eligible: Map<MediaSession.Token, Playing>,
         tried: MutableSet<MediaSession.Token>,
+        requireHidden: Boolean,
     ) {
-        if (generation != token || visible) return
+        if (generation != token || (requireHidden && visible)) return
         val setting = config
         val now = SystemClock.elapsedRealtime()
         val controllers = sessionsOrNull() ?: return
@@ -192,12 +216,14 @@ internal class FloatingPlaybackCompatController(context: Context) {
             )
             if (!shouldPlay) return@forEach
             // The generation can change while a Binder query is in progress.
-            if (generation != token || visible || !tried.add(session)) return@forEach
+            if (generation != token || (requireHidden && visible) ||
+                !tried.add(session)) return@forEach
             runCatching { controller.transportControls.play() }
                 .onSuccess {
                     NeXtepLog.info("playback_compat",
                         "One-shot MediaSession play requested package=${controller.packageName}, " +
-                            "foldAgeMs=${now - foldedAt}; not a guarantee of actual playback")
+                            "eventAgeMs=${now - foldedAt} hidden=$requireHidden; " +
+                            "not a guarantee of actual playback")
                 }.onFailure { error ->
                     NeXtepLog.warn("playback_compat",
                         "Session rejected recovery for package=${controller.packageName}", error)
