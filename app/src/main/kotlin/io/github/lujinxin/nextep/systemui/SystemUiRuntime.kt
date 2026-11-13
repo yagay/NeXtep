@@ -108,9 +108,9 @@ object SystemUiRuntime {
                         workspaceConfig.floatingDockOrientation,
                         workspaceConfig.floatingDockSizePercent,
                     )
-                    floatingDock.applyPadModeSetting(
-                        workspaceConfig.floatingPadModeEnabled ||
-                            workspaceConfig.floatingIndependentDisplayEnabled)
+                    floatingDock.applyPadModeSetting(workspaceConfig.floatingPadModeEnabled)
+                    floatingDock.applyIndependentDisplaySetting(
+                        workspaceConfig.floatingIndependentDisplayEnabled)
                     floatingDock.applyPlaybackCompatSettings(
                         workspaceConfig.playbackCompatEnabled,
                         workspaceConfig.playbackCompatAutoResume,
