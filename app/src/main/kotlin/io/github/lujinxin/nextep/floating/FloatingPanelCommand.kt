@@ -12,7 +12,7 @@ import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 object FloatingPanelCommand {
     sealed interface Result {
         data class Ready(val expanded: Boolean) : Result
-        data class Failed(val reason: String) : Result
+        data class Failed(val reason: String, val remoteTrace: String? = null) : Result
     }
 
     /**
@@ -52,7 +52,9 @@ object FloatingPanelCommand {
                         } else {
                             finish(Result.Failed(extras?.getString(
                                 TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
-                            ) ?: "Floating panel unavailable in SystemUI"))
+                            ) ?: "Floating panel unavailable in SystemUI", extras?.getString(
+                                TriggerBroadcastContract.EXTRA_FLOATING_PANEL_TRACE,
+                            )))
                         }
                     }
                 }, handler, TriggerBroadcastContract.RESULT_NOT_READY, null, Bundle(),
