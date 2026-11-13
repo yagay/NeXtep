@@ -1203,7 +1203,6 @@ class SlotTaskCoordinator(
                 // The ordinary workspace reserves a *scaled* surface during
                 // promotion. The floating dock must instead remove every
                 // stored SurfaceControl matrix/crop before revealing the app.
-                TaskSurfaceCompat.restore(slotTask.taskId).getOrThrow()
                 WindowContainerTransactionCompat.applyTaskBounds(
                     checkNotNull(taskRepository.findTask(slotTask.taskId)?.token),
                     Rect(),
@@ -1242,6 +1241,20 @@ class SlotTaskCoordinator(
             val presentation = mainTaskPresenter.presentTask(slotTask.taskId, geometryProvider())
             if (presentation.isFailure && taskRepository.findTask(slotTask.taskId) != null) {
                 presentation.getOrThrow()
+            }
+            if (preserveFullscreenMain) {
+                // The old virtual display may have left a compositor crop on
+                // this task's leash. A no-op main presenter cannot clear it.
+                TaskSurfaceCompat.resetPromotedSlotToFullscreen(slotTask.taskId).onFailure {
+                    NeXtepLog.warn("floating_dock", "Fullscreen compositor reset pending", it)
+                }
+                handler.postDelayed({
+                    if (taskRepository.findTask(slotTask.taskId)?.displayId == Display.DEFAULT_DISPLAY) {
+                        TaskSurfaceCompat.resetPromotedSlotToFullscreen(slotTask.taskId).onFailure {
+                            NeXtepLog.warn("floating_dock", "Fullscreen compositor retry failed", it)
+                        }
+                    }
+                }, 350L)
             }
             schedulePromotedTaskRecovery()
         } catch (error: Throwable) {
