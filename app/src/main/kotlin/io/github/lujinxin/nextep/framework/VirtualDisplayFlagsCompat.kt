@@ -13,6 +13,7 @@ object VirtualDisplayFlagsCompat {
             "VIRTUAL_DISPLAY_FLAG_TRUSTED" to "TRUSTED",
             "VIRTUAL_DISPLAY_FLAG_OWN_FOCUS" to "OWN_FOCUS",
             "VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP" to "OWN_DISPLAY_GROUP",
+            "VIRTUAL_DISPLAY_FLAG_ALWAYS_UNLOCKED" to "ALWAYS_UNLOCKED",
             "VIRTUAL_DISPLAY_FLAG_STEAL_TOP_FOCUS_DISABLED" to "STEAL_TOP_FOCUS_DISABLED",
         ).mapNotNull { (fieldName, label) ->
             readFlag(fieldName)?.let { label to it }
