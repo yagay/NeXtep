@@ -227,6 +227,7 @@ object SystemUiRuntime {
             val filter = IntentFilter().apply {
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL)
+                addAction(TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR)
                 addAction(TriggerBroadcastContract.ACTION_SET_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_QUERY_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST)
@@ -519,7 +520,28 @@ object SystemUiRuntime {
         else -> null
     }
 
+    private fun bubbleAnchorFrom(intent: Intent): FloatingDockPlacement.Anchor? {
+        if (!intent.hasExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_X) ||
+            !intent.hasExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_Y) ||
+            !intent.hasExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_SIZE)
+        ) return null
+        val size = intent.getIntExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_SIZE, 0)
+        if (size <= 0) return null
+        return FloatingDockPlacement.Anchor(
+            intent.getIntExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_X, 0),
+            intent.getIntExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_Y, 0),
+            size,
+        )
+    }
+
     private fun handleControl(context: Context, intent: Intent): Boolean = when (intent.action) {
+        TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR -> {
+            if (!::floatingDock.isInitialized) false
+            else {
+                bubbleAnchorFrom(intent)?.let { floatingDock.updateAnchor(it) }
+                true
+            }
+        }
         TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
             if (!::floatingDock.isInitialized || !::workspaceController.isInitialized ||
                 !workspaceConfigReady || !workspaceConfig.floatingBubbleEnabled ||
@@ -527,7 +549,7 @@ object SystemUiRuntime {
             ) false
             else if (floatingDock.isExpanded()) floatingDock.collapse()
             else if (workspaceController.isActive()) false
-            else floatingDock.expand()
+            else floatingDock.expand(bubbleAnchorFrom(intent))
         }
         TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE,
         TriggerBroadcastContract.ACTION_SET_WORKSPACE -> {
