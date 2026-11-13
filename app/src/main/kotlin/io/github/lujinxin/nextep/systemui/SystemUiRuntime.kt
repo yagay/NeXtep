@@ -112,6 +112,7 @@ object SystemUiRuntime {
                     floatingDock.applyPlaybackCompatSettings(
                         workspaceConfig.playbackCompatEnabled,
                         workspaceConfig.playbackCompatAutoResume,
+                        workspaceConfig.playbackCompatLockAudio,
                         workspaceConfig.playbackCompatPackages,
                     )
                 }
