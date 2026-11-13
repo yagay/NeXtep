@@ -149,6 +149,36 @@ The control area and slot backgrounds use the wallpaper, including adaptations f
 - **About:** view the installed version, check for updates, open release and source pages, and read license information and acknowledgements.
 - **Update download:** view available release notes and open the APK download in a browser. Downloaded updates are installed manually.
 
+## Floating-player background compatibility (experimental)
+
+The optional floating dock reuses the original four-slot task/displays. In
+**Settings → Floating workspace**, enable **Floating player compatibility**
+and explicitly select the player packages to monitor. Monitoring and automatic
+recovery are both **off by default**. If desired, separately enable **One-time
+resume after folding**.
+
+- When an opted-in player is already playing in a floating slot and unexpectedly
+  pauses soon after the dock is folded, NeXtep may request **one** MediaSession
+  Play command. It also observes a selected player on the main display so that
+  a one-time attempt can occur after that app is moved into a floating slot.
+- The command is skipped during screen lock, calls/non-normal audio mode,
+  another active media playback session, a missing MediaSession or a missing
+  supported Play action. Repeated retries and unconditional Play are prohibited.
+- MediaSession access depends on SystemUI permissions. Android/ColorOS may
+  decline access or prevent background playback; NeXtep logs this instead of
+  bypassing platform restrictions.
+- **Optional LSPosed diagnosis:** manually add only the chosen player package
+  to NeXtep's scope and restart that player. The module verifies a UID-bound
+  read-only opt-in before installing passive `MediaPlayer.pause()` and
+  supported Media3/ExoPlayer pause probes. These hooks **never block** a pause,
+  override audio focus or fake Activity lifecycle callbacks. Root-assisted
+  diagnostic ZIPs may include `NeXtep` logcat entries from the target app.
+- Enabling the feature is not a guarantee that arbitrary closed-source or
+  DRM-protected players can play in the background. For players without a
+  compatible MediaSession, use the diagnostics to build a specific adapter.
+
+This feature does **not** modify the original one-main/four-small workspace.
+
 ## Requirements
 
 - **OnePlus PLK110**: previously verified on **Android 16 / API 36, ColorOS 16**; recent partial device testing uses **Android 17 / API 37, ColorOS 17**. The APK minimum is API 35, which does not imply compatibility with every device on that API level.
