@@ -47,6 +47,7 @@ internal class FloatingPlaybackCompatController(context: Context) {
     @Volatile private var generation = 0L
     private var visible = false
     private var lastPlaying: Map<MediaSession.Token, Playing> = emptyMap()
+    @Volatile private var recentControllers: Map<MediaSession.Token, MediaController> = emptyMap()
     private var accessFailureLogged = false
     private val lockWakeLock = runCatching {
         powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NeXtep:floating-lock-audio")
@@ -66,6 +67,7 @@ internal class FloatingPlaybackCompatController(context: Context) {
         config = next
         generation += 1
         lastPlaying = emptyMap()
+        recentControllers = emptyMap()
         handler.removeCallbacks(sampleVisible)
         releaseLockWakeLock()
         NeXtepLog.info("playback_compat",
@@ -192,10 +194,16 @@ internal class FloatingPlaybackCompatController(context: Context) {
         if (generation != token || powerManager?.isInteractive != false) return
         val setting = config
         if (!setting.enabled || !setting.lockAudio) return
-        val controllers = sessionsOrNull() ?: return
+        val activeControllers = sessionsOrNull() ?: return
+        // A player may mark its session inactive on Activity.onStop without
+        // destroying the MediaSession binder. Reuse the verified controller
+        // observed while the app was actually PLAYING; never invent one.
+        val previouslyObserved = recentControllers.filterKeys { it in eligible.keys }
+        val controllers = (previouslyObserved +
+            activeControllers.associateBy { it.sessionToken }).values.toList()
         val now = SystemClock.elapsedRealtime()
         val audioNormal = audioManager?.mode == AudioManager.MODE_NORMAL
-        val playingTokens = controllers.filter {
+        val playingTokens = activeControllers.filter {
             it.playbackState?.state == PlaybackState.STATE_PLAYING
         }.map { it.sessionToken }.toSet()
         controllers.forEach { controller ->
@@ -251,6 +259,7 @@ internal class FloatingPlaybackCompatController(context: Context) {
         generation += 1
         visible = false
         lastPlaying = emptyMap()
+        recentControllers = emptyMap()
         slotPackages = emptySet()
         handler.removeCallbacks(sampleVisible)
         releaseLockWakeLock()
@@ -268,7 +277,10 @@ internal class FloatingPlaybackCompatController(context: Context) {
             worker.execute {
                 val controllers = sessionsOrNull()
                 val at = SystemClock.elapsedRealtime()
-                val playing = controllers.orEmpty().mapNotNull { controller ->
+                val trackedControllers = controllers.orEmpty()
+                    .filter { it.packageName in tracked }
+                    .associateBy { it.sessionToken }
+                val playing = trackedControllers.values.mapNotNull { controller ->
                     if (controller.packageName !in tracked ||
                         controller.playbackState?.state != PlaybackState.STATE_PLAYING) null
                     else controller.sessionToken to Playing(controller.packageName, at)
@@ -280,6 +292,8 @@ internal class FloatingPlaybackCompatController(context: Context) {
                     // Preserve short-lived playing history so a session does
                     // not disappear when the user folds between two polls.
                     lastPlaying = (lastPlaying.filterValues { at - it.at <= 3_000L } + playing)
+                    recentControllers = (recentControllers.filterKeys { it in lastPlaying.keys } +
+                        trackedControllers.filterKeys { it in lastPlaying.keys })
                     handler.postDelayed(this, if (visible) 1_350L else 2_200L)
                 }
             }
