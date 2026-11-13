@@ -55,7 +55,7 @@ internal class FloatingWorkspaceBubble(
             }
             elevation = dp(5).toFloat()
         }
-        addView(button, LayoutParams(diameter, diameter, Gravity.CENTER))
+        addView(button, FrameLayout.LayoutParams(diameter, diameter, Gravity.CENTER))
         contentDescription = AppLanguage.string(context, R.string.floating_bubble_open)
         isClickable = true
         isFocusable = false
