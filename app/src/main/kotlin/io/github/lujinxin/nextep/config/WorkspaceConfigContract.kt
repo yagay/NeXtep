@@ -30,6 +30,7 @@ data class WorkspaceTopConfig(
     val floatingPadModeEnabled: Boolean = false,
     val playbackCompatEnabled: Boolean = false,
     val playbackCompatAutoResume: Boolean = false,
+    val playbackCompatLockAudio: Boolean = false,
     val playbackCompatPackages: Set<String> = emptySet(),
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
     val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
@@ -63,6 +64,7 @@ object WorkspaceConfigContract {
     const val EXTRA_FLOATING_PAD_MODE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_PAD_MODE_ENABLED"
     const val EXTRA_PLAYBACK_COMPAT_ENABLED = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_ENABLED"
     const val EXTRA_PLAYBACK_COMPAT_AUTO_RESUME = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_AUTO_RESUME"
+    const val EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_LOCK_AUDIO"
     const val EXTRA_PLAYBACK_COMPAT_PACKAGES = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_PACKAGES"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
     const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
@@ -139,6 +141,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                     settings.playbackCompatEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_AUTO_RESUME,
                     settings.playbackCompatAutoResume)
+                putBoolean(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO,
+                    settings.playbackCompatLockAudio)
                 putStringArrayList(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
                     ArrayList(settings.playbackCompatPackages.sorted()))
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
@@ -293,6 +297,9 @@ object WorkspaceConfigClient {
             ),
             playbackCompatAutoResume = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_AUTO_RESUME, false,
+            ),
+            playbackCompatLockAudio = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO, false,
             ),
             playbackCompatPackages = extras.getStringArrayList(
                 WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
