@@ -111,7 +111,7 @@ class VirtualDisplaySlot(
             // while the parent UI is fully transparent and not touchable.
             // This avoids powering down the VD merely because the user hides
             // the floating panel or locks the physical screen.
-            val connected = keepOutputWhileSuspended
+            val connected = VirtualDisplayOutputPolicy.connectedOnSuspend(keepOutputWhileSuspended)
             runCatching { updateOutputSurface(connected) }.onFailure {
                 NeXtepLog.warn("virtual_display",
                     "Unable to set suspended output slot=$index connected=$connected", it)
@@ -140,7 +140,8 @@ class VirtualDisplaySlot(
     /** Warm buffers behind hidden panels without resuming input, task moves or pending launches. */
     fun updateSuspendedOutput(screenAwake: Boolean) {
         if (!active || !suspended) return
-        updateOutputSurface(connected = keepOutputWhileSuspended || screenAwake)
+        updateOutputSurface(connected =
+            VirtualDisplayOutputPolicy.connectedDuringSuspend(keepOutputWhileSuspended, screenAwake))
     }
 
     private fun updateOutputSurface(connected: Boolean): Boolean {
