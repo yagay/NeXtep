@@ -9,32 +9,32 @@ class FloatingBubbleWakePolicyTest {
     private val policy = FloatingBubbleWakePolicy
 
     @Test fun screenOffHidesWithoutRemovingOverlay() {
-        assertEquals(policy.Action.HIDE, policy.decide(
-            policy.Event.SCREEN_OFF, interactive = false, enabled = true, overlayAllowed = true,
+        assertEquals(FloatingBubbleWakePolicy.Action.HIDE, policy.decide(
+            FloatingBubbleWakePolicy.Event.SCREEN_OFF, interactive = false, enabled = true, overlayAllowed = true,
         ))
     }
 
     @Test fun screenOnRestoresBeforeUserHasUnlocked() {
-        assertEquals(policy.Action.SHOW, policy.decide(
-            policy.Event.SCREEN_ON, interactive = true, enabled = true, overlayAllowed = true,
+        assertEquals(FloatingBubbleWakePolicy.Action.SHOW, policy.decide(
+            FloatingBubbleWakePolicy.Event.SCREEN_ON, interactive = true, enabled = true, overlayAllowed = true,
         ))
-        assertEquals(policy.Action.WAIT_FOR_SCREEN, policy.decide(
-            policy.Event.SCREEN_ON, interactive = false, enabled = true, overlayAllowed = true,
+        assertEquals(FloatingBubbleWakePolicy.Action.WAIT_FOR_SCREEN, policy.decide(
+            FloatingBubbleWakePolicy.Event.SCREEN_ON, interactive = false, enabled = true, overlayAllowed = true,
         ))
     }
 
     @Test fun userPresentRetriesAfterWake() {
-        assertEquals(policy.Action.SHOW, policy.decide(
-            policy.Event.USER_PRESENT, interactive = true, enabled = true, overlayAllowed = true,
+        assertEquals(FloatingBubbleWakePolicy.Action.SHOW, policy.decide(
+            FloatingBubbleWakePolicy.Event.USER_PRESENT, interactive = true, enabled = true, overlayAllowed = true,
         ))
     }
 
     @Test fun noPermissionOrDisabledMeansRemove() {
-        for (event in policy.Event.entries) {
-            assertEquals(policy.Action.REMOVE, policy.decide(
+        for (event in FloatingBubbleWakePolicy.Event.entries) {
+            assertEquals(FloatingBubbleWakePolicy.Action.REMOVE, policy.decide(
                 event, interactive = true, enabled = false, overlayAllowed = true,
             ))
-            assertEquals(policy.Action.REMOVE, policy.decide(
+            assertEquals(FloatingBubbleWakePolicy.Action.REMOVE, policy.decide(
                 event, interactive = true, enabled = true, overlayAllowed = false,
             ))
         }
