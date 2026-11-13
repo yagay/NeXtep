@@ -432,6 +432,35 @@ internal class FloatingSlotDockController(
         }
     }
 
+    /**
+     * App selection is intentionally a temporary, wider popup. It must not
+     * force the live dock itself to reserve this width when the picker closes.
+     */
+    private fun placeExpandedPicker() {
+        val root = host ?: return
+        val recorded = profile ?: return
+        val width = recorded.geometry.screenWidth
+        val height = recorded.geometry.screenHeight
+        val available = FloatingDockPlacement.calculate(
+            width, height, dp(280), dp(410), bubbleAnchor,
+            recorded.densityDpi / 160f,
+            FloatingDockSafeArea.measure(context, manager),
+        )
+        val wnd = root.layoutParams as? WindowManager.LayoutParams ?: return
+        wnd.width = available.width
+        wnd.height = available.height
+        wnd.x = available.x
+        wnd.y = available.y
+        picker?.layoutParams = FrameLayout.LayoutParams(-1, -1, Gravity.TOP)
+        manager?.updateViewLayout(root, wnd)
+    }
+
+    private fun hidePicker() {
+        pickerGeneration += 1
+        picker?.visibility = View.GONE
+        reconfigure()
+    }
+
     private fun showPicker() {
         val states = coordinator?.slotStates().orEmpty()
         val empty = states.indexOfFirst { it is SlotState.Ready }
@@ -440,11 +469,12 @@ internal class FloatingSlotDockController(
             return
         }
         val pick = picker ?: return
-        pick.visibility = View.VISIBLE
         val list = pickerList ?: return
+        pick.visibility = View.VISIBLE
+        placeExpandedPicker()
         list.removeAllViews()
         list.addView(action(str(R.string.floating_dock_loading), Color.WHITE) {
-            pick.visibility = View.GONE
+            hidePicker()
         })
         val token = ++pickerGeneration
         Thread({
@@ -457,11 +487,11 @@ internal class FloatingSlotDockController(
                 if (token != pickerGeneration || !isExpanded()) return@post
                 list.removeAllViews()
                 list.addView(action(str(R.string.floating_dock_back), Color.WHITE) {
-                    pick.visibility = View.GONE
+                    hidePicker()
                 })
                 if (entries.isEmpty()) {
                     list.addView(action(str(R.string.floating_dock_empty), Color.WHITE) {
-                        pick.visibility = View.GONE
+                        hidePicker()
                     })
                 }
                 entries.take(200).forEach { entry ->
@@ -484,7 +514,7 @@ internal class FloatingSlotDockController(
                         setOnClickListener {
                             val result = coordinator?.launchInSlot(entry.launchIntent(), empty)
                             if (result?.isSuccess == true) {
-                                pick.visibility = View.GONE
+                                hidePicker()
                             } else {
                                 val error = result?.exceptionOrNull()
                                 NeXtepLog.warn("floating_dock", "App launch failed", error
