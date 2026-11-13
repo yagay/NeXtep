@@ -28,7 +28,6 @@ import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.config.MainActivity
 import io.github.lujinxin.nextep.config.SettingsRepository
 import io.github.lujinxin.nextep.logging.NeXtepLog
-import io.github.lujinxin.nextep.trigger.FloatingPanelCommand
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
