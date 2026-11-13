@@ -52,20 +52,55 @@ object AppLanguage {
     }
 
     fun string(context: Context, @StringRes resource: Int, vararg arguments: Any): String {
-        if (context.packageName == MODULE_PACKAGE) return context.getString(resource, *arguments)
+        // Host-injected contexts (especially OEM SystemUI after an app update)
+        // can create a configuration context whose ContextImpl.mResources is
+        // unexpectedly null. Calling Context.getString() then throws an NPE
+        // and aborts the whole floating workspace before any slots exist.
+        // Resolve Resources explicitly and fall back to PackageManager's APK
+        // resources when the localized Context is unusable.
+        if (context.packageName == MODULE_PACKAGE) {
+            val ownResources = runCatching { context.resources }.getOrNull()
+            if (ownResources != null) return ownResources.getString(resource, *arguments)
+        }
         return synchronized(this) {
-            // Load the module APK rather than interpreting its IDs in SystemUI/Launcher.
-            val base = moduleContext ?: context.createPackageContext(MODULE_PACKAGE, 0).also {
-                moduleContext = it
+            val localized = runCatching {
+                val base = moduleContext ?: context.createPackageContext(MODULE_PACKAGE, 0).also {
+                    moduleContext = it
+                }
+                val configuration = Configuration(context.resources.configuration).apply {
+                    setLocale(locale(context))
+                }
+                if (localizedContext == null || cachedConfiguration != configuration) {
+                    localizedContext = base.createConfigurationContext(configuration)
+                    cachedConfiguration = configuration
+                }
+                // Unlike Context.getString(), an explicitly checked Resources
+                // instance cannot dereference a null ContextImpl.mResources.
+                val resources = checkNotNull(localizedContext?.resources) {
+                    "Localized module resources were null in ${context.packageName}"
+                }
+                resources.getString(resource, *arguments)
             }
-            val configuration = Configuration(context.resources.configuration).apply {
-                setLocale(locale(context))
+            localized.getOrElse { error ->
+                io.github.lujinxin.nextep.logging.NeXtepLog.warn(
+                    "module_resources",
+                    "Localized module resources unavailable in ${context.packageName}; using PackageManager",
+                    error,
+                )
+                runCatching {
+                    context.packageManager.getResourcesForApplication(MODULE_PACKAGE)
+                        .getString(resource, *arguments)
+                }.getOrElse { fallbackError ->
+                    io.github.lujinxin.nextep.logging.NeXtepLog.warn(
+                        "module_resources",
+                        "Unable to resolve module resource id=$resource from APK",
+                        fallbackError,
+                    )
+                    // Never crash SystemUI when all package resources are
+                    // unavailable; use a diagnostic placeholder instead.
+                    "NeXtep"
+                }
             }
-            if (localizedContext == null || cachedConfiguration != configuration) {
-                localizedContext = base.createConfigurationContext(configuration)
-                cachedConfiguration = configuration
-            }
-            checkNotNull(localizedContext).getString(resource, *arguments)
         }
     }
 
