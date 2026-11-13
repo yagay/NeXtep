@@ -192,4 +192,11 @@
     <string name="floating_dock_back">‹ 返回小視窗</string>
     <string name="floating_dock_empty">找不到應用程式</string>
     <string name="floating_dock_launch_failed">無法新增此應用程式，請查看模組診斷紀錄。</string>
+    <string name="floating_dock_switch_vertical">直排</string>
+    <string name="floating_dock_switch_horizontal">橫排</string>
+    <string name="floating_dock_size_settings">大小</string>
+    <string name="floating_dock_arrangement">排列方式</string>
+    <string name="floating_dock_fixed_ratio">小視窗大小 · 鎖定長寬比例</string>
+    <string name="floating_dock_reset_size">恢復 100%</string>
+    <string name="floating_dock_settings_done">完成</string>
 </resources>
