@@ -1,5 +1,6 @@
 package io.github.lujinxin.nextep.xposed
 
+import android.app.Activity
 import android.app.Application
 import android.app.KeyguardManager
 import android.content.Context
@@ -48,6 +49,7 @@ internal object PlaybackCompatAppHook {
                             return@runCatching
                         }
                         var installed = 0
+                        installed += hookActivityLifecycle(module, packageName, context)
                         installed += hookMediaPlayer(module, packageName, context)
                         installed += hookExoPlayer(module, packageName, classLoader, context)
                         Log.i("NeXtep",
@@ -62,6 +64,41 @@ internal object PlaybackCompatAppHook {
                 return result
             }
         })
+    }
+
+    /**
+     * Diagnose whether the player is stopped by display/Activity lifecycle
+     * during lock. Do not modify lifecycle results or suppress app callbacks.
+     */
+    private fun hookActivityLifecycle(
+        module: XposedModule, packageName: String, context: Context,
+    ): Int {
+        var installed = 0
+        for (event in listOf("onPause", "onStop", "onResume")) {
+            val method = Activity::class.java.getDeclaredMethod(event).apply {
+                isAccessible = true
+            }
+            module.hook(method).intercept(object : XposedInterface.Hooker {
+                override fun intercept(chain: XposedInterface.Chain): Any? {
+                    val activity = chain.thisObject as? Activity
+                    val interactive = context.getSystemService(PowerManager::class.java)
+                        ?.isInteractive
+                    val keyguard = context.getSystemService(KeyguardManager::class.java)
+                        ?.isKeyguardLocked
+                    if (activity?.packageName == packageName &&
+                        (interactive == false || keyguard == true)) {
+                        Log.i("NeXtep",
+                            "playback_lifecycle package=$packageName event=$event " +
+                                "activity=${activity.javaClass.name.take(150)} " +
+                                "displayId=${activity.display?.displayId} " +
+                                "interactive=$interactive keyguard=$keyguard")
+                    }
+                    return chain.proceed()
+                }
+            })
+            installed++
+        }
+        return installed
     }
 
     private fun hookMediaPlayer(
