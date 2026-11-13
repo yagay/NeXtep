@@ -8,9 +8,11 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -31,7 +33,7 @@ import io.github.lujinxin.nextep.workspace.WorkspaceNavigationInsets
 import kotlin.math.roundToInt
 
 /**
- * An independently owned live 2x2 task dock. Never calls
+ * An independently owned horizontal live four-slot task dock. Never calls
  * SystemUiRootTransformController, SystemServerWorkspaceBridge or the normal
  * WorkspaceController, so the current Display 0 app remains fullscreen.
  *
@@ -40,7 +42,10 @@ import kotlin.math.roundToInt
  * no-op for the physical main surface only.
  */
 internal class FloatingSlotDockController(private val context: Context) {
-    private data class Panel(val width: Int, val height: Int, val header: Int, val gap: Int, val pad: Int)
+    private data class Panel(
+        val width: Int, val height: Int, val header: Int, val gap: Int, val pad: Int,
+        val railWidth: Int, val railHeight: Int, val cells: List<FloatingDockRailLayout.Cell>,
+    )
 
     private val manager = context.getSystemService(WindowManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
@@ -48,6 +53,7 @@ internal class FloatingSlotDockController(private val context: Context) {
     private var picker: FrameLayout? = null
     private var pickerList: LinearLayout? = null
     private var grid: FrameLayout? = null
+    private var railScroll: HorizontalScrollView? = null
     private var coordinator: SlotTaskCoordinator? = null
     private var slots: List<VirtualDisplaySlot> = emptyList()
     private var profile: WorkspaceLayoutProfile? = null
@@ -67,13 +73,13 @@ internal class FloatingSlotDockController(private val context: Context) {
         }
         return runCatching {
             val metrics = context.resources.displayMetrics
-            val layout = calculatePanel(metrics.widthPixels, metrics.heightPixels)
             val recorded = WorkspaceLayoutProfile.create(
                 metrics.widthPixels.coerceAtLeast(2),
                 metrics.heightPixels.coerceAtLeast(2),
                 metrics.densityDpi,
                 WorkspaceNavigationInsets(),
             )
+            val layout = calculatePanel(metrics.widthPixels, metrics.heightPixels, recorded)
             profile = recorded
             panel = layout
             val root = FrameLayout(context).apply {
@@ -85,7 +91,19 @@ internal class FloatingSlotDockController(private val context: Context) {
                 clipChildren = false
             }
             grid = frames
-            root.addView(frames, FrameLayout.LayoutParams(layout.width,
+            // Keep every live card at exactly the original workspace slot size.
+            // The header chevrons scroll the rail without stealing the slot's
+            // own swipe-to-background, click, long-press or drag gestures.
+            val scroller = object : HorizontalScrollView(context) {
+                override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = false
+            }.apply {
+                isHorizontalScrollBarEnabled = false
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+                addView(frames, FrameLayout.LayoutParams(layout.railWidth, layout.railHeight))
+            }
+            railScroll = scroller
+            root.addView(scroller, FrameLayout.LayoutParams(layout.width,
                 layout.height - layout.header, Gravity.TOP).apply {
                 topMargin = layout.header
             })
@@ -110,6 +128,12 @@ internal class FloatingSlotDockController(private val context: Context) {
                     setTextColor(Color.WHITE)
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                 }, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(action("‹", Color.WHITE) {
+                    railScroll?.smoothScrollBy(-(checkNotNull(panel).cells.first().width + checkNotNull(panel).gap), 0)
+                }, LinearLayout.LayoutParams(dp(30), dp(46)))
+                addView(action("›", Color.WHITE) {
+                    railScroll?.smoothScrollBy(checkNotNull(panel).cells.first().width + checkNotNull(panel).gap, 0)
+                }, LinearLayout.LayoutParams(dp(30), dp(46)))
                 addView(action(str(R.string.floating_dock_add), 0xFF8CD5E8.toInt()) {
                     showPicker()
                 }, LinearLayout.LayoutParams(-2, dp(46)))
@@ -160,10 +184,11 @@ internal class FloatingSlotDockController(private val context: Context) {
                 slots = newSlots,
                 mainTaskPresenter = MainTaskPresentationCoordinator(context, preserveFullscreen = true),
                 geometryProvider = { checkNotNull(profile).geometry },
+                preserveFullscreenMain = true,
                 returnAfterSharing = { false },
             )
             checkNotNull(coordinator).activate()
-            NeXtepLog.info("floating_dock", "Expanded four real slots without resizing Display 0")
+            NeXtepLog.info("floating_dock", "Expanded original-size horizontal slots without resizing Display 0")
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
@@ -210,20 +235,22 @@ internal class FloatingSlotDockController(private val context: Context) {
         val root = host ?: return
         runCatching {
             val metrics = context.resources.displayMetrics
-            val dimensions = calculatePanel(metrics.widthPixels, metrics.heightPixels)
-            panel = dimensions
-            profile = WorkspaceLayoutProfile.create(
+            val recorded = WorkspaceLayoutProfile.create(
                 metrics.widthPixels.coerceAtLeast(2), metrics.heightPixels.coerceAtLeast(2),
                 metrics.densityDpi, WorkspaceNavigationInsets(),
             )
-            slots.forEach { it.setLayoutProfile(checkNotNull(profile)) }
+            profile = recorded
+            val dimensions = calculatePanel(metrics.widthPixels, metrics.heightPixels, recorded)
+            panel = dimensions
+            slots.forEach { it.setLayoutProfile(recorded) }
             val wnd = root.layoutParams as WindowManager.LayoutParams
             wnd.width = dimensions.width
             wnd.height = dimensions.height
             wnd.x = (metrics.widthPixels - dimensions.width - dp(12)).coerceAtLeast(0)
             wnd.y = ((metrics.heightPixels - dimensions.height) / 2).coerceAtLeast(0)
-            grid?.layoutParams = FrameLayout.LayoutParams(dimensions.width,
+            railScroll?.layoutParams = FrameLayout.LayoutParams(dimensions.width,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
+            grid?.layoutParams = FrameLayout.LayoutParams(dimensions.railWidth, dimensions.railHeight)
             picker?.layoutParams = FrameLayout.LayoutParams(-1,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
             layoutCells(dimensions)
@@ -239,6 +266,7 @@ internal class FloatingSlotDockController(private val context: Context) {
         coordinator = null
         slots = emptyList()
         grid = null
+        railScroll = null
         picker = null
         pickerList = null
         profile = null
@@ -246,28 +274,25 @@ internal class FloatingSlotDockController(private val context: Context) {
         host = null
     }
 
-    private fun calculatePanel(width: Int, height: Int): Panel {
-        val landscape = width > height
-        val desiredWidth = if (landscape) 500 else 370
-        val desiredHeight = if (landscape) 420 else 650
-        return Panel(
-            width = minOf((width * if (landscape) .66f else .90f).roundToInt(),
-                dp(desiredWidth), width - dp(16)).coerceAtLeast(dp(155)),
-            height = minOf((height * if (landscape) .88f else .83f).roundToInt(),
-                dp(desiredHeight), height - dp(16)).coerceAtLeast(dp(180)),
-            header = dp(52), gap = dp(8), pad = dp(10),
+    private fun calculatePanel(width: Int, height: Int, recorded: WorkspaceLayoutProfile): Panel {
+        // Match the original one-main/four-small preview dimensions exactly;
+        // the extra floating presentation changes arrangement, not size.
+        val plan = FloatingDockRailLayout.calculate(
+            width, height, context.resources.displayMetrics.density,
+            recorded.slots.map { it.width to it.height },
         )
+        return Panel(plan.panelWidth, plan.panelHeight, plan.headerHeight, plan.gap,
+            plan.padding, plan.railContentWidth, plan.railHeight, plan.cells)
     }
 
     private fun layoutCells(sizes: Panel) {
-        val w = (sizes.width - sizes.pad * 2 - sizes.gap) / 2
-        val h = (sizes.height - sizes.header - sizes.pad * 2 - sizes.gap) / 2
         slots.forEachIndexed { index, slot ->
-            val row = index / 2
-            val column = index % 2
-            slot.view.layoutParams = FrameLayout.LayoutParams(w, h, Gravity.TOP or Gravity.LEFT).apply {
-                leftMargin = sizes.pad + column * (w + sizes.gap)
-                topMargin = sizes.pad + row * (h + sizes.gap)
+            val cell = sizes.cells[index]
+            slot.view.layoutParams = FrameLayout.LayoutParams(
+                cell.width, cell.height, Gravity.TOP or Gravity.LEFT,
+            ).apply {
+                leftMargin = cell.x
+                topMargin = cell.y
             }
         }
     }
