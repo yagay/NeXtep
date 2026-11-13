@@ -129,6 +129,11 @@ internal class FloatingPlaybackCompatController(context: Context) {
         if (eligible.isEmpty()) {
             NeXtepLog.info("playback_compat",
                 "No recent playing MediaSession at fold; no auto-play attempt")
+            // A user may leave the panel folded for minutes before locking.
+            // Keep sampling at low frequency while interactive so the
+            // last PLAYING state is still available at the eventual lock.
+            if (setting.lockAudio && powerManager?.isInteractive == true)
+                handler.post(sampleVisible)
             return
         }
         NeXtepLog.info("playback_compat", "Fold observed ${eligible.size} recently playing session(s)")
