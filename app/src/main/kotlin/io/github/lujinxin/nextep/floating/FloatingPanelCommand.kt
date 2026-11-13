@@ -15,7 +15,14 @@ object FloatingPanelCommand {
         data class Failed(val reason: String) : Result
     }
 
-    fun toggle(context: Context, callback: (Result) -> Unit) {
+    /**
+     * Coordinates are the bubble's top-left and size in physical screen px.
+     * Both windows use TOP|LEFT with layout-in-screen flags.
+     */
+    fun toggle(
+        context: Context, bubbleX: Int, bubbleY: Int, bubbleSize: Int,
+        callback: (Result) -> Unit,
+    ) {
         val handler = Handler(Looper.getMainLooper())
         var completed = false
         val timeout = Runnable {
@@ -31,9 +38,8 @@ object FloatingPanelCommand {
             handler.removeCallbacks(timeout)
             callback(result)
         }
-        val intent = Intent(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL)
-            .setPackage(TriggerBroadcastContract.SYSTEM_UI_PACKAGE)
-            .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+        val intent = anchorIntent(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL,
+            bubbleX, bubbleY, bubbleSize)
         runCatching {
             context.sendOrderedBroadcast(
                 intent, null, object : BroadcastReceiver() {
@@ -55,4 +61,20 @@ object FloatingPanelCommand {
             finish(Result.Failed(error.message ?: "Could not send floating panel request"))
         }
     }
+
+    /** Following a completed drag or rotation must not toggle the panel. */
+    fun updateAnchor(context: Context, bubbleX: Int, bubbleY: Int, bubbleSize: Int) {
+        val intent = anchorIntent(TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR,
+            bubbleX, bubbleY, bubbleSize)
+        runCatching { context.sendOrderedBroadcast(intent, null) }
+    }
+
+    private fun anchorIntent(
+        action: String, bubbleX: Int, bubbleY: Int, bubbleSize: Int,
+    ): Intent = Intent(action)
+        .setPackage(TriggerBroadcastContract.SYSTEM_UI_PACKAGE)
+        .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+        .putExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_X, bubbleX)
+        .putExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_Y, bubbleY)
+        .putExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_SIZE, bubbleSize)
 }
