@@ -212,6 +212,14 @@ object SettingsScreen {
                         repository::setPlaybackCompatAutoResume,
                     ), matchWidth())
                     addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_lock_title),
+                        activity.getString(R.string.playback_compat_lock_summary),
+                        settings.playbackCompatLockAudio,
+                        repository::setPlaybackCompatLockAudio,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
                     val playerButton = createPlaybackPackageSelector(activity, repository, apps)
                     addView(settingRow(
                         activity,
