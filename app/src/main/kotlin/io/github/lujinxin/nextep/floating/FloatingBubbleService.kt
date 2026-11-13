@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -18,9 +19,11 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -46,11 +49,28 @@ class FloatingBubbleService : Service() {
     private var downX = 0
     private var downY = 0
     private var dragged = false
+    private val wakeRetry = Runnable {
+        reconcileBubble(FloatingBubbleWakePolicy.Event.SCREEN_ON, "wake_retry")
+    }
     private val screenEvents = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                Intent.ACTION_SCREEN_OFF -> removeBubble()
-                Intent.ACTION_USER_PRESENT -> showBubble()
+                Intent.ACTION_SCREEN_OFF -> {
+                    handler.removeCallbacks(wakeRetry)
+                    reconcileBubble(FloatingBubbleWakePolicy.Event.SCREEN_OFF, "screen_off")
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    // SCREEN_ON precedes USER_PRESENT. Keep the icon available
+                    // on the awake lock screen when the OEM permits overlays.
+                    reconcileBubble(FloatingBubbleWakePolicy.Event.SCREEN_ON, "screen_on")
+                    handler.removeCallbacks(wakeRetry)
+                    handler.postDelayed(wakeRetry, 350L)
+                    handler.postDelayed(wakeRetry, 1_200L)
+                }
+                Intent.ACTION_USER_PRESENT -> {
+                    reconcileBubble(FloatingBubbleWakePolicy.Event.USER_PRESENT, "user_present")
+                    handler.removeCallbacks(wakeRetry)
+                }
             }
         }
     }
@@ -61,6 +81,7 @@ class FloatingBubbleService : Service() {
         super.onCreate()
         registerReceiver(screenEvents, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
         }, Context.RECEIVER_NOT_EXPORTED)
     }
@@ -78,7 +99,7 @@ class FloatingBubbleService : Service() {
         }
         return runCatching {
             ensureForeground()
-            showBubble()
+            reconcileBubble(FloatingBubbleWakePolicy.Event.SERVICE_START, "service_start")
             START_STICKY
         }.getOrElse { error ->
             NeXtepLog.warn("floating_workspace", "Service startup failed", error)
@@ -111,6 +132,48 @@ class FloatingBubbleService : Service() {
             .build()
         startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
     }
+
+    private fun reconcileBubble(
+        event: FloatingBubbleWakePolicy.Event,
+        reason: String,
+    ) {
+        val interactive = getSystemService(PowerManager::class.java)?.isInteractive ?: true
+        val enabled = SettingsRepository(this).topBarSettings().floatingBubbleEnabled
+        val permitted = Settings.canDrawOverlays(this)
+        val action = FloatingBubbleWakePolicy.decide(event, interactive, enabled, permitted)
+        when (action) {
+            FloatingBubbleWakePolicy.Action.REMOVE -> removeBubble()
+            FloatingBubbleWakePolicy.Action.HIDE -> {
+                // Do not detach the WM surface every time the phone sleeps.
+                // That used to make the icon disappear until USER_PRESENT.
+                bubble?.visibility = View.INVISIBLE
+            }
+            FloatingBubbleWakePolicy.Action.WAIT_FOR_SCREEN -> Unit
+            FloatingBubbleWakePolicy.Action.SHOW -> {
+                val existing = bubble
+                if (existing != null && !existing.isAttachedToWindow) removeBubble()
+                if (bubble == null) showBubble()
+                val view = bubble
+                val position = layout
+                if (view != null && position != null) {
+                    val safe = bubbleSafeRect()
+                    position.x = position.x.coerceIn(
+                        safe.left, (safe.right - size).coerceAtLeast(safe.left))
+                    position.y = position.y.coerceIn(
+                        safe.top, (safe.bottom - size).coerceAtLeast(safe.top))
+                    view.visibility = View.VISIBLE
+                    updateBubble()
+                }
+            }
+        }
+        NeXtepLog.info("floating_workspace",
+            "Bubble lifecycle event=$event action=$action reason=$reason " +
+                "interactive=$interactive keyguard=${isKeyguardVisible()} " +
+                "attached=${bubble?.isAttachedToWindow == true}")
+    }
+
+    private fun isKeyguardVisible(): Boolean =
+        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
 
     private fun showBubble() {
         if (bubble != null || !Settings.canDrawOverlays(this)) return
@@ -169,6 +232,14 @@ class FloatingBubbleService : Service() {
     }
 
     private fun toggleWorkspace() {
+        val interactive = getSystemService(PowerManager::class.java)?.isInteractive ?: true
+        if (!FloatingBubbleWakePolicy.mayOpenTaskDock(isKeyguardVisible(), interactive)) {
+            // Only the icon is allowed while the phone is locked. No tasks,
+            // app names or previews are exposed across the keyguard.
+            NeXtepLog.info("floating_workspace",
+                "Ignored dock opening on locked or non-interactive display")
+            return
+        }
         val position = layout ?: return
         FloatingPanelCommand.toggle(this, position.x, position.y, size) { result ->
             if (result is FloatingPanelCommand.Result.Failed) {
@@ -242,7 +313,8 @@ class FloatingBubbleService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         removeBubble()
-        showBubble()
+        reconcileBubble(FloatingBubbleWakePolicy.Event.CONFIGURATION_CHANGED,
+            "configuration_changed")
     }
 
     private fun removeBubble() {
@@ -254,6 +326,7 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(wakeRetry)
         removeBubble()
         runCatching { unregisterReceiver(screenEvents) }
         super.onDestroy()
