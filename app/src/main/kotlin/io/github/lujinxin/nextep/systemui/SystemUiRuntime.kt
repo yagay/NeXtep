@@ -48,6 +48,24 @@ object SystemUiRuntime {
     @Volatile private var workspaceConfig = WorkspaceTopConfig()
     @Volatile private var workspaceConfigReady = false
     private val configRetry = Runnable { refreshWorkspaceConfig() }
+    // Restore hidden floating task coordination after the keyguard is gone,
+    // without requiring the user to show the window again.
+    private var hiddenFloatingResumeAttempts = 0
+    private val hiddenFloatingResume = object : Runnable {
+        override fun run() {
+            if (!::floatingDock.isInitialized || !floatingDock.hasSession()) return
+            val screenReady = isScreenReady()
+            val unlocked = !isKeyguardLocked(applicationContext)
+            if (screenReady && unlocked && floatingDock.resumeHiddenSessionAfterUnlock()) return
+            if (++hiddenFloatingResumeAttempts < 12) {
+                lifecycleHandler.postDelayed(this, 500L)
+            } else {
+                NeXtepLog.warn("floating_dock",
+                    "Retained hidden session did not resume after unlock " +
+                        "screenReady=$screenReady unlocked=$unlocked")
+            }
+        }
+    }
     private val taskRefreshQueued = AtomicBoolean(false)
     private val taskRefresh = Runnable {
         taskRefreshQueued.set(false)
@@ -432,10 +450,14 @@ object SystemUiRuntime {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT) {
                 refreshWorkspaceConfig()
-                // Keep existing floating tasks across unlock. The panel
-                // remains hidden until the user taps the bubble again.
+                // Keep existing floating tasks and recover task coordination
+                // even while the panel remains folded after unlock.
+                lifecycleHandler.removeCallbacks(hiddenFloatingResume)
+                hiddenFloatingResumeAttempts = 0
+                lifecycleHandler.postDelayed(hiddenFloatingResume, 250L)
             }
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                lifecycleHandler.removeCallbacks(hiddenFloatingResume)
                 TaskSurfaceCompat.finishWorkspaceExitAnimations()
                 if (::floatingDock.isInitialized)
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
