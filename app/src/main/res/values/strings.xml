@@ -254,4 +254,6 @@
     <string name="playback_compat_apps_title">Player apps</string>
     <string name="playback_compat_apps_summary">Choose which apps may be monitored or resumed. Others remain untouched.</string>
     <string name="playback_compat_apps_count">%1$d selected</string>
+    <string name="playback_compat_lock_title">Continue playing after screen lock (experimental)</string>
+    <string name="playback_compat_lock_summary">For selected players already playing in a NeXtep floating window, attempt one MediaSession recovery when the screen turns off. May not work for players without a background service. Does not unlock the display; may use extra battery.</string>
 </resources>
