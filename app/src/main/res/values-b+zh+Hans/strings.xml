@@ -192,4 +192,11 @@
     <string name="floating_dock_back">‹ 返回小窗</string>
     <string name="floating_dock_empty">未找到应用</string>
     <string name="floating_dock_launch_failed">无法添加此应用，请查看模块诊断日志。</string>
+    <string name="floating_dock_switch_vertical">竖排</string>
+    <string name="floating_dock_switch_horizontal">横排</string>
+    <string name="floating_dock_size_settings">大小</string>
+    <string name="floating_dock_arrangement">排列方式</string>
+    <string name="floating_dock_fixed_ratio">小窗大小 · 锁定宽高比例</string>
+    <string name="floating_dock_reset_size">恢复 100%</string>
+    <string name="floating_dock_settings_done">完成</string>
 </resources>
