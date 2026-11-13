@@ -246,4 +246,6 @@
     <string name="playback_compat_apps_title">選擇播放器應用</string>
     <string name="playback_compat_apps_summary">僅對選取應用監測與恢復；其他應用不受影響。</string>
     <string name="playback_compat_apps_count">已選 %1$d 個</string>
+    <string name="playback_compat_lock_title">鎖屏繼續播放（實驗性）</string>
+    <string name="playback_compat_lock_summary">僅針對已在 NeXtep 小視窗播放的選取應用，熄屏後嘗試一次媒體工作階段恢復。沒有背景服務的播放器可能無效；不會解鎖螢幕，可能增加耗電。</string>
 </resources>
