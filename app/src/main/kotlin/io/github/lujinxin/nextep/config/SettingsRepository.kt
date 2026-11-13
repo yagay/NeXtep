@@ -18,6 +18,8 @@ class SettingsRepository(private val context: Context) {
         val textBold: Boolean,
         val statusBarGestureEnabled: Boolean,
         val floatingBubbleEnabled: Boolean,
+        val floatingDockOrientation: String,
+        val floatingDockSizePercent: Int,
         val slotBackgroundSwipeEnabled: Boolean,
         val autoMinimizeMainOnTopAppSwitch: Boolean,
         val navigationButtonsEnabled: Boolean,
@@ -49,6 +51,14 @@ class SettingsRepository(private val context: Context) {
         textBold = preferences.getBoolean("top_text_bold", false),
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
+        floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
+            preferences.getString(KEY_FLOATING_DOCK_ORIENTATION,
+                WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION),
+        ),
+        floatingDockSizePercent = WorkspaceConfigContract.normalizeFloatingDockSizePercent(
+            preferences.getInt(KEY_FLOATING_DOCK_SIZE_PERCENT,
+                WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT),
+        ),
         slotBackgroundSwipeEnabled = preferences.getBoolean("slot_background_swipe_enabled", true),
         autoMinimizeMainOnTopAppSwitch = preferences.getBoolean("auto_minimize_main_on_top_app_switch", false),
         navigationButtonsEnabled = preferences.getBoolean("navigation_buttons_enabled", false),
@@ -100,6 +110,27 @@ class SettingsRepository(private val context: Context) {
     fun setFloatingBubbleEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("floating_bubble_enabled", enabled).apply()
         notifyTopContentChanged()
+    }
+
+    /** One canonical source for the app's settings and the injected SystemUI dock. */
+    fun setFloatingDockLayout(orientation: String, sizePercent: Int) {
+        val normalizedOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(orientation)
+        val normalizedSize = WorkspaceConfigContract.normalizeFloatingDockSizePercent(sizePercent)
+        // Commit before broadcasting: SystemUI reads settings from a
+        // different process and must not observe the previous value.
+        val saved = preferences.edit()
+            .putString(KEY_FLOATING_DOCK_ORIENTATION, normalizedOrientation)
+            .putInt(KEY_FLOATING_DOCK_SIZE_PERCENT, normalizedSize)
+            .commit()
+        if (saved) notifyTopContentChanged()
+        else io.github.lujinxin.nextep.logging.NeXtepLog.warn(
+            "floating_settings", "Could not persist layout preference changes",
+        )
+    }
+
+    fun resetFloatingDockLayout() {
+        setFloatingDockLayout(WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
+            WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT)
     }
 
     fun setAutoMinimizeMainOnTopAppSwitch(enabled: Boolean) {
@@ -197,6 +228,8 @@ class SettingsRepository(private val context: Context) {
 
     private companion object {
         const val KEY_TOP_TITLE = "top_title"
+        const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
+        const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
         const val KEY_TOP_APPS = "top_apps"
         const val KEY_MANUAL_APP_ORDER = "manual_app_order"
         const val KEY_SWAP_ANIMATION_DURATION_MS = "window_swap_animation_duration_ms"

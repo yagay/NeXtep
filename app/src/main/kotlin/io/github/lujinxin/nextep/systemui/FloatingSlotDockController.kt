@@ -57,21 +57,12 @@ internal class FloatingSlotDockController(
     private var grid: FrameLayout? = null
     private var railViewport: FrameLayout? = null
     private var railOffsetPx = 0
-    private var directionControl: TextView? = null
     private var previousControl: TextView? = null
     private var nextControl: TextView? = null
-    private var optionsOverlay: FrameLayout? = null
-    private var sizeReadout: TextView? = null
-    private val settings by lazy {
-        context.createDeviceProtectedStorageContext()
-            .getSharedPreferences("nextep_floating_dock_layout_v1", Context.MODE_PRIVATE)
-    }
-    private var orientation: FloatingDockRailLayout.Orientation =
-        if (settings.getString("orientation", "horizontal") == "vertical")
-            FloatingDockRailLayout.Orientation.VERTICAL else FloatingDockRailLayout.Orientation.HORIZONTAL
-    private var sizePercent: Int = FloatingDockRailLayout.normalizedScale(
-        settings.getInt("size_percent", 100),
-    )
+    // The app's SettingsRepository is the source of truth. These are updated
+    // from the trusted configuration IPC whenever the user changes Settings.
+    private var orientation = FloatingDockRailLayout.Orientation.HORIZONTAL
+    private var sizePercent = 100
     private var coordinator: SlotTaskCoordinator? = null
     private var slots: List<VirtualDisplaySlot> = emptyList()
     private var profile: WorkspaceLayoutProfile? = null
@@ -84,6 +75,21 @@ internal class FloatingSlotDockController(
         private set
 
     fun isExpanded(): Boolean = host != null
+
+    /** Reflow without releasing any VirtualDisplay or moving the running tasks. */
+    fun applyLayoutSettings(orientationValue: String, scalePercent: Int) {
+        val nextOrientation = if (orientationValue == "vertical")
+            FloatingDockRailLayout.Orientation.VERTICAL else FloatingDockRailLayout.Orientation.HORIZONTAL
+        val nextSize = FloatingDockRailLayout.normalizedScale(scalePercent)
+        if (nextOrientation == orientation && nextSize == sizePercent) return
+        orientation = nextOrientation
+        sizePercent = nextSize
+        railOffsetPx = 0
+        previousControl?.text = if (isVertical()) "↑" else "‹"
+        nextControl?.text = if (isVertical()) "↓" else "›"
+        if (isExpanded()) reconfigure()
+        NeXtepLog.info("floating_dock", "Settings updated orientation=$orientation scale=$sizePercent%")
+    }
 
     /** Move the already visible panel without recreating its live task displays. */
     fun updateAnchor(anchor: FloatingDockPlacement.Anchor) {
@@ -157,14 +163,6 @@ internal class FloatingSlotDockController(
                 nextControl = action(if (isVertical()) "↓" else "›", Color.WHITE) {
                     stepRail(forward = true)
                 }.also { addView(it, LinearLayout.LayoutParams(0, -1, 1f)) }
-                directionControl = action(if (isVertical()) str(R.string.floating_dock_switch_horizontal)
-                    else str(R.string.floating_dock_switch_vertical), Color.WHITE) {
-                    setOrientation(if (isVertical()) FloatingDockRailLayout.Orientation.HORIZONTAL
-                        else FloatingDockRailLayout.Orientation.VERTICAL)
-                }.also { addView(it, LinearLayout.LayoutParams(0, -1, 1.5f)) }
-                addView(action(str(R.string.floating_dock_size_settings), 0xFF8CD5E8.toInt()) {
-                    openLayoutOptions()
-                }, LinearLayout.LayoutParams(0, -1, 1.5f))
                 addView(action("＋", Color.WHITE) { showPicker() }.apply {
                     contentDescription = str(R.string.floating_dock_add)
                 }, LinearLayout.LayoutParams(0, -1, 1f))
@@ -188,64 +186,6 @@ internal class FloatingSlotDockController(
             }
             pick.addView(scroll, FrameLayout.LayoutParams(-1, -1))
             root.addView(pick, FrameLayout.LayoutParams(-1,
-                layout.height - layout.header, Gravity.TOP).apply {
-                topMargin = layout.header
-            })
-            val options = FrameLayout(context).apply {
-                visibility = View.GONE
-                background = rounded(Color.argb(253, 22, 37, 50), dp(12))
-            }
-            optionsOverlay = options
-            val optionRows = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(7), dp(7), dp(7), dp(7))
-            }
-            optionRows.addView(TextView(context).apply {
-                text = str(R.string.floating_dock_arrangement)
-                textSize = 14f
-                setTextColor(Color.WHITE)
-                gravity = Gravity.CENTER
-            }, LinearLayout.LayoutParams(-1, dp(27)))
-            val orientationRow = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(action(str(R.string.floating_dock_switch_horizontal), Color.WHITE) {
-                    setOrientation(FloatingDockRailLayout.Orientation.HORIZONTAL)
-                }, LinearLayout.LayoutParams(0, dp(38), 1f))
-                addView(action(str(R.string.floating_dock_switch_vertical), Color.WHITE) {
-                    setOrientation(FloatingDockRailLayout.Orientation.VERTICAL)
-                }, LinearLayout.LayoutParams(0, dp(38), 1f))
-            }
-            optionRows.addView(orientationRow)
-            optionRows.addView(TextView(context).apply {
-                text = str(R.string.floating_dock_fixed_ratio)
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setTextColor(0xFFC4DBE4.toInt())
-            }, LinearLayout.LayoutParams(-1, dp(32)))
-            val sizeRow = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(action("－", Color.WHITE) { changeSize(-10) },
-                    LinearLayout.LayoutParams(0, dp(43), 1f))
-                addView(TextView(context).apply {
-                    text = "$sizePercent%"
-                    textSize = 16f
-                    gravity = Gravity.CENTER
-                    setTextColor(Color.WHITE)
-                    sizeReadout = this
-                }, LinearLayout.LayoutParams(0, dp(43), 2f))
-                addView(action("＋", Color.WHITE) { changeSize(10) },
-                    LinearLayout.LayoutParams(0, dp(43), 1f))
-            }
-            optionRows.addView(sizeRow)
-            optionRows.addView(action(str(R.string.floating_dock_reset_size), Color.WHITE) { setSize(100) },
-                LinearLayout.LayoutParams(-1, dp(36)))
-            optionRows.addView(action(str(R.string.floating_dock_settings_done), Color.WHITE) { options.visibility = View.GONE },
-                LinearLayout.LayoutParams(-1, dp(36)))
-            options.addView(ScrollView(context).apply {
-                isFillViewport = false
-                addView(optionRows)
-            }, FrameLayout.LayoutParams(-1, -1))
-            root.addView(options, FrameLayout.LayoutParams(-1,
                 layout.height - layout.header, Gravity.TOP).apply {
                 topMargin = layout.header
             })
@@ -341,8 +281,6 @@ internal class FloatingSlotDockController(
             grid?.layoutParams = FrameLayout.LayoutParams(dimensions.railWidth, dimensions.railHeight)
             picker?.layoutParams = FrameLayout.LayoutParams(-1,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
-            optionsOverlay?.layoutParams = FrameLayout.LayoutParams(-1,
-                dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
             layoutCells(dimensions)
             applyRailOffset()
             manager?.updateViewLayout(root, wnd)
@@ -359,11 +297,8 @@ internal class FloatingSlotDockController(
         grid = null
         railViewport = null
         railOffsetPx = 0
-        directionControl = null
         previousControl = null
         nextControl = null
-        optionsOverlay = null
-        sizeReadout = null
         picker = null
         pickerList = null
         profile = null
@@ -401,38 +336,6 @@ internal class FloatingSlotDockController(
     }
 
     private fun isVertical() = orientation == FloatingDockRailLayout.Orientation.VERTICAL
-
-    private fun setOrientation(next: FloatingDockRailLayout.Orientation) {
-        if (orientation == next) return
-        orientation = next
-        settings.edit().putString("orientation", if (isVertical()) "vertical" else "horizontal").apply()
-        railOffsetPx = 0
-        directionControl?.text = if (isVertical()) str(R.string.floating_dock_switch_horizontal)
-            else str(R.string.floating_dock_switch_vertical)
-        previousControl?.text = if (isVertical()) "↑" else "‹"
-        nextControl?.text = if (isVertical()) "↓" else "›"
-        reconfigure()
-        NeXtepLog.info("floating_dock", "Floating orientation=$orientation")
-    }
-
-    private fun changeSize(delta: Int) = setSize(sizePercent + delta)
-
-    private fun setSize(value: Int) {
-        val normalized = FloatingDockRailLayout.normalizedScale(value)
-        if (normalized == sizePercent) return
-        sizePercent = normalized
-        settings.edit().putInt("size_percent", sizePercent).apply()
-        sizeReadout?.text = "$sizePercent%"
-        railOffsetPx = 0
-        reconfigure()
-        NeXtepLog.info("floating_dock", "Resized previews uniformly to $sizePercent% (aspect locked)")
-    }
-
-    private fun openLayoutOptions() {
-        picker?.visibility = View.GONE
-        sizeReadout?.text = "$sizePercent%"
-        optionsOverlay?.visibility = View.VISIBLE
-    }
 
     /**
      * Use the arrows instead of intercepting swipe gestures. The same original

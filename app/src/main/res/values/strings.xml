@@ -242,4 +242,7 @@
     <string name="scope_restart_requested">Restart signal sent to %1$s. The process may relaunch automatically.</string>
     <string name="scope_restart_failed">Could not request restart: %1$s</string>
     <string name="scope_restart_busy">Requesting…</string>
+    <string name="floating_layout_settings_title">Floating layout and size</string>
+    <string name="floating_layout_settings_summary">Horizontal or vertical, 60–140% proportional size. Changes apply to the floating dock only.</string>
+    <string name="floating_layout_apply">Apply</string>
 </resources>

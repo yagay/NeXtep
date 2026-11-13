@@ -85,6 +85,12 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
+                if (::floatingDock.isInitialized) {
+                    floatingDock.applyLayoutSettings(
+                        workspaceConfig.floatingDockOrientation,
+                        workspaceConfig.floatingDockSizePercent,
+                    )
+                }
                 // Disabling the optional bubble must close only the floating dock,
                 // never the original side workspace.
                 if (!workspaceConfig.floatingBubbleEnabled &&

@@ -234,4 +234,7 @@
     <string name="scope_restart_requested">已向 %1$s 发送重启请求，系统可能自动重新启动该进程。</string>
     <string name="scope_restart_failed">重启请求失败：%1$s</string>
     <string name="scope_restart_busy">正在执行…</string>
+    <string name="floating_layout_settings_title">悬浮窗排列与大小</string>
+    <string name="floating_layout_settings_summary">横排或竖排，按比例缩放 60%–140%；只影响悬浮工作台。</string>
+    <string name="floating_layout_apply">应用</string>
 </resources>
