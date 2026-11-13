@@ -154,6 +154,9 @@ class FloatingBubbleService : Service() {
             checkNotNull(windowManager).addView(view, params)
             bubble = view
             layout = params
+            // Re-anchor an already expanded SystemUI dock after rotation or
+            // a service restart, without accidentally toggling its state.
+            FloatingPanelCommand.updateAnchor(this, params.x, params.y, size)
             NeXtepLog.info("floating_workspace", "App-owned overlay visible")
         }.onFailure { error ->
             bubble = null
@@ -164,7 +167,8 @@ class FloatingBubbleService : Service() {
     }
 
     private fun toggleWorkspace() {
-        FloatingPanelCommand.toggle(this) { result ->
+        val position = layout ?: return
+        FloatingPanelCommand.toggle(this, position.x, position.y, size) { result ->
             if (result is FloatingPanelCommand.Result.Failed) {
                 NeXtepLog.warn("floating_workspace", "Floating panel toggle rejected: ${result.reason}")
                 handler.post {
@@ -207,6 +211,9 @@ class FloatingBubbleService : Service() {
                         .putInt(KEY_SIDE, if (right) 1 else 0)
                         .putFloat(KEY_Y, params.y.toFloat() / metrics.heightPixels.coerceAtLeast(1))
                         .apply()
+                    // Move only the dock viewport: preserve all four live
+                    // displays and task assignments while the icon moves.
+                    FloatingPanelCommand.updateAnchor(this, params.x, params.y, size)
                 }
                 return true
             }
