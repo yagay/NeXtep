@@ -153,7 +153,7 @@ internal class FloatingSlotDockController(
                 topMargin = layout.header
             })
             val newSlots = List(WORKSPACE_SLOT_COUNT) { index ->
-                VirtualDisplaySlot(context, index).apply {
+                VirtualDisplaySlot(context, index, keepOutputWhileSuspended = true).apply {
                     setLayoutProfile(recorded)
                     view.setBackgroundSwipeEnabled(true)
                     view.setBackgroundSwipeSide(SidebarSide.RIGHT)
@@ -254,7 +254,8 @@ internal class FloatingSlotDockController(
             pickerGeneration += 1
             picker?.visibility = View.GONE
             NeXtepLog.info("floating_dock",
-                "Hidden live dock without moving tasks or releasing VirtualDisplays")
+                "Hidden live dock without moving tasks or releasing VirtualDisplays; " +
+                    slots.joinToString { it.diagnosticOutputState() })
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
@@ -272,6 +273,11 @@ internal class FloatingSlotDockController(
         runCatching {
             coordinator?.setSuspended(true)
             suspendedForLock = true
+            // Input and preview are hidden at the keyguard; display output
+            // remains connected to keep application rendering alive where
+            // the platform permits background/virtual-display execution.
+            NeXtepLog.info("floating_dock", "Lock retained live outputs: " +
+                slots.joinToString { it.diagnosticOutputState() })
         }.onFailure { NeXtepLog.warn("floating_dock", "Output suspension failed during lock", it) }
     }
 
@@ -312,7 +318,8 @@ internal class FloatingSlotDockController(
             panelVisible = true
             coordinator?.onTasksChanged()
             NeXtepLog.info("floating_dock",
-                "Reshowed retained dock with existing tasks, displays and slot positions")
+                "Reshowed retained dock with existing tasks, displays and slot positions; " +
+                    slots.joinToString { it.diagnosticOutputState() })
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
