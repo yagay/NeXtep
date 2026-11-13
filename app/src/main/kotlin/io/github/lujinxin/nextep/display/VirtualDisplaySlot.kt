@@ -4,7 +4,10 @@ import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.graphics.SurfaceTexture
+import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import android.view.TextureView
 import io.github.lujinxin.nextep.logging.NeXtepLog
@@ -33,6 +36,41 @@ class VirtualDisplaySlot(
 
     private val applicationContext = context.applicationContext ?: context
     private val factory = VirtualDisplayFactory(applicationContext, padMode = padMultiTaskMode)
+    private val displayManager = applicationContext.getSystemService(DisplayManager::class.java)
+    private var displayListenerRegistered = false
+    private var lastObservedDisplayState: Int? = null
+    private val displayStateListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != this@VirtualDisplaySlot.displayId()) return
+            val state = virtualDisplay?.display?.state ?: return
+            if (state == lastObservedDisplayState) return
+            val previous = lastObservedDisplayState
+            lastObservedDisplayState = state
+            NeXtepLog.info("virtual_display",
+                "Display state changed slot=$index displayId=$displayId " +
+                    "previous=$previous current=$state " +
+                    "surfaceConnected=$outputConnected surfaceValid=${surface?.isValid == true} " +
+                    "suspended=$suspended padMode=$padMultiTaskMode")
+        }
+    }
+    private fun registerDisplayStateListener() {
+        if (displayListenerRegistered) return
+        runCatching {
+            checkNotNull(displayManager).registerDisplayListener(
+                displayStateListener, Handler(Looper.getMainLooper()))
+            displayListenerRegistered = true
+        }.onFailure {
+            NeXtepLog.warn("virtual_display", "Unable to monitor display state slot=$index", it)
+        }
+    }
+    private fun unregisterDisplayStateListener() {
+        if (!displayListenerRegistered) return
+        runCatching { displayManager?.unregisterDisplayListener(displayStateListener) }
+        displayListenerRegistered = false
+        lastObservedDisplayState = null
+    }
     private var active = false
     private var suspended = false
     private var surface: Surface? = null
@@ -235,6 +273,8 @@ class VirtualDisplaySlot(
                 surface = createdSurface
                 virtualDisplay = display
                 outputConnected = true
+                lastObservedDisplayState = display.display.state
+                registerDisplayStateListener()
                 listener?.onDisplayReady(index, display.display.displayId)
                 NeXtepLog.info(
                     "virtual_display",
@@ -267,6 +307,7 @@ class VirtualDisplaySlot(
     }
 
     private fun releaseDisplay(reason: String) {
+        unregisterDisplayStateListener()
         val releasedDisplayId = virtualDisplay?.display?.displayId
         runCatching { virtualDisplay?.setSurface(null) }
         virtualDisplay?.release()
