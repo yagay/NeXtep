@@ -18,6 +18,7 @@ class SettingsRepository(private val context: Context) {
         val textBold: Boolean,
         val statusBarGestureEnabled: Boolean,
         val floatingBubbleEnabled: Boolean,
+        val floatingPadModeEnabled: Boolean,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
         val slotBackgroundSwipeEnabled: Boolean,
@@ -51,6 +52,7 @@ class SettingsRepository(private val context: Context) {
         textBold = preferences.getBoolean("top_text_bold", false),
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
+        floatingPadModeEnabled = preferences.getBoolean(KEY_FLOATING_PAD_MODE_ENABLED, false),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
             preferences.getString(KEY_FLOATING_DOCK_ORIENTATION,
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION),
@@ -110,6 +112,17 @@ class SettingsRepository(private val context: Context) {
     fun setFloatingBubbleEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("floating_bubble_enabled", enabled).apply()
         notifyTopContentChanged()
+    }
+
+    fun setFloatingPadModeEnabled(enabled: Boolean) {
+        // Commit before notifying: the verified cross-process config reader
+        // may run immediately when Android delivers the broadcast.
+        if (preferences.edit().putBoolean(KEY_FLOATING_PAD_MODE_ENABLED, enabled).commit()) {
+            notifyTopContentChanged()
+        } else {
+            io.github.lujinxin.nextep.logging.NeXtepLog.warn(
+                "floating_pad", "Failed to save Pad multi-task preference")
+        }
     }
 
     /** One canonical source for the app's settings and the injected SystemUI dock. */
@@ -228,6 +241,7 @@ class SettingsRepository(private val context: Context) {
 
     private companion object {
         const val KEY_TOP_TITLE = "top_title"
+        const val KEY_FLOATING_PAD_MODE_ENABLED = "floating_pad_mode_enabled"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
         const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
         const val KEY_TOP_APPS = "top_apps"
