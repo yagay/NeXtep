@@ -28,7 +28,13 @@ jobs:
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
       - name: Install Android platform
-        run: sdkmanager "platforms;android-36.1" "platform-tools"
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36.1" "platform-tools"
       - name: Test and build Debug APK only
         run: |
           chmod +x ./gradlew
