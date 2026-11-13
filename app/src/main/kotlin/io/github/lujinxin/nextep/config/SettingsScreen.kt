@@ -25,6 +25,8 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.checkbox.MaterialCheckBox
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
@@ -170,6 +172,21 @@ object SettingsScreen {
                             setOnClickListener { FloatingBubbleController.requestPermission(activity) }
                         },
                     ), matchWidth())
+                    addView(settingDivider(activity))
+                    val layoutButton = SettingsRowButton.create(activity).apply {
+                        updateFloatingLayoutLabel(activity, this, repository.topBarSettings())
+                        setOnClickListener { showFloatingLayoutDialog(activity, repository, this) }
+                    }
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.floating_layout_settings_title),
+                        activity.getString(R.string.floating_layout_settings_summary),
+                        layoutButton,
+                    ).apply {
+                        setOnClickListener { layoutButton.performClick() }
+                        isFocusable = false
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, matchWidth())
             }, matchWidth().apply { bottomMargin = dp(activity, 12) })
             addView(collapsibleSettingCard(
                 activity, R.string.settings_group_gestures, R.string.settings_group_gestures_summary,
@@ -722,6 +739,81 @@ object SettingsScreen {
      * Compact, stateful sections: frequent controls stay visible while advanced
      * ones are tucked away. The original child controls/listeners are unchanged.
      */
+    /** Floating layout is configured here, never by stretching a live window. */
+    private fun updateFloatingLayoutLabel(
+        activity: AppCompatActivity,
+        button: MaterialButton,
+        settings: SettingsRepository.TopBarSettings,
+    ) {
+        button.text = activity.getString(
+            if (settings.floatingDockOrientation == "vertical")
+                R.string.floating_dock_switch_vertical else R.string.floating_dock_switch_horizontal,
+        ) + " · ${settings.floatingDockSizePercent}%"
+    }
+
+    private fun showFloatingLayoutDialog(
+        activity: AppCompatActivity,
+        repository: SettingsRepository,
+        button: MaterialButton,
+    ) {
+        val current = repository.topBarSettings()
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 22), dp(activity, 8),
+                dp(activity, 22), dp(activity, 8))
+        }
+        container.addView(sectionDescription(activity,
+            activity.getString(R.string.floating_dock_arrangement)), matchWidth())
+        val horizontal = modeButton(activity,
+            activity.getString(R.string.floating_dock_switch_horizontal))
+        val vertical = modeButton(activity,
+            activity.getString(R.string.floating_dock_switch_vertical))
+        val selector = MaterialButtonToggleGroup(activity).apply {
+            isSingleSelection = true
+            isSelectionRequired = true
+            addView(horizontal, LinearLayout.LayoutParams(0, dp(activity, 44), 1f))
+            addView(vertical, LinearLayout.LayoutParams(0, dp(activity, 44), 1f))
+            check(if (current.floatingDockOrientation == "vertical") vertical.id else horizontal.id)
+        }
+        container.addView(selector, matchWidth().apply { topMargin = dp(activity, 10) })
+        container.addView(sectionDescription(activity,
+            activity.getString(R.string.floating_dock_fixed_ratio)), matchWidth().apply {
+                topMargin = dp(activity, 20)
+            })
+        val sizeLabel = TextView(activity).apply {
+            text = "${current.floatingDockSizePercent}%"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(SettingsPalette.text(activity))
+        }
+        container.addView(sizeLabel, matchWidth().apply { topMargin = dp(activity, 10) })
+        val sizeSlider = Slider(activity).apply {
+            valueFrom = WorkspaceConfigContract.MIN_FLOATING_DOCK_SIZE_PERCENT.toFloat()
+            valueTo = WorkspaceConfigContract.MAX_FLOATING_DOCK_SIZE_PERCENT.toFloat()
+            stepSize = WorkspaceConfigContract.FLOATING_DOCK_SIZE_STEP_PERCENT.toFloat()
+            value = current.floatingDockSizePercent.toFloat()
+            setLabelFormatter { "${it.toInt()}%" }
+            addOnChangeListener { _, value, _ -> sizeLabel.text = "${value.toInt()}%" }
+        }
+        container.addView(sizeSlider, matchWidth())
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.floating_layout_settings_title)
+            .setView(container)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setNeutralButton(R.string.floating_dock_reset_size) { _, _ ->
+                repository.resetFloatingDockLayout()
+                updateFloatingLayoutLabel(activity, button, repository.topBarSettings())
+            }
+            .setPositiveButton(R.string.floating_layout_apply) { _, _ ->
+                repository.setFloatingDockLayout(
+                    if (selector.checkedButtonId == vertical.id) "vertical" else "horizontal",
+                    sizeSlider.value.toInt(),
+                )
+                updateFloatingLayoutLabel(activity, button, repository.topBarSettings())
+            }
+            .show()
+    }
+
     private fun collapsibleSettingCard(
         activity: AppCompatActivity,
         titleRes: Int,
