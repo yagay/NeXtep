@@ -80,6 +80,8 @@ internal class FloatingSlotDockController(
     private var pickerGeneration = 0
     var lastError: String? = null
         private set
+    var lastErrorTrace: String? = null
+        private set
 
     fun isExpanded(): Boolean = host != null
 
@@ -97,6 +99,7 @@ internal class FloatingSlotDockController(
         }
         bubbleAnchor = anchor
         lastError = null
+        lastErrorTrace = null
         val type = SystemUiWindowTypeResolver.resolve() ?: run {
             lastError = "SystemUI overlay window type unsupported"
             return false
@@ -278,6 +281,7 @@ internal class FloatingSlotDockController(
             true
         }.getOrElse { error ->
             lastError = error.message ?: error.javaClass.simpleName
+            lastErrorTrace = android.util.Log.getStackTraceString(error).take(6_000)
             NeXtepLog.warn("floating_dock", "Unable to show floating dock", error)
             runCatching { coordinator?.deactivate() }
             host?.let { runCatching { manager?.removeViewImmediate(it) } }
