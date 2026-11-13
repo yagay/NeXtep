@@ -21,6 +21,7 @@ class SettingsRepository(private val context: Context) {
         val floatingPadModeEnabled: Boolean,
         val playbackCompatEnabled: Boolean,
         val playbackCompatAutoResume: Boolean,
+        val playbackCompatLockAudio: Boolean,
         val playbackCompatPackages: Set<String>,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
@@ -58,6 +59,7 @@ class SettingsRepository(private val context: Context) {
         floatingPadModeEnabled = preferences.getBoolean(KEY_FLOATING_PAD_MODE_ENABLED, false),
         playbackCompatEnabled = preferences.getBoolean(KEY_PLAYBACK_COMPAT_ENABLED, false),
         playbackCompatAutoResume = preferences.getBoolean(KEY_PLAYBACK_COMPAT_AUTO_RESUME, false),
+        playbackCompatLockAudio = preferences.getBoolean(KEY_PLAYBACK_COMPAT_LOCK_AUDIO, false),
         playbackCompatPackages = preferences.getStringSet(KEY_PLAYBACK_COMPAT_PACKAGES, emptySet())
             .orEmpty().toSet(),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
@@ -138,6 +140,9 @@ class SettingsRepository(private val context: Context) {
 
     fun setPlaybackCompatAutoResume(enabled: Boolean) =
         savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_AUTO_RESUME, enabled) }
+
+    fun setPlaybackCompatLockAudio(enabled: Boolean) =
+        savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_LOCK_AUDIO, enabled) }
 
     fun setPlaybackCompatPackages(packages: Set<String>) =
         savePlaybackCompat {
@@ -274,6 +279,7 @@ class SettingsRepository(private val context: Context) {
         const val KEY_FLOATING_PAD_MODE_ENABLED = "floating_pad_mode_enabled"
         const val KEY_PLAYBACK_COMPAT_ENABLED = "playback_compat_enabled"
         const val KEY_PLAYBACK_COMPAT_AUTO_RESUME = "playback_compat_auto_resume"
+        const val KEY_PLAYBACK_COMPAT_LOCK_AUDIO = "playback_compat_lock_audio"
         const val KEY_PLAYBACK_COMPAT_PACKAGES = "playback_compat_packages"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
         const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
