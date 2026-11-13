@@ -502,6 +502,9 @@ object SystemUiRuntime {
                     setResultExtras(Bundle().apply {
                         putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
                             floatingDock.lastError ?: "Floating dock is disabled, locked, or the original workspace is active")
+                        floatingDock.lastErrorTrace?.let {
+                            putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_TRACE, it)
+                        }
                     })
                 }
                 return
