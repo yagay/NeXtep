@@ -18,14 +18,7 @@ class SettingsRepository(private val context: Context) {
         val textBold: Boolean,
         val statusBarGestureEnabled: Boolean,
         val floatingBubbleEnabled: Boolean,
-        val floatingPadModeEnabled: Boolean,
-        val floatingIndependentDisplayEnabled: Boolean,
-        val playbackCompatEnabled: Boolean,
-        val playbackCompatAutoResume: Boolean,
-        val playbackCompatLockAudio: Boolean,
-        val playbackCompatPackages: Set<String>,
-        val floatingAutoProtectPlayback: Boolean,
-        val floatingInteractionMode: String,
+        val floatingLockGuardEnabled: Boolean,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
         val slotBackgroundSwipeEnabled: Boolean,
@@ -59,18 +52,7 @@ class SettingsRepository(private val context: Context) {
         textBold = preferences.getBoolean("top_text_bold", false),
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
-        floatingPadModeEnabled = preferences.getBoolean(KEY_FLOATING_PAD_MODE_ENABLED, false),
-        floatingIndependentDisplayEnabled = preferences.getBoolean(KEY_FLOATING_INDEPENDENT_DISPLAY_ENABLED, false),
-        playbackCompatEnabled = preferences.getBoolean(KEY_PLAYBACK_COMPAT_ENABLED, false),
-        playbackCompatAutoResume = preferences.getBoolean(KEY_PLAYBACK_COMPAT_AUTO_RESUME, false),
-        playbackCompatLockAudio = preferences.getBoolean(KEY_PLAYBACK_COMPAT_LOCK_AUDIO, false),
-        playbackCompatPackages = preferences.getStringSet(KEY_PLAYBACK_COMPAT_PACKAGES, emptySet())
-            .orEmpty().toSet(),
-        floatingAutoProtectPlayback = preferences.getBoolean(KEY_FLOATING_AUTO_PROTECT_PLAYBACK, true),
-        floatingInteractionMode = WorkspaceConfigContract.normalizeFloatingInteractionMode(
-            preferences.getString(KEY_FLOATING_INTERACTION_MODE,
-                WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE),
-        ),
+        floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, false),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
             preferences.getString(KEY_FLOATING_DOCK_ORIENTATION,
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION),
@@ -132,64 +114,10 @@ class SettingsRepository(private val context: Context) {
         notifyTopContentChanged()
     }
 
-    fun setFloatingIndependentDisplayEnabled(enabled: Boolean) {
-        if (preferences.edit().putBoolean(KEY_FLOATING_INDEPENDENT_DISPLAY_ENABLED, enabled).commit()) {
+    /** Experimental system_server lifecycle guard, scoped only to floating displays. */
+    fun setFloatingLockGuardEnabled(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, enabled).commit())
             notifyTopContentChanged()
-        }
-    }
-
-    fun setFloatingPadModeEnabled(enabled: Boolean) {
-        // Commit before notifying: the verified cross-process config reader
-        // may run immediately when Android delivers the broadcast.
-        if (preferences.edit().putBoolean(KEY_FLOATING_PAD_MODE_ENABLED, enabled).commit()) {
-            notifyTopContentChanged()
-        } else {
-            io.github.lujinxin.nextep.logging.NeXtepLog.warn(
-                "floating_pad", "Failed to save Pad multi-task preference")
-        }
-    }
-
-    /** Auto-protect only apps explicitly moved into the live floating dock. */
-    fun setFloatingAutoProtectPlayback(enabled: Boolean) {
-        if (preferences.edit().putBoolean(KEY_FLOATING_AUTO_PROTECT_PLAYBACK, enabled).commit())
-            notifyTopContentChanged()
-    }
-
-    /** Explicit manually selected-app compatibility settings remain available. */
-    fun setPlaybackCompatEnabled(enabled: Boolean) =
-        savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_ENABLED, enabled) }
-
-    fun setPlaybackCompatAutoResume(enabled: Boolean) =
-        savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_AUTO_RESUME, enabled) }
-
-    fun setPlaybackCompatLockAudio(enabled: Boolean) =
-        savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_LOCK_AUDIO, enabled) }
-
-    fun setPlaybackCompatPackages(packages: Set<String>) =
-        savePlaybackCompat {
-            it.putStringSet(KEY_PLAYBACK_COMPAT_PACKAGES,
-                packages.filter { name ->
-                    name.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+"))
-                }.take(60).toSet())
-        }
-
-    private inline fun savePlaybackCompat(block: (android.content.SharedPreferences.Editor) -> Unit) {
-        val editor = preferences.edit()
-        block(editor)
-        if (editor.commit()) notifyTopContentChanged()
-        else io.github.lujinxin.nextep.logging.NeXtepLog.warn(
-            "playback_compat", "Could not persist selected-player preferences")
-    }
-
-    /** Live selection affects only the floating dock; ordinary workspace is unchanged. */
-    fun setFloatingInteractionMode(mode: String) {
-        val normalized = WorkspaceConfigContract.normalizeFloatingInteractionMode(mode)
-        if (preferences.edit().putString(KEY_FLOATING_INTERACTION_MODE, normalized).commit()) {
-            notifyTopContentChanged()
-        } else {
-            io.github.lujinxin.nextep.logging.NeXtepLog.warn(
-                "floating_mode", "Could not save floating interaction mode")
-        }
     }
 
     /** One canonical source for the app's settings and the injected SystemUI dock. */
@@ -308,14 +236,7 @@ class SettingsRepository(private val context: Context) {
 
     private companion object {
         const val KEY_TOP_TITLE = "top_title"
-        const val KEY_FLOATING_PAD_MODE_ENABLED = "floating_pad_mode_enabled"
-        const val KEY_FLOATING_INDEPENDENT_DISPLAY_ENABLED = "floating_independent_display_enabled"
-        const val KEY_PLAYBACK_COMPAT_ENABLED = "playback_compat_enabled"
-        const val KEY_PLAYBACK_COMPAT_AUTO_RESUME = "playback_compat_auto_resume"
-        const val KEY_PLAYBACK_COMPAT_LOCK_AUDIO = "playback_compat_lock_audio"
-        const val KEY_PLAYBACK_COMPAT_PACKAGES = "playback_compat_packages"
-        const val KEY_FLOATING_AUTO_PROTECT_PLAYBACK = "floating_auto_protect_playback"
-        const val KEY_FLOATING_INTERACTION_MODE = "floating_interaction_mode"
+        const val KEY_FLOATING_LOCK_GUARD_ENABLED = "floating_lock_guard_enabled"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
         const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
         const val KEY_TOP_APPS = "top_apps"
