@@ -84,6 +84,18 @@ object SystemUiRuntime {
     private val navigationFoldReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD) return
+            // This cross-process signal deliberately has no sender permission:
+            // Quickstep runs as a non-system UID on some ColorOS builds.
+            // Verify the actual Binder-origin UID, never an Intent extra.
+            val senderUid = sentFromUid
+            val fromSystem = senderUid == android.os.Process.SYSTEM_UID
+            val fromLauncher = senderUid >= 0 && context.packageManager
+                .getPackagesForUid(senderUid).orEmpty()
+                .contains("com.android.launcher")
+            if (!fromSystem && !fromLauncher) {
+                NeXtepLog.warn("floating_nav", "NAV_REJECTED uid=$senderUid")
+                return
+            }
             val source = intent.getStringExtra(
                 TriggerBroadcastContract.EXTRA_NAVIGATION_EVENT_SOURCE
             )?.take(80) ?: return
@@ -298,7 +310,7 @@ object SystemUiRuntime {
             applicationContext.registerReceiver(
                 navigationFoldReceiver,
                 IntentFilter(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD),
-                "android.permission.STATUS_BAR_SERVICE",
+                null,
                 Handler(Looper.getMainLooper()),
                 Context.RECEIVER_EXPORTED,
             )
