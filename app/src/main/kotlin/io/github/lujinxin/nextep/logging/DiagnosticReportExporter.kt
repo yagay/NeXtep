@@ -103,10 +103,7 @@ object DiagnosticReportExporter {
                     appendLine("Status-bar gesture: ${settings.statusBarGestureEnabled}")
                     appendLine("Four-finger gesture: ${settings.fourFingerGestureEnabled}")
                     appendLine("Floating bubble: ${settings.floatingBubbleEnabled}")
-                    appendLine("Floating interaction mode: ${settings.floatingInteractionMode}")
-                    appendLine("Floating auto-protect playback: ${settings.floatingAutoProtectPlayback}")
-                    appendLine("Floating Pad mode requested: ${settings.floatingPadModeEnabled}")
-                    appendLine("Independent display experimental mode: ${settings.floatingIndependentDisplayEnabled}")
+                    appendLine("Floating lock guard enabled: ${settings.floatingLockGuardEnabled}")
                     appendLine("System server lock policy: " + runCatching {
                         android.provider.Settings.Global.getInt(context.contentResolver,
                             "nextep_slot_independent_lock_guard_v1", -1).toString()
@@ -115,12 +112,7 @@ object DiagnosticReportExporter {
                         android.provider.Settings.Global.getString(context.contentResolver,
                             "nextep_slot_guard_diagnostics_v1") ?: "not published"
                     }.getOrDefault("unavailable"))
-                    appendLine("Floating player compatibility: ${settings.playbackCompatEnabled}")
-                    appendLine("One-shot MediaSession recovery: ${settings.playbackCompatAutoResume}")
-                    appendLine("One-shot screen-lock audio continuation: ${settings.playbackCompatLockAudio}")
-                    appendLine("Selected player app count: ${settings.playbackCompatPackages.size}")
                     appendLine("App-process playback Hook is diagnostic-only and requires manual LSPosed scope")
-                    appendLine("Pad profile applies only to newly created floating displays")
                     appendLine("Background swipe: ${settings.slotBackgroundSwipeEnabled}")
                     appendLine("Block system drag/share: ${settings.blockSystemDragShareEnabled}")
                     appendLine("Return after sharing: ${settings.returnAfterSharingEnabled}")
