@@ -8,10 +8,7 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
-import android.os.SystemClock
 import android.view.MotionEvent
-import android.view.Display
 import android.view.Gravity
 import android.view.View
 import android.view.ViewConfiguration
@@ -25,14 +22,11 @@ import android.widget.Toast
 import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.apps.LauncherAppRepository
 import io.github.lujinxin.nextep.config.AppLanguage
-import io.github.lujinxin.nextep.config.WorkspaceConfigContract
 import io.github.lujinxin.nextep.display.SlotState
 import io.github.lujinxin.nextep.display.SlotTaskCoordinator
 import io.github.lujinxin.nextep.display.VirtualDisplaySlot
 import io.github.lujinxin.nextep.display.WORKSPACE_SLOT_COUNT
 import io.github.lujinxin.nextep.framework.ActivityTaskManagerCompat
-import io.github.lujinxin.nextep.framework.TaskSurfaceCompat
-import io.github.lujinxin.nextep.framework.WindowContainerTransactionCompat
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.task.MainTaskPresentationCoordinator
 import io.github.lujinxin.nextep.task.TaskRepository
@@ -65,43 +59,11 @@ internal class FloatingSlotDockController(
     private var host: FrameLayout? = null
     private var panelVisible = false
     private var suspendedForLock = false
-    // A floating-only choice. Do not apply this mode to the ordinary workspace.
-    private var interactionMode = WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE
     private data class StableZoom(val index: Int, val taskId: Int, val displayId: Int)
     private var stableZoom: StableZoom? = null
     private var stableControls: FrameLayout? = null
     private val virtualInput = FloatingVirtualDisplayInput(context)
     private var stableTouchActive = false
-    /** Floating-only temporary foreground: the slot and VirtualDisplay stay allocated. */
-    private data class TemporarilyFullscreen(
-        val index: Int,
-        val taskId: Int,
-        val displayId: Int,
-        val originalResizeMode: Int?,
-        val beganAt: Long,
-        // Desktop/Recents can reuse the original task. In stable mode this
-        // must be returned immediately, but in NATIVE mode a user-initiated
-        // launcher open is a legitimate fullscreen interaction and should be
-        // returned only after background/lock.
-        val externalLauncher: Boolean = false,
-        val stickyReturn: Boolean = false,
-        var absentSince: Long = 0L,
-        var lastReturnAttemptAt: Long = 0L,
-        var failedReturnAttempts: Int = 0,
-        var backgroundSince: Long = 0L,
-    )
-    private var fullscreenTask: TemporarilyFullscreen? = null
-    private var movingFullscreenTask = false
-    private val floatingTaskRepository = TaskRepository(context)
-    private val fullscreenWatchdog = object : Runnable {
-        override fun run() {
-            val pinned = fullscreenTask ?: return
-            if (!movingFullscreenTask && !suspendedForLock) {
-                checkTemporaryFullscreen(pinned, "watchdog")
-            }
-            if (fullscreenTask != null) handler.postDelayed(this, 360L)
-        }
-    }
     private val removeBadges = mutableMapOf<Int, TextView>()
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
@@ -111,7 +73,7 @@ internal class FloatingSlotDockController(
         // Only a genuinely open floating dock may auto-fold. Never interfere
         // with an active removal confirmation or the real full-screen task.
         if (!panelVisible || suspendedForLock || removalPending ||
-            fullscreenTask != null || host == null) return@Runnable
+            host == null) return@Runnable
         NeXtepLog.info("floating_dock",
             "OUTSIDE_TAP_FOLD; retaining original virtual displays and tasks")
         collapse()
@@ -124,7 +86,7 @@ internal class FloatingSlotDockController(
      */
     private fun foldForOutsideTap(event: MotionEvent?) {
         if (!panelVisible || suspendedForLock || removalPending ||
-            fullscreenTask != null || outsideFoldPending) return
+            outsideFoldPending) return
         if (event != null && event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
             val bubble = bubbleAnchor
             if (bubble != null && bubble.size > 0 &&
@@ -149,45 +111,8 @@ internal class FloatingSlotDockController(
     // from the trusted configuration IPC whenever the user changes Settings.
     private var orientation = FloatingDockRailLayout.Orientation.HORIZONTAL
     private var sizePercent = 100
-    // A VirtualDisplay's focus flags cannot change after creation. New
-    // settings are applied on the NEXT fresh session only, never by
-    // destroying running apps or replacing a folded four-slot dock.
-    private var padModeRequested = false
-    private var padModeForSession = false
-    private var independentModeRequested = false
-    private var independentModeForSession = false
-    // Bounded CPU wake lock, not a guarantee of virtual display power.
-    private val independentCpuWakeLock by lazy {
-        runCatching {
-            context.getSystemService(PowerManager::class.java)
-                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NeXtep:independent-display")
-        }.getOrNull()
-    }
-    private fun releaseIndependentWakeLock() {
-        runCatching {
-            independentCpuWakeLock?.takeIf { it.isHeld }?.release()
-        }.onFailure {
-            NeXtepLog.warn("floating_dock", "Independent CPU wake lock release failed", it)
-        }
-    }
     private var coordinator: SlotTaskCoordinator? = null
-    private val playbackCompat = FloatingPlaybackCompatController(context)
-    private val playbackSlotRefresh = Runnable {
-        playbackCompat.onSlotPackagesChanged(currentPlayerPackages())
-        updateRemoveBadges()
-    }
-    private fun currentPlayerPackages(): Set<String> =
-        coordinator?.slotStates().orEmpty().mapNotNull { state ->
-            (state as? SlotState.Occupied)?.component?.packageName
-        }.toSet()
-
-    fun applyPlaybackCompatSettings(
-        enabled: Boolean, autoResume: Boolean, lockAudio: Boolean, packages: Set<String>,
-        autoFloatingSlots: Boolean,
-    ) {
-        playbackCompat.configure(enabled, autoResume, lockAudio, packages, autoFloatingSlots)
-        if (hasSession()) playbackCompat.onSlotPackagesChanged(currentPlayerPackages())
-    }
+    private val playbackSlotRefresh = Runnable { updateRemoveBadges() }
     private var slots: List<VirtualDisplaySlot> = emptyList()
     private var profile: WorkspaceLayoutProfile? = null
     private var panel: Panel? = null
@@ -205,51 +130,17 @@ internal class FloatingSlotDockController(
     fun hasSession(): Boolean = host != null
     fun isStableZoomed(): Boolean = stableZoom != null
     fun shrinkStableZoom(): Boolean = restoreStableCompact()
-    fun hasTemporaryFullscreen(): Boolean = fullscreenTask != null
-    fun returnTemporaryFullscreen(): Boolean = returnFullscreenToSlot("floating icon")
-
-
-    /**
-     * An occupied floating card temporarily becomes the REAL Display 0 task.
-     * Do not call SlotTaskCoordinator.onSlotClicked(): it exchanges the main
-     * task into the slot. The original slot remains reserved for this task.
-     */
+    /** One stable interaction path; no native full-screen task migration. */
     private fun onFloatingCardTapped(index: Int) {
-        if (!panelVisible || suspendedForLock || removalPending || movingFullscreenTask) return
+        if (!panelVisible || suspendedForLock || removalPending) return
         if (stableZoom != null) {
             restoreStableCompact()
             return
         }
-        if (fullscreenTask != null) {
-            returnFullscreenToSlot("floating card")
-            return
-        }
         when (val state = coordinator?.slotStates()?.getOrNull(index)) {
-            is SlotState.Occupied -> if (interactionMode ==
-                WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE) {
-                promoteFloatingApp(index, state)
-            } else {
-                zoomStableCard(index, state)
-            }
-            is SlotState.Ready, is SlotState.Failed -> {
-                // Preserve the original one-tap behavior: park the current
-                // foreground Display 0 task into this empty floating slot.
-                // The coordinator already handles HOME/recents, transition
-                // serialization, and rollback. Do not use its occupied-slot
-                // swap path here; occupied cards are handled above.
-                NeXtepLog.info("floating_dock",
-                    "EMPTY_CARD_TAP_PARK_FOREGROUND slot=$index state=$state " +
-                        "foreground=${floatingTaskRepository.foregroundTask()?.taskId} " +
-                        "interaction=$interactionMode")
-                coordinator?.onSlotClicked(index)
-            }
-            SlotState.Empty -> {
-                // The virtual display is not ready yet; do not open the app
-                // picker or silently launch a fresh copy of the foreground app.
-                NeXtepLog.info("floating_dock",
-                    "EMPTY_CARD_TAP_WAIT_DISPLAY slot=$index")
-                coordinator?.onTasksChanged()
-            }
+            is SlotState.Occupied -> zoomStableCard(index, state)
+            is SlotState.Ready, is SlotState.Failed -> coordinator?.onSlotClicked(index)
+            SlotState.Empty -> coordinator?.onTasksChanged()
             else -> Unit
         }
     }
@@ -261,7 +152,7 @@ internal class FloatingSlotDockController(
      * SAME display. No task reparent, app relaunch or display recreation.
      */
     private fun zoomStableCard(index: Int, state: SlotState.Occupied): Boolean {
-        if (stableZoom != null || fullscreenTask != null || movingFullscreenTask) return false
+        if (stableZoom != null) return false
         if (slots.getOrNull(index)?.displayId() != state.displayId ||
             floatingTaskRepository.findTask(state.taskId)?.displayId != state.displayId) {
             NeXtepLog.warn("floating_stable",
@@ -279,37 +170,6 @@ internal class FloatingSlotDockController(
             NeXtepLog.warn("floating_stable", "Unable to zoom stable app", it)
             restoreStableCompact()
             false
-        }
-    }
-
-    /**
-     * Stable mode is a real virtual-display Activity but some OEM dialogs,
-     * IMEs and system navigation are restricted to physical Display 0. Give
-     * the user a one-off native interaction without changing their preferred
-     * stable mode or exchanging the current main-screen app into this slot.
-     * Existing native fullscreen auto-return handles Home/app-switch/lock.
-     */
-    private fun openNativeFromStableZoom() {
-        val zoom = stableZoom ?: return
-        if (suspendedForLock || removalPending || movingFullscreenTask) return
-        val occupied = coordinator?.slotStates()?.getOrNull(zoom.index) as? SlotState.Occupied
-        if (occupied?.taskId != zoom.taskId || occupied.displayId != zoom.displayId) {
-            NeXtepLog.warn("floating_stable",
-                "NATIVE_INTERACTION_REFUSED stale slot=${zoom.index} task=${zoom.taskId}")
-            return
-        }
-        if (floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
-            NeXtepLog.warn("floating_stable",
-                "NATIVE_INTERACTION_REFUSED task no longer on virtual display=${zoom.displayId}")
-            return
-        }
-        if (!restoreStableCompact()) return
-        NeXtepLog.info("floating_stable",
-            "NATIVE_INTERACTION_REQUESTED task=${zoom.taskId} " +
-                "display=${zoom.displayId}; stable default unchanged")
-        if (!promoteFloatingApp(zoom.index, occupied)) {
-            NeXtepLog.warn("floating_stable",
-                "NATIVE_INTERACTION_FAILED task=${zoom.taskId}; compact dock retained")
         }
     }
 
@@ -417,11 +277,7 @@ internal class FloatingSlotDockController(
             }
             smallControl("×", str(R.string.floating_dock_remove_app),
                 Gravity.RIGHT) { requestRemoveApp(zoom.index) }
-            // Genuine phone interactions (keyboard, dialogs, system gestures)
-            // use the already implemented native Task promotion path. This
-            // does not change the user's stable-mode preference.
-            smallControl("⤢", str(R.string.floating_native_interaction_action),
-                Gravity.BOTTOM or Gravity.RIGHT) { openNativeFromStableZoom() }
+
             root.addView(controls, FrameLayout.LayoutParams(-1, -1))
             stableControls = controls
         }
@@ -473,400 +329,6 @@ internal class FloatingSlotDockController(
         }
     }
 
-    private fun movePinnedTask(taskId: Int, displayId: Int) {
-        TaskSurfaceCompat.markDisplayExchange(taskId, displayId)
-        if (displayId == Display.DEFAULT_DISPLAY) TaskSurfaceCompat.cancelPreparedPromotion(taskId)
-        try {
-            ActivityTaskManagerCompat.moveTaskToDisplay(taskId, displayId).getOrThrow()
-            val deadline = SystemClock.uptimeMillis() + 1_000L
-            while (SystemClock.uptimeMillis() < deadline) {
-                if (floatingTaskRepository.findTask(taskId)?.displayId == displayId) return
-                SystemClock.sleep(35L)
-            }
-            check(floatingTaskRepository.findTask(taskId)?.displayId == displayId) {
-                "Task $taskId did not settle on display $displayId"
-            }
-        } catch (error: Throwable) {
-            TaskSurfaceCompat.cancelDisplayExchange(taskId)
-            throw error
-        }
-    }
-
-    private fun hideRetainedDockForFullscreen() {
-        val root = checkNotNull(host)
-        val window = root.layoutParams as WindowManager.LayoutParams
-        window.alpha = 0f
-        window.flags = window.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        manager?.updateViewLayout(root, window)
-        panelVisible = false
-        pickerGeneration++
-        picker?.visibility = View.GONE
-        removeBadges.values.forEach { it.visibility = View.GONE }
-        // Never remove the root or detach its TextureViews: this preserves
-        // the same VirtualDisplays while the app is active on Display 0.
-    }
-
-    private fun promoteFloatingApp(index: Int, state: SlotState.Occupied): Boolean {
-        if (fullscreenTask != null || movingFullscreenTask || suspendedForLock) return false
-        val task = floatingTaskRepository.findTask(state.taskId)
-        if (task == null || task.displayId != state.displayId ||
-            slots.getOrNull(index)?.displayId() != state.displayId) {
-            NeXtepLog.warn("floating_pinned",
-                "PROMOTE_REJECTED stale slot=$index task=${state.taskId} display=${state.displayId}")
-            coordinator?.onTasksChanged()
-            return false
-        }
-        movingFullscreenTask = true
-        var moveAttempted = false
-        return try {
-            // Reconciliation must not interpret this temporary absence as an
-            // exited slot and fill it with a different foreground app.
-            coordinator?.setSuspended(true)
-            if (task.resizeMode != 2) {
-                ActivityTaskManagerCompat.setTaskResizeable(task.taskId, 2).getOrThrow()
-            }
-            moveAttempted = true
-            movePinnedTask(task.taskId, Display.DEFAULT_DISPLAY)
-            floatingTaskRepository.findTask(task.taskId)?.token?.let { token ->
-                WindowContainerTransactionCompat.applyTaskLayout(
-                    token, Rect(), context.resources.displayMetrics.densityDpi, 1,
-                ).getOrThrow()
-            }
-            TaskSurfaceCompat.resetPromotedSlotToFullscreen(task.taskId)
-                .onFailure { NeXtepLog.warn("floating_pinned",
-                    "Fullscreen surface reset deferred", it) }
-            floatingTaskRepository.bringTaskToFront(task.taskId).getOrThrow()
-            fullscreenTask = TemporarilyFullscreen(
-                index, task.taskId, state.displayId, task.resizeMode,
-                SystemClock.uptimeMillis(),
-            )
-            hideRetainedDockForFullscreen()
-            handler.removeCallbacks(fullscreenWatchdog)
-            handler.postDelayed(fullscreenWatchdog, 700L)
-            NeXtepLog.info("floating_pinned",
-                "FULLSCREEN_ENTER task=${task.taskId} slot=$index " +
-                    "originalDisplay=${state.displayId} currentDisplay=0; main task not swapped")
-            true
-        } catch (error: Throwable) {
-            NeXtepLog.warn("floating_pinned",
-                "Fullscreen entrance failed; attempting original slot rollback", error)
-            if (moveAttempted) {
-                fullscreenTask = TemporarilyFullscreen(
-                    index, task.taskId, state.displayId, task.resizeMode,
-                    SystemClock.uptimeMillis(),
-                )
-                runCatching { restorePinnedTaskNow(checkNotNull(fullscreenTask), "enter rollback") }
-                    .onFailure { rollbackError ->
-                        NeXtepLog.warn("floating_pinned",
-                            "Rollback still pending; retained virtual display", rollbackError)
-                        handler.postDelayed(fullscreenWatchdog, 500L)
-                    }
-            } else {
-                coordinator?.setSuspended(false)
-                task.resizeMode?.let { original ->
-                    if (original != 2) ActivityTaskManagerCompat.setTaskResizeable(task.taskId, original)
-                }
-            }
-            false
-        } finally {
-            movingFullscreenTask = false
-        }
-    }
-
-    private fun checkTemporaryFullscreen(pin: TemporarilyFullscreen, source: String) {
-        if (fullscreenTask !== pin) return
-        val live = floatingTaskRepository.findTask(pin.taskId)
-        if (live == null) {
-            // Android may temporarily omit a task from getRunningTasks()
-            // while changing its display. Avoid releasing the reserved slot
-            // because of a single missing snapshot.
-            val now = SystemClock.uptimeMillis()
-            if (pin.absentSince == 0L) pin.absentSince = now
-            if (now - pin.absentSince < 2_000L) return
-            NeXtepLog.warn("floating_pinned",
-                "TASK_EXITED source=$source task=${pin.taskId}; no task observed for 2s")
-            clearTemporaryFullscreen()
-            return
-        }
-        pin.absentSince = 0L
-        if (live.displayId == pin.displayId) {
-            // The system or an earlier attempt may have moved the task back
-            // before layout/surface fitting completed. Finish that restoration
-            // rather than prematurely clearing its reserved-slot state.
-            returnFullscreenToSlot("external slot return")
-            return
-        }
-        if (live.displayId != Display.DEFAULT_DISPLAY) {
-            // A ColorOS native transition owns the task; don't steal it back
-            // from a different external display.
-            NeXtepLog.warn("floating_pinned",
-                "TASK_MOVED_EXTERNALLY task=${pin.taskId} display=${live.displayId}")
-            clearTemporaryFullscreen()
-            return
-        }
-        if (pin.externalLauncher && pin.stickyReturn) {
-            // Stable interaction: launcher reparent must not steal the slot.
-            // Native fullscreen: permit genuine user foreground use instead.
-            NeXtepLog.info("floating_pinned",
-                "STICKY_RETURN_ATTEMPT source=$source task=${pin.taskId} " +
-                    "display=${pin.displayId}")
-            returnFullscreenToSlot("sticky:$source")
-            return
-        }
-        val now = SystemClock.uptimeMillis()
-        if (now - pin.beganAt < 800L) return
-        val foreground = floatingTaskRepository.foregroundTask() ?: return
-        if (foreground.taskId == pin.taskId) {
-            pin.backgroundSince = 0L
-            return
-        }
-        // ColorOS may briefly report Home as foreground while the launcher
-        // is completing a real Activity transition. Verify background across
-        // consecutive snapshots before reparenting this Task back to its VD.
-        if (pin.backgroundSince == 0L) {
-            pin.backgroundSince = now
-            return
-        }
-        if (now - pin.backgroundSince < 420L) return
-        NeXtepLog.info("floating_pinned",
-            "AUTO_RETURN reason=$source task=${pin.taskId} foreground=${foreground.taskId} " +
-                "backgroundMs=${now - pin.backgroundSince}")
-        returnFullscreenToSlot("background:$source")
-    }
-
-    /**
-     * A desktop launcher can reuse the exact Task belonging to an existing
-     * floating card and silently reparent it to Display 0. Preserve that
-     * reservation instead of letting the standard coordinator clear it.
-     *
-     * This callback is only wired for FloatingSlotDockController; regular
-     * workspace tasks still use their original external-promotion rules.
-     */
-    /**
-     * Strict floating-slot ownership:
-     * The launcher can reuse the same Task on Display 0, but that is NOT an
-     * explicit request to temporarily fullscreen it via NeXtep.
-     *
-     * Returning true keeps the occupied slot reserved during the coordinator's
-     * reconciliation. A posted restoration avoids reentrant task moves while
-     * that reconciliation is iterating its task snapshot.
-     */
-    private fun reserveLauncherPromotedTask(
-        index: Int,
-        occupied: SlotState.Occupied,
-        mainTask: TaskRepository.TaskSnapshot,
-    ): Boolean {
-        if (!hasSession() || slots.getOrNull(index)?.displayId() != occupied.displayId ||
-            mainTask.taskId != occupied.taskId ||
-            mainTask.displayId != Display.DEFAULT_DISPLAY) return false
-        val explicit = fullscreenTask
-        if (explicit != null) {
-            // Even when a native fullscreen request is in flight, the slot is
-            // reserved for this exact Task, not replaceable by another app.
-            return explicit.taskId == occupied.taskId &&
-                explicit.displayId == occupied.displayId
-        }
-        if (movingFullscreenTask) return true
-        handler.post {
-            if (fullscreenTask == null && !movingFullscreenTask && hasSession()) {
-                captureLauncherPromotion("coordinator ownership")
-            }
-        }
-        return true
-    }
-
-    private fun adoptExternallyOpenedTask(
-        index: Int,
-        occupied: SlotState.Occupied,
-        source: String,
-    ): Boolean {
-        if (!hasSession() || fullscreenTask != null || movingFullscreenTask ||
-            slots.getOrNull(index)?.displayId() != occupied.displayId) return false
-        val current = floatingTaskRepository.findTask(occupied.taskId) ?: return false
-        if (current.displayId != Display.DEFAULT_DISPLAY) return false
-        // During launcher transitions the foreground snapshot can lag the
-        // actual Display 0 migration by a few frames. Never treat that lag as
-        // a reason to immediately steal the app back in native mode.
-        val nativeForeground = !WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
-            interactionMode,
-        )
-        val pin = TemporarilyFullscreen(
-            index, occupied.taskId, occupied.displayId,
-            current.resizeMode, SystemClock.uptimeMillis(),
-            externalLauncher = true,
-            stickyReturn = !nativeForeground,
-        )
-        fullscreenTask = pin
-        handler.removeCallbacks(fullscreenWatchdog)
-        if (nativeForeground) {
-            // This is an explicit tap on a launcher or Recents icon while
-            // NATIVE mode is selected. Keep the original virtual display
-            // reserved, but allow the real app to remain on Display 0.
-            // As soon as the user goes Home, switches apps or locks the
-            // device, the existing fullscreen watchdog returns it to its
-            // original virtual display.
-            runCatching {
-                coordinator?.setSuspended(true)
-                if (panelVisible) hideRetainedDockForFullscreen()
-            }.onFailure { error ->
-                NeXtepLog.warn("floating_pinned",
-                    "NATIVE_LAUNCH_UI_HIDE_FAILED; task reservation remains", error)
-            }
-            NeXtepLog.info("floating_pinned",
-                "NATIVE_LAUNCH_ALLOWED source=$source slot=$index " +
-                    "task=${occupied.taskId} virtualDisplay=${occupied.displayId} " +
-                    "mainDisplay=0; return on Home/app switch/lock")
-            handler.postDelayed(fullscreenWatchdog, 750L)
-        } else {
-            // Stable interaction mode (or a task reparented while not the
-            // physical foreground) keeps the app fixed to its slot. Do not
-            // hide the dock and do not move a different Task.
-            NeXtepLog.info("floating_pinned",
-                "STICKY_CAPTURE source=$source slot=$index task=${occupied.taskId} " +
-                    "virtualDisplay=${occupied.displayId}; strict slot ownership")
-            handler.post {
-                if (fullscreenTask === pin && !movingFullscreenTask) {
-                    returnFullscreenToSlot("sticky:launcher")
-                }
-            }
-            handler.postDelayed(fullscreenWatchdog, 400L)
-        }
-        return true
-    }
-
-    /** Inspect existing owned Task IDs, not package names or an app guess. */
-    private fun captureLauncherPromotion(source: String): Boolean {
-        if (!hasSession() || fullscreenTask != null || movingFullscreenTask) return false
-        val occupied = coordinator?.slotStates().orEmpty().mapIndexedNotNull { index, state ->
-            (state as? SlotState.Occupied)?.let { index to it }
-        }
-        if (occupied.isEmpty()) return false
-        val running = floatingTaskRepository.runningTasks()
-        for ((index, state) in occupied) {
-            if (slots.getOrNull(index)?.displayId() != state.displayId) continue
-            if (running.any {
-                it.taskId == state.taskId && it.displayId == Display.DEFAULT_DISPLAY
-            }) {
-                return adoptExternallyOpenedTask(index, state, source)
-            }
-        }
-        return false
-    }
-
-    /** Called on Home, other-app selection or any Shell task-front change. */
-    fun onTaskForegroundChanged() {
-        val pin = fullscreenTask ?: return
-        if (!movingFullscreenTask && !suspendedForLock) {
-            checkTemporaryFullscreen(pin, "task callback")
-        }
-    }
-
-    /** Keyguard/display callbacks can precede the SCREEN_OFF broadcast. */
-    fun onPhysicalLockSignal(source: String) {
-        captureLauncherPromotion("prelock:$source")
-        if (fullscreenTask == null || movingFullscreenTask) return
-        NeXtepLog.info("floating_pinned", "PRELOCK_RETURN source=$source")
-        returnFullscreenToSlot("prelock:$source")
-    }
-
-    fun returnFullscreenToSlot(reason: String): Boolean {
-        val pin = fullscreenTask ?: return true
-        if (movingFullscreenTask) return false
-        if (pin.externalLauncher) {
-            val now = SystemClock.uptimeMillis()
-            val backoff = (650L + pin.failedReturnAttempts * 250L).coerceAtMost(2_500L)
-            if (pin.lastReturnAttemptAt != 0L &&
-                now - pin.lastReturnAttemptAt < backoff) return false
-            pin.lastReturnAttemptAt = now
-        }
-        movingFullscreenTask = true
-        return try {
-            restorePinnedTaskNow(pin, reason)
-            val canShow = reason.startsWith("background:") ||
-                reason == "floating icon" || reason == "floating card"
-            val unlocked = context.getSystemService(PowerManager::class.java)?.isInteractive == true &&
-                context.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked != true
-            if (canShow && unlocked && !suspendedForLock && hasSession() && !panelVisible) {
-                showRetainedSession()
-            }
-            true
-        } catch (error: Throwable) {
-            if (pin.externalLauncher) pin.failedReturnAttempts++
-            lastError = "Unable to return fullscreen app to its floating slot: ${error.message}"
-            lastErrorTrace = android.util.Log.getStackTraceString(error).take(6_000)
-            NeXtepLog.warn("floating_pinned",
-                "AUTO_RETURN_FAILED task=${pin.taskId} reason=$reason; will retry without releasing slot",
-                error)
-            false
-        } finally {
-            movingFullscreenTask = false
-        }
-    }
-
-    private fun restorePinnedTaskNow(pin: TemporarilyFullscreen, reason: String) {
-        check(fullscreenTask === pin) { "Promoted slot ownership changed" }
-        val current = floatingTaskRepository.findTask(pin.taskId)
-        if (current == null) {
-            if (pin.externalLauncher) {
-                val now = SystemClock.uptimeMillis()
-                if (pin.absentSince == 0L) pin.absentSince = now
-                // A task can vanish briefly from RunningTasks during an OEM
-                // display transition. Never discard pinned ownership on a
-                // single null snapshot; retain it for a short recovery window.
-                if (now - pin.absentSince < 3_000L) {
-                    error("Pinned Task ${pin.taskId} temporarily unavailable; retrying")
-                }
-            }
-            clearTemporaryFullscreen()
-            return
-        }
-        pin.absentSince = 0L
-        check(slots.getOrNull(pin.index)?.displayId() == pin.displayId) {
-            "Original VirtualDisplay ${pin.displayId} was removed"
-        }
-        if (current.displayId != pin.displayId) {
-            check(current.displayId == Display.DEFAULT_DISPLAY) {
-                "Task ${pin.taskId} has moved to a different display ${current.displayId}"
-            }
-            movePinnedTask(pin.taskId, pin.displayId)
-        }
-        val restored = checkNotNull(floatingTaskRepository.findTask(pin.taskId))
-        val geometry = checkNotNull(slots[pin.index].geometry())
-        val token = checkNotNull(restored.token) { "Original slot task token unavailable" }
-        WindowContainerTransactionCompat.applyTaskLayout(
-            token, Rect(), geometry.densityDpi, 1,
-        ).getOrThrow()
-        TaskSurfaceCompat.cancelDisplayExchange(pin.taskId)
-        val source = slots[pin.index].sourceBounds()
-        TaskSurfaceCompat.fitSlotSurface(
-            pin.taskId, pin.displayId,
-            Rect(source.left, source.top, source.right, source.bottom),
-        ).onFailure { NeXtepLog.warn("floating_pinned", "Slot surface fit delayed", it) }
-        pin.originalResizeMode?.let { resizeMode ->
-            if (resizeMode != 2) {
-                ActivityTaskManagerCompat.setTaskResizeable(pin.taskId, resizeMode)
-                    .onFailure { NeXtepLog.warn("floating_pinned",
-                        "Original resize mode restoration delayed", it) }
-            }
-        }
-        NeXtepLog.info("floating_pinned",
-            "FULLSCREEN_RETURN task=${pin.taskId} slot=${pin.index} " +
-                "display=${pin.displayId} reason=$reason; task preserved")
-        clearTemporaryFullscreen()
-    }
-
-    private fun clearTemporaryFullscreen() {
-        fullscreenTask = null
-        handler.removeCallbacks(fullscreenWatchdog)
-        // Do not resume normal task reconciliation until the task is back
-        // or another subsystem has explicitly claimed the task.
-        if (!suspendedForLock) {
-            coordinator?.setSuspended(false)
-            coordinator?.onTasksChanged()
-        }
-        if (hasSession() && panelVisible) updateRemoveBadges()
-    }
-
     private fun installRemoveBadges() {
         val frame = grid ?: return
         removeBadges.clear()
@@ -905,7 +367,7 @@ internal class FloatingSlotDockController(
     private fun updateRemoveBadges() {
         val states = coordinator?.slotStates().orEmpty()
         removeBadges.forEach { (index, badge) ->
-            badge.visibility = if (fullscreenTask == null && stableZoom == null && panelVisible &&
+            badge.visibility = if (stableZoom == null && panelVisible &&
                 states.getOrNull(index) is SlotState.Occupied) View.VISIBLE else View.GONE
         }
     }
@@ -1003,30 +465,6 @@ internal class FloatingSlotDockController(
         }
     }
 
-    /**
-     * Switch only the floating interaction path. An existing virtual display
-     * is never torn down to apply a new mode.
-     */
-    fun applyInteractionMode(value: String) {
-        val normalized = WorkspaceConfigContract.normalizeFloatingInteractionMode(value)
-        if (interactionMode == normalized) return
-        if (stableZoom != null && !restoreStableCompact()) {
-            NeXtepLog.warn("floating_mode", "Mode switch deferred until stable zoom can shrink")
-            return
-        }
-        interactionMode = normalized
-        if (fullscreenTask != null && normalized ==
-            WorkspaceConfigContract.FLOATING_INTERACTION_STABLE) {
-            if (!returnFullscreenToSlot("mode switched to stable")) {
-                NeXtepLog.warn("floating_mode",
-                    "Native task return pending; source display remains reserved")
-            }
-        }
-        NeXtepLog.info("floating_mode",
-            "MODE_CHANGED selected=$normalized activeNative=${fullscreenTask != null} " +
-                "activeStable=${stableZoom != null}")
-    }
-
     /** Reflow without releasing any VirtualDisplay or moving the running tasks. */
     fun applyLayoutSettings(orientationValue: String, scalePercent: Int) {
         val nextOrientation = if (orientationValue == "vertical")
@@ -1044,20 +482,6 @@ internal class FloatingSlotDockController(
     }
 
     /** Existing task and VirtualDisplay ownership always survives a mode change. */
-    fun applyIndependentDisplaySetting(enabled: Boolean) {
-        if (independentModeRequested == enabled) return
-        independentModeRequested = enabled
-        NeXtepLog.info("floating_dock", "Independent mode requested=$enabled appliedOn=next_new_session")
-    }
-
-    fun applyPadModeSetting(enabled: Boolean) {
-        if (padModeRequested == enabled) return
-        padModeRequested = enabled
-        NeXtepLog.info("floating_pad",
-            "Pad mode requested=$enabled activeSession=$padModeForSession " +
-                "hasSession=${hasSession()} appliedOn=next_new_session")
-    }
-
     /** Move the already visible panel without recreating its live task displays. */
     fun updateAnchor(anchor: FloatingDockPlacement.Anchor) {
         if (bubbleAnchor == anchor) return
@@ -1153,12 +577,11 @@ internal class FloatingSlotDockController(
                 layout.height - layout.header, Gravity.TOP).apply {
                 topMargin = layout.header
             })
-            independentModeForSession = independentModeRequested
-            padModeForSession = padModeRequested || independentModeForSession
+
             val newSlots = List(WORKSPACE_SLOT_COUNT) { index ->
                 VirtualDisplaySlot(context, index,
                     keepOutputWhileSuspended = true,
-                    padMultiTaskMode = padModeForSession,
+                    padMultiTaskMode = false,
                 ).apply {
                     setLayoutProfile(recorded)
                     // In floating mode a card is fixed in its original slot.
@@ -1226,9 +649,6 @@ internal class FloatingSlotDockController(
                 geometryProvider = { checkNotNull(profile).geometry },
                 preserveFullscreenMain = true,
                 returnAfterSharing = { false },
-                onExternalForegroundPromotion = { index, occupied, task ->
-                    reserveLauncherPromotedTask(index, occupied, task)
-                },
             )
             checkNotNull(coordinator).activate()
             newSlots.forEachIndexed { index, slot ->
@@ -1242,12 +662,10 @@ internal class FloatingSlotDockController(
                 }
             }
             installRemoveBadges()
-            playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
             handler.removeCallbacks(playbackSlotRefresh)
             handler.postDelayed(playbackSlotRefresh, 1_000L)
             NeXtepLog.info("floating_dock",
                 "Expanded compact orientation=$orientation size=$sizePercent% " +
-                    "padFocus=$padModeForSession " +
                     "bounds=[${layout.x},${layout.y},${layout.width},${layout.height}] " +
                     "safe=${FloatingDockSafeArea.measure(context, manager)}")
             true
@@ -1275,13 +693,6 @@ internal class FloatingSlotDockController(
         outsideFoldPending = false
         // Return to the compact presentation before hiding the overlay,
         // keeping every task on exactly the same virtual display.
-        if (fullscreenTask != null && !returnFullscreenToSlot("dock hide")) {
-            if (!lockEvent) return false
-            // Screen lock has higher priority than a failed task move:
-            // hide previews even while the original slot remains reserved.
-            NeXtepLog.warn("floating_pinned",
-                "LOCK_HIDE_WITH_PENDING_RETURN task=${fullscreenTask?.taskId}")
-        }
         if (stableZoom != null && !restoreStableCompact()) {
             if (!lockEvent) return false
             NeXtepLog.warn("floating_stable", "Lock hides preview despite deferred zoom shrink")
@@ -1295,7 +706,6 @@ internal class FloatingSlotDockController(
             // Keep the root itself VISIBLE and attached: setting GONE or
             // removeViewImmediate can destroy live TextureView surfaces.
             panelVisible = false
-            playbackCompat.onVisibilityChanged(false, currentPlayerPackages(), lockEvent = lockEvent)
             handler.removeCallbacks(playbackSlotRefresh)
             pickerGeneration += 1
             picker?.visibility = View.GONE
@@ -1313,28 +723,12 @@ internal class FloatingSlotDockController(
     /** Lock hides task previews and disconnects their output, not their tasks. */
     fun hideForLock() {
         if (!hasSession()) return
-        captureLauncherPromotion("screen off")
-        if (fullscreenTask != null && !returnFullscreenToSlot("SCREEN_OFF")) {
-            NeXtepLog.warn("floating_pinned",
-                "SCREEN_OFF_RETURN_PENDING; retaining original virtual display for retry")
-        }
         if (!collapse(lockEvent = true)) {
             NeXtepLog.warn("floating_dock", "Failed to hide window at lock")
         }
         // Even if already folded, SCREEN_OFF must notify the audio adapter.
         // Capture the last PLAYING MediaSessions before the system discards
         // their state, without making the hidden surface visible.
-        playbackCompat.onScreenLocked(currentPlayerPackages())
-        if (independentModeForSession) {
-            runCatching {
-                independentCpuWakeLock?.acquire(120_000L)
-                NeXtepLog.info("floating_dock",
-                    "Independent CPU continuation requested for up to 120 seconds; " +
-                        "virtual display ON and playback are not guaranteed")
-            }.onFailure {
-                NeXtepLog.warn("floating_dock", "Independent CPU wake lock unavailable", it)
-            }
-        }
         runCatching {
             coordinator?.setSuspended(true)
             suspendedForLock = true
@@ -1365,12 +759,9 @@ internal class FloatingSlotDockController(
      */
     fun resumeHiddenSessionAfterUnlock(): Boolean {
         if (!hasSession() || !suspendedForLock) return true
-        if (fullscreenTask != null && !returnFullscreenToSlot("unlock retry")) return false
         return runCatching {
             coordinator?.setSuspended(false)
             suspendedForLock = false
-            releaseIndependentWakeLock()
-            playbackCompat.onScreenUnlocked()
             coordinator?.onTasksChanged()
             NeXtepLog.info("floating_dock", "Unlock restored retained hidden session; " +
                 slots.joinToString { it.diagnosticOutputState() })
@@ -1383,7 +774,6 @@ internal class FloatingSlotDockController(
 
     /** Re-expand the SAME session; do not create another VD or restart apps. */
     private fun showRetainedSession(): Boolean {
-        if (fullscreenTask != null) return false
         val root = host ?: return false
         if (!root.isAttachedToWindow) {
             lastError = "Retained floating surface was detached by WindowManager"
@@ -1406,7 +796,6 @@ internal class FloatingSlotDockController(
             wnd.flags = wnd.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
             manager?.updateViewLayout(root, wnd)
             panelVisible = true
-            playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
             handler.removeCallbacks(playbackSlotRefresh)
             handler.postDelayed(playbackSlotRefresh, 1_000L)
             coordinator?.onTasksChanged()
@@ -1429,14 +818,11 @@ internal class FloatingSlotDockController(
     fun destroySession(): Boolean {
         if (!hasSession()) return true
         dismissRemovalPrompt()
-        if (fullscreenTask != null && !returnFullscreenToSlot("session shutdown")) return false
         if (stableZoom != null && !restoreStableCompact()) return false
         lastError = null
         return runCatching {
-            releaseIndependentWakeLock()
             coordinator?.deactivate()
-            playbackCompat.shutdown()
-            handler.removeCallbacks(playbackSlotRefresh)
+                handler.removeCallbacks(playbackSlotRefresh)
             host?.let { manager?.removeViewImmediate(it) }
             clear()
             NeXtepLog.info("floating_dock", "Closed floating session; parked tasks safely")
@@ -1450,8 +836,6 @@ internal class FloatingSlotDockController(
 
     fun onTasksChanged() {
         if (!hasSession()) return
-        captureLauncherPromotion("task callback")
-        onTaskForegroundChanged()
         stableZoom?.let { zoom ->
             if (slots.getOrNull(zoom.index)?.displayId() != zoom.displayId ||
                 floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
@@ -1469,7 +853,6 @@ internal class FloatingSlotDockController(
     /** Reflow cells on rotation; keep the original displays and their task ownership alive. */
     fun reconfigure() {
         val root = host ?: return
-        if (fullscreenTask != null) return // Retain its source geometry until returned.
         if (stableZoom != null) {
             runCatching {
                 val recorded = recordedLayoutProfile(true)
@@ -1534,9 +917,6 @@ internal class FloatingSlotDockController(
         stableControls = null
         stableZoom = null
         stableTouchActive = false
-        handler.removeCallbacks(fullscreenWatchdog)
-        fullscreenTask = null
-        movingFullscreenTask = false
         removeBadges.clear()
         pickerGeneration += 1
         coordinator = null
@@ -1717,7 +1097,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun showPicker() {
-        if (stableZoom != null || fullscreenTask != null || movingFullscreenTask) return
+        if (stableZoom != null) return
         val states = coordinator?.slotStates().orEmpty()
         val empty = states.indexOfFirst { it is SlotState.Ready }
         if (empty < 0) {
