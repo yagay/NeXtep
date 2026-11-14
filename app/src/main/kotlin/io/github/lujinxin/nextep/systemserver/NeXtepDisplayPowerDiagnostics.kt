@@ -64,7 +64,7 @@ internal object NeXtepDisplayPowerDiagnostics {
                             // Never export names for unrelated app-owned displays.
                             groupMembers.add("$displayId")
                             if (displayId == 0) physicalPresent = true
-                            if (name.startsWith("NeXtep-slot-")) {
+                            if (name.startsWith("NeXtep-slot-") || name.startsWith("NeXtep-floating-slot-")) {
                                 memberSlots.add("$displayId:$name")
                             }
                         }
