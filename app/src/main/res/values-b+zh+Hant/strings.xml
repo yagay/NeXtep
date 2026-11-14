@@ -184,6 +184,8 @@
     <string name="floating_service_stop">關閉懸浮圖示</string>
     <string name="floating_start_failed">無法啟動懸浮圖示，請檢查權限及背景執行限制。</string>
     <string name="floating_module_not_ready">無法展開工作台：%1$s</string>
+    <string name="floating_auto_playback_title">加入小視窗後自動保護播放</string>
+    <string name="floating_auto_playback_summary">僅監測已加入浮動小視窗的應用程式。原本播放中的媒體若因背景或鎖定而暫停，會嘗試安全恢復一次；不會強制播放，也無法阻止所有應用程式自行停止。</string>
     <string name="floating_interaction_mode_title">小視窗互動模式</string>
     <string name="floating_interaction_mode_summary">選擇放大後操作原虛擬顯示器，或暫時切換至原生全螢幕；不影響一般工作區。</string>
     <string name="floating_interaction_stable">穩定互動（預設）</string>
