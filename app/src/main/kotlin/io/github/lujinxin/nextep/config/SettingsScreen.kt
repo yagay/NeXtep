@@ -212,11 +212,11 @@ object SettingsScreen {
                         fun updateText() {
                             text = if (repository.topBarSettings().floatingWindowMode ==
                                 WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM)
-                                "系统 Freeform（实验性）" else "虚拟四槽位（默认）"
+                                "系统原生小窗（实验性）" else "虚拟四槽位（默认）"
                         }
                         updateText()
                         setOnClickListener {
-                            val values = arrayOf("虚拟四槽位（默认）", "系统 Freeform 多窗口（实验性）")
+                            val values = arrayOf("虚拟四槽位（默认）", "ColorOS 原生小窗 / Freeform 回退（实验性）")
                             val current = repository.topBarSettings().floatingWindowMode
                             val checked = if (current ==
                                 WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM) 1 else 0
@@ -235,7 +235,7 @@ object SettingsScreen {
                     }
                     addView(settingRow(
                         activity, "小窗运行模式",
-                        "虚拟四槽位保留后台任务；系统 Freeform 使用 Android 真正的自由窗口，需系统支持。切换模式会关闭旧的虚拟面板。",
+                        "默认保留四个 VirtualDisplay。原生模式优先调用 Oplus ZoomWindow，系统接口不兼容时尝试 Freeform；均由系统管理输入、键盘和窗口。仅支持系统允许的小窗数量，切换会结束虚拟面板会话。",
                         windowModeButton,
                     ).apply {
                         setOnClickListener { windowModeButton.performClick() }
