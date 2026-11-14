@@ -73,6 +73,25 @@ object SystemUiRuntime {
         if (::floatingDock.isInitialized) floatingDock.onTasksChanged()
     }
 
+    /** All sources converge here. Navigation never toggles or opens a folded dock. */
+    fun onNavigationCompleted(source: String) {
+        if (!initialized.get()) return
+        lifecycleHandler.post {
+            if (::floatingDock.isInitialized) floatingDock.onNavigationEvent(source)
+        }
+    }
+
+    private val navigationFoldReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD) return
+            val source = intent.getStringExtra(
+                TriggerBroadcastContract.EXTRA_NAVIGATION_EVENT_SOURCE
+            )?.take(80) ?: return
+            NeXtepLog.info("floating_nav", "NAV_RECEIVED source=$source")
+            onNavigationCompleted(source)
+        }
+    }
+
     fun onTasksChanged() {
         if (taskRefreshQueued.compareAndSet(false, true)) lifecycleHandler.post(taskRefresh)
     }
@@ -271,6 +290,15 @@ object SystemUiRuntime {
                 controlReceiver,
                 filter,
                 TriggerBroadcastContract.CONTROL_PERMISSION,
+                Handler(Looper.getMainLooper()),
+                Context.RECEIVER_EXPORTED,
+            )
+            // Only privileged system navigation senders can request folding.
+            // This broadcast cannot open a panel or intercept any original key.
+            applicationContext.registerReceiver(
+                navigationFoldReceiver,
+                IntentFilter(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD),
+                "android.permission.STATUS_BAR_SERVICE",
                 Handler(Looper.getMainLooper()),
                 Context.RECEIVER_EXPORTED,
             )
