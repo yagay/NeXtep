@@ -112,6 +112,16 @@ object DiagnosticReportExporter {
                         android.provider.Settings.Global.getString(context.contentResolver,
                             "nextep_slot_guard_diagnostics_v1") ?: "not published"
                     }.getOrDefault("unavailable"))
+                    appendLine("Native task lock guard enabled: ${settings.nativeLockGuardEnabled}")
+                    appendLine("Native task freeze protection enabled: ${settings.nativeFreezeProtectionEnabled}")
+                    appendLine("System native lock policy: " + runCatching {
+                        android.provider.Settings.Global.getInt(context.contentResolver,
+                            "nextep_native_task_lock_guard_v1", -1).toString()
+                    }.getOrDefault("unavailable"))
+                    appendLine("Native system_server lifecycle guard: " + runCatching {
+                        android.provider.Settings.Global.getString(context.contentResolver,
+                            "nextep_native_lock_diagnostics_v1") ?: "not published"
+                    }.getOrDefault("unavailable"))
                     appendLine("App-process playback Hook is diagnostic-only and requires manual LSPosed scope")
                     appendLine("Background swipe: ${settings.slotBackgroundSwipeEnabled}")
                     appendLine("Block system drag/share: ${settings.blockSystemDragShareEnabled}")
