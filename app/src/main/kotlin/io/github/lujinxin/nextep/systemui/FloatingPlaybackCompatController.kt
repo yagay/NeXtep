@@ -41,8 +41,18 @@ internal class FloatingPlaybackCompatController(context: Context) {
     private data class Config(
         val enabled: Boolean, val autoResume: Boolean,
         val lockAudio: Boolean, val packages: Set<String>,
-    )
-    @Volatile private var config = Config(false, false, false, emptySet())
+        val autoFloatingSlots: Boolean,
+    ) {
+        fun active(): Boolean = enabled || autoFloatingSlots
+        fun autoResumeEnabled(): Boolean =
+            (enabled && autoResume) || autoFloatingSlots
+        fun lockAudioEnabled(): Boolean =
+            (enabled && lockAudio) || autoFloatingSlots
+        fun includes(name: String, joinedSlots: Set<String>): Boolean =
+            (enabled && name in packages) ||
+                (autoFloatingSlots && name in joinedSlots)
+    }
+    @Volatile private var config = Config(false, false, false, emptySet(), false)
     @Volatile private var slotPackages: Set<String> = emptySet()
     @Volatile private var generation = 0L
     private var visible = false
@@ -61,8 +71,9 @@ internal class FloatingPlaybackCompatController(context: Context) {
 
     fun configure(
         enabled: Boolean, autoResume: Boolean, lockAudio: Boolean, packages: Set<String>,
+        autoFloatingSlots: Boolean = false,
     ) {
-        val next = Config(enabled, autoResume, lockAudio, packages.toSet())
+        val next = Config(enabled, autoResume, lockAudio, packages.toSet(), autoFloatingSlots)
         if (config == next) return
         config = next
         generation += 1
@@ -72,9 +83,10 @@ internal class FloatingPlaybackCompatController(context: Context) {
         releaseLockWakeLock()
         NeXtepLog.info("playback_compat",
             "Policy enabled=$enabled auto=$autoResume lockAudio=$lockAudio " +
-                "appCount=${packages.size}; " +
+                "appCount=${packages.size} autoFloatingSlots=$autoFloatingSlots; " +
                 "MediaSession-only, never changes audio-focus policy")
-        if (visible || (lockAudio && powerManager?.isInteractive == true))
+        if (next.active() &&
+            (visible || (next.lockAudioEnabled() && powerManager?.isInteractive == true)))
             handler.post(sampleVisible)
     }
 
@@ -82,7 +94,7 @@ internal class FloatingPlaybackCompatController(context: Context) {
         val previous = slotPackages
         slotPackages = packages.toSet()
         val setting = config
-        if (!visible || !setting.enabled) return
+        if (!visible || !setting.active()) return
         // When a playing app is moved from display 0 into a floating slot,
         // its MediaSession may pause even though the panel is still visible.
         // The visible monitor observes selected packages on BOTH displays,
@@ -90,10 +102,10 @@ internal class FloatingPlaybackCompatController(context: Context) {
         val added = packages - previous
         val now = SystemClock.elapsedRealtime()
         val eligible = lastPlaying.filterValues {
-            it.packageName in added && it.packageName in setting.packages &&
+            it.packageName in added && setting.includes(it.packageName, packages) &&
                 now - it.at in 0L..3_000L
         }
-        if (setting.autoResume && eligible.isNotEmpty()) {
+        if (setting.autoResumeEnabled() && eligible.isNotEmpty()) {
             val token = ++generation
             NeXtepLog.info("playback_compat",
                 "Selected playing app entered floating slot count=${eligible.size}")
@@ -109,21 +121,21 @@ internal class FloatingPlaybackCompatController(context: Context) {
         val nextGeneration = ++generation
         handler.removeCallbacks(sampleVisible)
         val setting = config
-        if (!setting.enabled || setting.packages.isEmpty()) return
+        if (!setting.active()) return
         if (show) {
             handler.post(sampleVisible)
             return
         }
-        if (lockEvent || !setting.autoResume) {
+        if (lockEvent || !setting.autoResumeEnabled()) {
             NeXtepLog.info("playback_compat",
-                "Hidden without folding recovery lock=$lockEvent auto=${setting.autoResume}")
-            if (!lockEvent && setting.lockAudio && powerManager?.isInteractive == true)
+                "Hidden without folding recovery lock=$lockEvent auto=${setting.autoResumeEnabled()}")
+            if (!lockEvent && setting.lockAudioEnabled() && powerManager?.isInteractive == true)
                 handler.post(sampleVisible)
             return
         }
         val now = SystemClock.elapsedRealtime()
         val eligible = lastPlaying.filterValues { state ->
-            state.packageName in setting.packages &&
+            setting.includes(state.packageName, packages) &&
                 state.packageName in packages && now - state.at in 0L..3_000L
         }
         if (eligible.isEmpty()) {
@@ -132,13 +144,13 @@ internal class FloatingPlaybackCompatController(context: Context) {
             // A user may leave the panel folded for minutes before locking.
             // Keep sampling at low frequency while interactive so the
             // last PLAYING state is still available at the eventual lock.
-            if (setting.lockAudio && powerManager?.isInteractive == true)
+            if (setting.lockAudioEnabled() && powerManager?.isInteractive == true)
                 handler.post(sampleVisible)
             return
         }
         NeXtepLog.info("playback_compat", "Fold observed ${eligible.size} recently playing session(s)")
         scheduleRecovery(nextGeneration, now, eligible, requireHidden = true)
-        if (setting.lockAudio && powerManager?.isInteractive == true)
+        if (setting.lockAudioEnabled() && powerManager?.isInteractive == true)
             handler.post(sampleVisible)
     }
 
@@ -153,12 +165,12 @@ internal class FloatingPlaybackCompatController(context: Context) {
         val token = ++generation
         handler.removeCallbacks(sampleVisible)
         val setting = config
-        if (!setting.enabled || !setting.lockAudio || setting.packages.isEmpty()) return
+        if (!setting.active() || !setting.lockAudioEnabled() || packages.isEmpty()) return
         val lockedAt = SystemClock.elapsedRealtime()
         // Take a fresh snapshot at SCREEN_OFF rather than relying solely on
         // the periodic UI sampler (which can be cancelled by dock collapse).
         val cachedPlaying = lastPlaying.filterValues {
-            it.packageName in packages && it.packageName in setting.packages &&
+            it.packageName in packages && setting.includes(it.packageName, packages) &&
                 lockedAt - it.at in 0L..8_000L
         }
         runCatching { lockWakeLock?.acquire(4_500L) }.onFailure {
@@ -168,7 +180,7 @@ internal class FloatingPlaybackCompatController(context: Context) {
             val active = sessionsOrNull().orEmpty()
             val fresh = active.mapNotNull { controller ->
                 if (controller.packageName !in packages ||
-                    controller.packageName !in setting.packages ||
+                    !setting.includes(controller.packageName, packages) ||
                     controller.playbackState?.state != PlaybackState.STATE_PLAYING) null
                 else controller.sessionToken to Playing(controller.packageName, lockedAt)
             }.toMap()
@@ -208,7 +220,7 @@ internal class FloatingPlaybackCompatController(context: Context) {
         generation++
         releaseLockWakeLock()
         handler.removeCallbacks(sampleVisible)
-        if (config.enabled && (visible || config.lockAudio))
+        if (config.active() && (visible || config.lockAudioEnabled()))
             handler.post(sampleVisible)
     }
 
@@ -220,7 +232,7 @@ internal class FloatingPlaybackCompatController(context: Context) {
     ) {
         if (generation != token || powerManager?.isInteractive != false) return
         val setting = config
-        if (!setting.enabled || !setting.lockAudio) return
+        if (!setting.active() || !setting.lockAudioEnabled()) return
         val activeControllers = sessionsOrNull() ?: return
         // A player may mark its session inactive on Activity.onStop without
         // destroying the MediaSession binder. Reuse the verified controller
@@ -240,9 +252,9 @@ internal class FloatingPlaybackCompatController(context: Context) {
             val canPlay = state != null &&
                 (state.actions and (PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PLAY_PAUSE)) != 0L
             val allowed = FloatingLockscreenPlaybackPolicy.mayResume(
-                enabled = setting.enabled,
-                optedIn = setting.lockAudio,
-                appSelected = controller.packageName in setting.packages,
+                enabled = setting.active(),
+                optedIn = setting.lockAudioEnabled(),
+                appSelected = setting.includes(controller.packageName, slotPackages),
                 stillInFloatingSlot = controller.packageName in slotPackages,
                 previouslyPlaying = prior.packageName == controller.packageName,
                 sameSession = true,
@@ -304,26 +316,29 @@ internal class FloatingPlaybackCompatController(context: Context) {
     private val sampleVisible: Runnable = object : Runnable {
         override fun run() {
             val setting = config
-            if ((!visible && !setting.lockAudio) || !setting.enabled ||
-                setting.packages.isEmpty() || powerManager?.isInteractive != true) return
+            if ((!visible && !setting.lockAudioEnabled()) || !setting.active() ||
+                (!setting.autoFloatingSlots && setting.packages.isEmpty()) ||
+                powerManager?.isInteractive != true) return
             val token = generation
-            // Observe only user-selected apps, including a player that is
-            // *about to be moved* from the main screen into an empty slot.
-            val tracked = setting.packages
+            // When automatic slot protection is enabled, cache only sessions
+            // that are actually PLAYING before a task enters the virtual slot.
+            // Recovery later remains restricted to packages STILL in slots.
+            val tracked = setting.packages + slotPackages
             worker.execute {
                 val controllers = sessionsOrNull()
                 val at = SystemClock.elapsedRealtime()
                 val trackedControllers = controllers.orEmpty()
-                    .filter { it.packageName in tracked }
+                    .filter { setting.autoFloatingSlots || it.packageName in tracked }
+                    .take(32)
                     .associateBy { it.sessionToken }
                 val playing = trackedControllers.values.mapNotNull { controller ->
-                    if (controller.packageName !in tracked ||
+                    if ((!setting.autoFloatingSlots && controller.packageName !in tracked) ||
                         controller.playbackState?.state != PlaybackState.STATE_PLAYING) null
                     else controller.sessionToken to Playing(controller.packageName, at)
                 }.toMap()
                 handler.post {
                     if (generation != token ||
-                        (!visible && !config.lockAudio) ||
+                        (!visible && !config.lockAudioEnabled()) ||
                         powerManager?.isInteractive != true) return@post
                     // Preserve short-lived playing history so a session does
                     // not disappear when the user folds between two polls.
@@ -375,9 +390,9 @@ internal class FloatingPlaybackCompatController(context: Context) {
             val canPlay = state != null &&
                 (state.actions and (PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PLAY_PAUSE)) != 0L
             val shouldPlay = FloatingPlaybackRecoveryPolicy.mayRecover(
-                enabled = setting.enabled,
-                autoResume = setting.autoResume,
-                appSelected = controller.packageName in setting.packages,
+                enabled = setting.active(),
+                autoResume = setting.autoResumeEnabled(),
+                appSelected = setting.includes(controller.packageName, slotPackages),
                 stillInFloatingSlot = controller.packageName in slotPackages,
                 previouslyPlaying = before.packageName == controller.packageName,
                 sameSession = true,
