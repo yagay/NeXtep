@@ -18,6 +18,9 @@ object SystemServerWorkspaceBridge {
     private const val GEOMETRY_KEY = "nextep_workspace_geometry_v1"
     internal const val BLOCK_SYSTEM_DRAG_SHARE_KEY = "nextep_workspace_block_system_drag_share_v1"
     const val INDEPENDENT_SLOT_LOCK_GUARD_KEY = "nextep_slot_independent_lock_guard_v1"
+    const val NATIVE_TASK_LOCK_GUARD_KEY = "nextep_native_task_lock_guard_v1"
+    const val NATIVE_TASK_FREEZER_KEY = "nextep_native_task_freezer_v1"
+    const val NATIVE_TASK_IDENTITIES_KEY = "nextep_native_task_identities_v1"
     private val geometryObservationStarted = AtomicBoolean(false)
     @Volatile private var observedGeometry: WorkspaceGeometry? = null
 
@@ -66,6 +69,39 @@ object SystemServerWorkspaceBridge {
         }.onFailure {
             NeXtepLog.warn("system_server_bridge", "Unable to publish independent slot lock guard", it)
         }
+    }
+
+    /** Independent settings for exact-identity native Task protection. */
+    fun publishNativeLockSettings(context: Context, enabled: Boolean, freezerEnabled: Boolean) {
+        runCatching {
+            val resolver = context.contentResolver
+            val active = if (enabled) 1 else 0
+            if (Settings.Global.getInt(resolver, NATIVE_TASK_LOCK_GUARD_KEY, -1) != active)
+                Settings.Global.putInt(resolver, NATIVE_TASK_LOCK_GUARD_KEY, active)
+            // Exposed for diagnostics only; there is deliberately NO native
+            // freezer interception in this version.
+            val freezer = if (freezerEnabled) 1 else 0
+            if (Settings.Global.getInt(resolver, NATIVE_TASK_FREEZER_KEY, -1) != freezer)
+                Settings.Global.putInt(resolver, NATIVE_TASK_FREEZER_KEY, freezer)
+            if (!enabled) Settings.Global.putString(resolver, NATIVE_TASK_IDENTITIES_KEY, "")
+        }.onFailure { NeXtepLog.warn("native_lock_bridge", "Unable to publish native lock policy", it) }
+    }
+
+    /**
+     * SystemUI only: records positively verified native windows. UID is
+     * resolved independently in system_server from the ActivityRecord.
+     * The monotonic timestamp prevents stale entries surviving a reboot.
+     */
+    fun publishNativeTaskIdentities(context: Context, identities: Collection<Triple<Int, Int, Long>>) {
+        runCatching {
+            val encoded = identities.filter { (task, uid, whenRegistered) ->
+                task > 0 && uid >= 10000 && whenRegistered > 0
+            }.distinctBy { it.first }.take(4).joinToString(";") { (task, uid, whenRegistered) ->
+                "$task:$uid:$whenRegistered"
+            }
+            Settings.Global.putString(context.contentResolver, NATIVE_TASK_IDENTITIES_KEY, encoded)
+            NeXtepLog.info("native_lock_bridge", "Published verified native task count=${identities.size}")
+        }.onFailure { NeXtepLog.warn("native_lock_bridge", "Unable to publish native identities", it) }
     }
 
     fun publishLayout(context: Context, profile: WorkspaceLayoutProfile) {
