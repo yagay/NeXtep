@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Optional ColorOS 17 system_server guard adapted from YMiniGuard.
  *
  * Unlike the OPlus FlexibleWindow implementation, this guard identifies
- * NeXtep-owned VirtualDisplays. It does not hook applications, disable the
+ * NeXtep floating-mode VirtualDisplays (never original workspace displays). It does not hook applications, disable the
  * keyguard, or change the physical display power state.
  *
  * All lifecycle overrides are fail-open and restricted to NeXtep virtual
@@ -285,7 +285,7 @@ internal object NeXtepSlotLifecycleGuard {
         val ownerPackage: String?,
     ) {
         val matched: Boolean get() =
-            displayId > 0 && name.matches(Regex("NeXtep-slot-[0-3]")) &&
+            displayId > 0 && name.matches(Regex("NeXtep-floating-slot-[0-3]")) &&
                 type == 5 &&
                 (ownerUid == 1000 || ownerPackage == "com.android.systemui")
     }
