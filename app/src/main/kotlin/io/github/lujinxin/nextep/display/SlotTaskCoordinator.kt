@@ -1483,23 +1483,25 @@ class SlotTaskCoordinator(
                     val foregroundTaskId = tasks.firstOrNull {
                         it.displayId == Display.DEFAULT_DISPLAY
                     }?.taskId
-                    if (retainedTask.displayId == Display.DEFAULT_DISPLAY &&
-                        retainedTask.taskId == foregroundTaskId
-                    ) {
+                    if (retainedTask.displayId == Display.DEFAULT_DISPLAY) {
+                        // An app icon/shortcut/Recents may reparent a slot's
+                        // exact Task even while the user is switching away.
+                        // In floating mode, its ownership stays pinned to
+                        // this virtual display; never clear it just because
+                        // the Task is no longer the physical foreground.
                         val occupied = record.state as? SlotState.Occupied
                         if (occupied != null &&
                             occupied.taskId == retainedTask.taskId &&
                             occupied.displayId == displayId &&
                             onExternalForegroundPromotion(index, occupied, retainedTask)
                         ) {
-                            // The floating dock owns this Task and will return
-                            // it to the original VirtualDisplay on background or lock.
-                            // Never clear the reservation or adopt the main app.
-                            NeXtepLog.info("floating_pinned",
-                                "EXTERNAL_MAIN_SLOT_RESERVED slot=$index task=${retainedTask.taskId} " +
-                                    "display=$displayId reason=$reason")
+                            record.mismatchSince = 0L
                             return@forEachIndexed
                         }
+                    }
+                    if (retainedTask.displayId == Display.DEFAULT_DISPLAY &&
+                        retainedTask.taskId == foregroundTaskId
+                    ) {
                         val originalLayout = slotRecords[index].originalLayout
                             ?: defaultMainLayout(retainedTask.resizeMode)
                         runCatching {
