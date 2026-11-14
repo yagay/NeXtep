@@ -3,11 +3,14 @@ package io.github.lujinxin.nextep.systemui
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
+import android.view.Display
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -24,8 +27,12 @@ import io.github.lujinxin.nextep.display.SlotState
 import io.github.lujinxin.nextep.display.SlotTaskCoordinator
 import io.github.lujinxin.nextep.display.VirtualDisplaySlot
 import io.github.lujinxin.nextep.display.WORKSPACE_SLOT_COUNT
+import io.github.lujinxin.nextep.framework.ActivityTaskManagerCompat
+import io.github.lujinxin.nextep.framework.TaskSurfaceCompat
+import io.github.lujinxin.nextep.framework.WindowContainerTransactionCompat
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.task.MainTaskPresentationCoordinator
+import io.github.lujinxin.nextep.task.TaskRepository
 import io.github.lujinxin.nextep.workspace.SidebarSide
 import io.github.lujinxin.nextep.workspace.WorkspaceLayoutProfile
 import kotlin.math.roundToInt
@@ -55,6 +62,20 @@ internal class FloatingSlotDockController(
     private var host: FrameLayout? = null
     private var panelVisible = false
     private var suspendedForLock = false
+    // Floating-only promotion. The regular workspace coordinator's swap
+    // semantics remain untouched; no main-screen app ever enters this slot.
+    private data class PromotedSlot(
+        val index: Int,
+        val taskId: Int,
+        val slotDisplayId: Int,
+        val previousMainTaskId: Int?,
+        val originalResizeMode: Int?,
+    )
+    private val floatingTasks = TaskRepository(context)
+    private var promotedSlot: PromotedSlot? = null
+    private var promotionBusy = false
+    private var restoreHint: TextView? = null
+    fun hasPromotedApp(): Boolean = promotedSlot != null
     private var picker: FrameLayout? = null
     private var pickerList: LinearLayout? = null
     private var grid: FrameLayout? = null
@@ -116,6 +137,205 @@ internal class FloatingSlotDockController(
 
     /** Visible and interactive, as opposed to a retained hidden live session. */
     fun isExpanded(): Boolean = host != null && panelVisible
+
+    /**
+     * Floating mode: first tap promotes the SAME task to Display 0. The app
+     * previously on Display 0 stays in its existing task underneath, instead
+     * of being exchanged into the virtual slot. Tap the original card or the
+     * always-visible floating icon again to move that task back.
+     */
+    private fun onFloatingSlotTapped(index: Int) {
+        if (promotionBusy || !isExpanded() || suspendedForLock) return
+        val promoted = promotedSlot
+        if (promoted != null) {
+            if (promoted.index != index) {
+                NeXtepLog.info("floating_pin", "Another slot tapped; restore the promoted task first")
+                return
+            }
+            restorePromotedTask()
+            return
+        }
+        when (val state = coordinator?.slotStates()?.getOrNull(index)) {
+            is SlotState.Occupied -> promoteFloatingTask(index, state)
+            is SlotState.Ready, SlotState.Empty -> showPicker()
+            else -> NeXtepLog.info("floating_pin", "Ignored unavailable slot=$index state=$state")
+        }
+    }
+
+    private fun moveAndVerify(taskId: Int, displayId: Int) {
+        TaskSurfaceCompat.markDisplayExchange(taskId, displayId)
+        if (displayId == Display.DEFAULT_DISPLAY) {
+            TaskSurfaceCompat.cancelPreparedPromotion(taskId)
+        }
+        try {
+            ActivityTaskManagerCompat.moveTaskToDisplay(taskId, displayId).getOrThrow()
+            val deadline = SystemClock.uptimeMillis() + 1_200L
+            while (SystemClock.uptimeMillis() < deadline) {
+                if (floatingTasks.findTask(taskId)?.displayId == displayId) return
+                SystemClock.sleep(35)
+            }
+            check(floatingTasks.findTask(taskId)?.displayId == displayId) {
+                "Task $taskId did not settle on display=$displayId"
+            }
+        } catch (error: Throwable) {
+            TaskSurfaceCompat.cancelDisplayExchange(taskId)
+            throw error
+        }
+    }
+
+    private fun showRestoreHint(index: Int) {
+        val view = slots.getOrNull(index)?.view ?: return
+        restoreHint?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        val hint = TextView(context).apply {
+            text = "↙  缩小 / Restore"
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(dp(4), 0, dp(4), 0)
+            background = rounded(Color.argb(240, 14, 63, 73), dp(7))
+            contentDescription = "Restore the fullscreen app to this floating window"
+        }
+        view.addView(hint, FrameLayout.LayoutParams(-1, dp(30), Gravity.TOP))
+        restoreHint = hint
+    }
+
+    private fun clearRestoreHint() {
+        restoreHint?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        restoreHint = null
+    }
+
+    private fun promoteFloatingTask(index: Int, state: SlotState.Occupied): Boolean {
+        if (promotionBusy || promotedSlot != null) return false
+        val task = floatingTasks.findTask(state.taskId)
+        if (task == null || task.displayId != state.displayId ||
+            slots.getOrNull(index)?.displayId() != state.displayId) {
+            NeXtepLog.warn("floating_pin",
+                "Promotion skipped: slot=$index taskId=${state.taskId} moved or unavailable")
+            coordinator?.onTasksChanged()
+            return false
+        }
+        promotionBusy = true
+        val formerMain = floatingTasks.foregroundTask()
+            ?.takeIf { it.taskId != task.taskId }?.taskId
+        val pending = PromotedSlot(index, task.taskId, state.displayId,
+            formerMain, task.resizeMode)
+        var moved = false
+        try {
+            // Stop only this floating coordinator's reconciliation while
+            // a task is temporarily on the main display.
+            coordinator?.setSuspended(true)
+            if (task.resizeMode != 2) {
+                ActivityTaskManagerCompat.setTaskResizeable(task.taskId, 2).getOrThrow()
+            }
+            moveAndVerify(task.taskId, Display.DEFAULT_DISPLAY)
+            moved = true
+            floatingTasks.findTask(task.taskId)?.token?.let { token ->
+                WindowContainerTransactionCompat.applyTaskLayout(
+                    token, Rect(), context.resources.displayMetrics.densityDpi, 1,
+                ).getOrThrow()
+            }
+            TaskSurfaceCompat.resetPromotedSlotToFullscreen(task.taskId)
+                .onFailure { NeXtepLog.warn("floating_pin",
+                    "Fullscreen compositor correction pending", it) }
+            floatingTasks.bringTaskToFront(task.taskId).getOrThrow()
+            promotedSlot = pending
+            showRestoreHint(index)
+            NeXtepLog.info("floating_pin",
+                "PROMOTED task=${task.taskId} from=${state.displayId} to=0 " +
+                    "slot=$index previousMain=$formerMain; no app exchange")
+            return true
+        } catch (error: Throwable) {
+            NeXtepLog.warn("floating_pin", "Fullscreen promotion failed, restoring floating slot", error)
+            if (moved) {
+                promotedSlot = pending
+                restorePromotedTaskInternal()
+            } else {
+                coordinator?.setSuspended(false)
+            }
+            return false
+        } finally {
+            promotionBusy = false
+        }
+    }
+
+    /** A second tap on the same card or the floating icon shrinks the live app. */
+    fun restorePromotedTask(): Boolean {
+        if (promotionBusy) return false
+        promotionBusy = true
+        return try { restorePromotedTaskInternal() } finally { promotionBusy = false }
+    }
+
+    private fun restorePromotedTaskInternal(): Boolean {
+        val promoted = promotedSlot ?: return true
+        val current = floatingTasks.findTask(promoted.taskId)
+        if (current == null) {
+            NeXtepLog.warn("floating_pin",
+                "Promoted task=${promoted.taskId} no longer exists; clearing pin")
+            promotedSlot = null
+            clearRestoreHint()
+            coordinator?.setSuspended(false)
+            coordinator?.onTasksChanged()
+            return true
+        }
+        // If another system component moved the task, do not steal it back
+        // or overwrite its system-selected windowing mode.
+        if (current.displayId != Display.DEFAULT_DISPLAY &&
+            current.displayId != promoted.slotDisplayId) {
+            NeXtepLog.warn("floating_pin",
+                "Task=${promoted.taskId} moved externally to=${current.displayId}; pin cleared")
+            promotedSlot = null
+            clearRestoreHint()
+            coordinator?.setSuspended(false)
+            coordinator?.onTasksChanged()
+            return true
+        }
+        return runCatching {
+            check(slots.getOrNull(promoted.index)?.displayId() == promoted.slotDisplayId) {
+                "Floating destination was released while task was fullscreen"
+            }
+            if (current.displayId != promoted.slotDisplayId) {
+                moveAndVerify(promoted.taskId, promoted.slotDisplayId)
+            }
+            val restored = checkNotNull(floatingTasks.findTask(promoted.taskId))
+            val geometry = checkNotNull(slots[promoted.index].geometry())
+            val token = checkNotNull(restored.token)
+            WindowContainerTransactionCompat.applyTaskLayout(
+                token, Rect(), geometry.densityDpi, 1,
+            ).getOrThrow()
+            val source = slots[promoted.index].sourceBounds()
+            TaskSurfaceCompat.fitSlotSurface(
+                promoted.taskId, promoted.slotDisplayId,
+                Rect(source.left, source.top, source.right, source.bottom),
+            ).onFailure { NeXtepLog.warn("floating_pin",
+                "Floating surface fitting pending", it) }
+            promoted.originalResizeMode?.let { original ->
+                if (original != 2) {
+                    ActivityTaskManagerCompat.setTaskResizeable(promoted.taskId, original)
+                        .onFailure { NeXtepLog.warn("floating_pin",
+                            "Resize mode restoration pending", it) }
+                }
+            }
+            promotedSlot = null
+            clearRestoreHint()
+            coordinator?.setSuspended(false)
+            coordinator?.onTasksChanged()
+            promoted.previousMainTaskId?.let { id ->
+                floatingTasks.findTask(id)?.takeIf { it.displayId == Display.DEFAULT_DISPLAY }
+                    ?.let { floatingTasks.bringTaskToFront(id).onFailure { err ->
+                        NeXtepLog.warn("floating_pin", "Previous main foreground restore pending", err)
+                    } }
+            }
+            NeXtepLog.info("floating_pin",
+                "RESTORED task=${promoted.taskId} from=0 to=${promoted.slotDisplayId} " +
+                    "slot=${promoted.index}; main task unchanged")
+            true
+        }.getOrElse { error ->
+            NeXtepLog.warn("floating_pin",
+                "Could not shrink fullscreen task=${promoted.taskId}; session retained", error)
+            lastError = "Unable to shrink fullscreen floating app: ${error.message}"
+            false
+        }
+    }
 
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
@@ -276,6 +496,11 @@ internal class FloatingSlotDockController(
                 returnAfterSharing = { false },
             )
             checkNotNull(coordinator).activate()
+            // Replace ONLY this floating rail's click handler. The original
+            // workspace and SlotTaskCoordinator listener are unchanged.
+            newSlots.forEachIndexed { index, slot ->
+                slot.view.setOnClickListener { onFloatingSlotTapped(index) }
+            }
             playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
             handler.removeCallbacks(playbackSlotRefresh)
             handler.postDelayed(playbackSlotRefresh, 1_000L)
