@@ -4,6 +4,7 @@ package io.github.lujinxin.nextep.workspace
 internal object WorkspaceControlMetrics {
     const val STATUS_HEIGHT_DP = 40
     const val MEDIA_HEIGHT_DP = 68
+    const val MIN_MEDIA_HEIGHT_DP = 48
     const val ACTION_HEIGHT_DP = 48
     const val APP_ICON_SIZE_DP = 40
     const val APP_BOTTOM_PADDING_DP = 3
