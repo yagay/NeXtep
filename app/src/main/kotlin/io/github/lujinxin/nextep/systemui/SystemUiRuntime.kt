@@ -637,10 +637,9 @@ object SystemUiRuntime {
                     "anchor=${bubbleAnchorFrom(intent)}")
             val handled = when {
                 !ready -> false
-                // The bubble is the second-tap "shrink" control while a
-                // floating card's task is promoted to physical fullscreen.
-                // This never enters the ordinary workspace swap path.
-                floatingDock.hasPromotedApp() -> floatingDock.restorePromotedTask()
+                // Zoom is entirely within SystemUI's floating preview:
+                // the task and its displayId never change. Bubble tap shrinks.
+                floatingDock.isCardZoomed() -> floatingDock.shrinkZoomedCard()
                 floatingDock.isExpanded() ->
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
                 workspaceController.isActive() -> false
