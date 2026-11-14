@@ -21,6 +21,8 @@ object LauncherAppCatalogContract {
     private const val EXTRA_APPS = "profile_apps"
     private const val EXTRA_LANGUAGE_TAG = "language_tag"
     private val registered = AtomicBoolean(false)
+    // Do not spawn repeated cross-user queries while an OEM package manager call is stuck.
+    private val scanning = AtomicBoolean(false)
 
     fun register(context: Context) {
         if (!registered.compareAndSet(false, true)) return
@@ -28,6 +30,10 @@ object LauncherAppCatalogContract {
             context.registerReceiver(object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
                     if (!isOrderedBroadcast || intent.action != ACTION_QUERY) return
+                    if (!scanning.compareAndSet(false, true)) {
+                        NeXtepLog.warn("app_catalog", "PROFILE_APPS_BUSY skipping overlapping query")
+                        return
+                    }
                     val pending = goAsync()
                     val started = SystemClock.elapsedRealtime()
                     val done = AtomicBoolean(false)
@@ -60,6 +66,7 @@ object LauncherAppCatalogContract {
                         } catch (error: Throwable) {
                             NeXtepLog.warn("app_catalog", "Unable to query profile apps", error)
                         } finally {
+                            scanning.set(false)
                             main.post {
                                 if (done.compareAndSet(false, true)) {
                                     main.removeCallbacks(deadline)
