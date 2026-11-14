@@ -5,7 +5,6 @@ import android.content.pm.ActivityInfo
 import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import io.github.libxposed.api.XposedInterface
@@ -82,6 +81,7 @@ internal object NeXtepSlotLifecycleGuard {
             hook(module, method) { chain ->
                 val record = chain.thisObject
                 if (record != null && !isFinishing(record) && shouldGuard(record)) {
+                    call(record, "resumeKeyDispatchingLocked")
                     logOnce("STOP:${taskId(record)}",
                         "SLOT_STOP_BLOCK task=${taskId(record)}")
                     null
@@ -114,6 +114,8 @@ internal object NeXtepSlotLifecycleGuard {
             }.forEach { method ->
                 hook(module, method) { chain ->
                     val uid = chain.args.filterIsInstance<Int>().firstOrNull { it >= 10000 }
+                        ?: chain.args.firstOrNull { it?.javaClass?.name?.endsWith(".OplusHansPackage") == true }
+                            ?.let { field(it, "uid") as? Int }
                     if (uid != null && liveProtectedUid(uid)) {
                         logOnce("HANS:$uid", "SLOT_HANS_FREEZE_BLOCK uid=$uid")
                         false
@@ -149,7 +151,7 @@ internal object NeXtepSlotLifecycleGuard {
             }.forEach { method ->
                 hook(module, method) { chain ->
                     val uid = chain.args.filterIsInstance<Int>().firstOrNull { it >= 10000 }
-                    if (uid != null && liveProtectedUid(uid)) {
+                    if (uid != null && liveProtectedUid(uid) && !explicitTermination()) {
                         logOnce("UID:$uid", "SLOT_STOP_UID_BLOCK uid=$uid")
                         null
                     } else chain.proceed()
@@ -194,12 +196,12 @@ internal object NeXtepSlotLifecycleGuard {
     private fun shouldGuard(owner: Any, explicitSleep: Boolean = false): Boolean {
         queueObserver(owner)
         return enabled && isNeXtepSlot(owner) &&
-            (explicitSleep || physicalScreenAsleep()) &&
+            (explicitSleep || displaySleeping(owner)) &&
             !isFinishing(owner)
     }
 
     private fun liveProtectedUid(uid: Int): Boolean {
-        if (!enabled || !physicalScreenAsleep() || uid < 10000) return false
+        if (!enabled || uid < 10000) return false
         val iterator = trackedTasks.entries.iterator()
         while (iterator.hasNext()) {
             val (_, ref) = iterator.next()
@@ -208,7 +210,7 @@ internal object NeXtepSlotLifecycleGuard {
                 iterator.remove()
                 continue
             }
-            if (recordUid(record) == uid) return true
+            if (recordUid(record) == uid && displaySleeping(record)) return true
         }
         return false
     }
@@ -220,8 +222,18 @@ internal object NeXtepSlotLifecycleGuard {
         }
     }
 
-    private fun physicalScreenAsleep(): Boolean =
-        context?.getSystemService(PowerManager::class.java)?.isInteractive == false
+    private fun displaySleeping(owner: Any): Boolean {
+        val display = call(owner, "getDisplayContent") ?: field(owner, "mDisplayContent")
+        return call(display, "isSleeping") == true ||
+            call(owner, "shouldSleepActivities") == true
+    }
+
+    private fun explicitTermination(): Boolean =
+        Thread.currentThread().stackTrace.any { frame ->
+            frame.methodName.contains("forceStop", ignoreCase = true) ||
+                frame.methodName.contains("shuttingDown", ignoreCase = true) ||
+                frame.className.contains("PackageInstaller")
+        }
 
     private fun queueObserver(owner: Any) {
         if (observerStarted.get() || !observerQueued.compareAndSet(false, true)) return
