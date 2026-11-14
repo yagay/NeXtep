@@ -117,8 +117,7 @@ internal class FloatingVirtualDisplayInput(context: Context) {
         } else if (!readyLogged) {
             readyLogged = true
             NeXtepLog.info("floating_input",
-                "VIRTUAL_INPUT_READY targetDisplay=${event.displayId} " +
-                    "receiver=${destination.receiver.javaClass.simpleName}")
+                "VIRTUAL_INPUT_READY receiver=${destination.receiver.javaClass.simpleName}")
         }
         return accepted
     }
