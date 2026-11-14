@@ -188,7 +188,25 @@ internal class FloatingSlotDockController(
             } else {
                 zoomStableCard(index, state)
             }
-            is SlotState.Ready, SlotState.Empty -> showPicker()
+            is SlotState.Ready, is SlotState.Failed -> {
+                // Preserve the original one-tap behavior: park the current
+                // foreground Display 0 task into this empty floating slot.
+                // The coordinator already handles HOME/recents, transition
+                // serialization, and rollback. Do not use its occupied-slot
+                // swap path here; occupied cards are handled above.
+                NeXtepLog.info("floating_dock",
+                    "EMPTY_CARD_TAP_PARK_FOREGROUND slot=$index state=$state " +
+                        "foreground=${floatingTaskRepository.foregroundTask()?.taskId} " +
+                        "interaction=$interactionMode")
+                coordinator?.onSlotClicked(index)
+            }
+            SlotState.Empty -> {
+                // The virtual display is not ready yet; do not open the app
+                // picker or silently launch a fresh copy of the foreground app.
+                NeXtepLog.info("floating_dock",
+                    "EMPTY_CARD_TAP_WAIT_DISPLAY slot=$index")
+                coordinator?.onTasksChanged()
+            }
             else -> Unit
         }
     }
