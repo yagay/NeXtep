@@ -164,17 +164,22 @@ internal object NeXtepNativeWindowLifecycleGuard {
             if (registered.createdAt > now ||
                 now - registered.createdAt > MAX_REGISTRY_AGE_MS) return false
             val info = (field(activity, "info") ?: field(activity, "mInfo")) as? ActivityInfo
-                ?: return false
+                ?: error("registered task=$id has no ActivityInfo")
             val uid = info.applicationInfo?.uid ?: return false
             if (uid < 10000 || uid != registered.uid) return false
-            val display = call(task, "getDisplayContent") ?: return false
-            if (call(display, "getDisplayId") != 0) return false
+            val display = call(task, "getDisplayContent")
+                ?: error("registered task=$id has no DisplayContent")
+            val displayId = call(display, "getDisplayId") as? Int
+                ?: error("registered task=$id has no display ID")
+            if (displayId != 0) return false
             if (finishing(activity)) return false
             val mode = call(task, "getWindowingMode") as? Int
             val configuration = call(activity, "getConfiguration")
                 ?: field(activity, "mConfiguration")
             val extra = field(configuration, "mOplusExtraConfiguration")
             val scenario = (call(extra, "getScenario") ?: field(extra, "mScenario")) as? Int
+            if (mode == null && scenario == null)
+                error("registered task=$id lacks OEM window mode and scenario")
             NativeWindowLockPolicy.eligible(
                 enabled = enabled,
                 autoDisabled = autoDisabled,
