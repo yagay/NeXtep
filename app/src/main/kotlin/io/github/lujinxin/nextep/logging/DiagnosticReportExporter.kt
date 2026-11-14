@@ -128,6 +128,7 @@ object DiagnosticReportExporter {
                     appendLine("No contacts, accounts, identifiers or selected-app lists are exported.")
                 }
                 val rootCapture = captureRootLogcat()
+                val systemProcessEvents = captureSystemProcessEvents()
                 val rootNote = rootCapture.status
                 context.contentResolver.openOutputStream(uri, "w")?.use { output ->
                     ZipOutputStream(output).use { zip ->
@@ -144,6 +145,8 @@ object DiagnosticReportExporter {
                         zip.putText("logs/app-NeXtep.txt", appLogs.ifEmpty { "No app logs recorded in this process yet." })
                         zip.putText("logs/systemui-NeXtep.txt", systemLogs ?: "UNAVAILABLE: ${error ?: "No response"}")
                         zip.putText("logs/root-NeXtep-logcat.txt", rootCapture.text ?: rootNote)
+                        zip.putText("logs/system-process-events.txt",
+                            systemProcessEvents.text ?: systemProcessEvents.status)
                     }
                 } ?: error("Could not open the selected destination")
             }
@@ -167,6 +170,43 @@ object DiagnosticReportExporter {
     }
 
     private data class RootCapture(val text: String?, val status: String)
+
+    /** Only systemui/module process lifecycle events: no arbitrary app logs. */
+    private fun captureSystemProcessEvents(): RootCapture = runCatching {
+        val command = "logcat -d -b events -t 20000 -v threadtime " +
+            "| grep -E 'am_(crash|proc_died|kill|create_activity|restart_activity)' " +
+            "| grep -E 'com.android.systemui|io.github.lujinxin.nextep' | tail -n 180"
+        val process = ProcessBuilder("su", "-c", command)
+            .redirectErrorStream(true).start()
+        val contents = StringBuilder()
+        val reader = Thread({
+            runCatching {
+                process.inputStream.bufferedReader().use { input ->
+                    val buffer = CharArray(2048)
+                    while (contents.length < 50_000) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        synchronized(contents) {
+                            contents.append(buffer, 0, minOf(count, 50_000 - contents.length))
+                        }
+                    }
+                }
+            }
+        }, "NeXtep-ProcessEventsReader").apply { isDaemon = true }
+        reader.start()
+        val complete = process.waitFor(7, TimeUnit.SECONDS)
+        if (!complete) process.destroyForcibly()
+        reader.join(750)
+        val output = synchronized(contents) { contents.toString() }
+        val status = when {
+            !complete -> "System process events timed out"
+            output.isBlank() -> "No SystemUI or NeXtep process lifecycle events in ring buffer"
+            else -> "Captured scoped SystemUI/NeXtep process lifecycle events"
+        }
+        RootCapture(output.takeIf { it.isNotBlank() }, status)
+    }.getOrElse { error ->
+        RootCapture(null, "System process events unavailable: ${error.javaClass.simpleName}")
+    }
 
     private fun captureRootLogcat(): RootCapture = runCatching {
         // Root is optional, but report precisely why this capture did not
