@@ -69,6 +69,7 @@ internal class FloatingSlotDockController(
         val displayId: Int,
         val originalResizeMode: Int?,
         val beganAt: Long,
+        var absentSince: Long = 0L,
     )
     private var fullscreenTask: TemporarilyFullscreen? = null
     private var movingFullscreenTask = false
@@ -276,11 +277,18 @@ internal class FloatingSlotDockController(
         if (fullscreenTask !== pin) return
         val live = floatingTaskRepository.findTask(pin.taskId)
         if (live == null) {
+            // Android may temporarily omit a task from getRunningTasks()
+            // while changing its display. Avoid releasing the reserved slot
+            // because of a single missing snapshot.
+            val now = SystemClock.uptimeMillis()
+            if (pin.absentSince == 0L) pin.absentSince = now
+            if (now - pin.absentSince < 2_000L) return
             NeXtepLog.warn("floating_pinned",
-                "TASK_EXITED source=$source task=${pin.taskId}; clearing occupied-slot reservation")
+                "TASK_EXITED source=$source task=${pin.taskId}; no task observed for 2s")
             clearTemporaryFullscreen()
             return
         }
+        pin.absentSince = 0L
         if (live.displayId == pin.displayId) {
             clearTemporaryFullscreen()
             NeXtepLog.info("floating_pinned", "TASK_RETURNED_EXTERNALLY task=${pin.taskId}")
