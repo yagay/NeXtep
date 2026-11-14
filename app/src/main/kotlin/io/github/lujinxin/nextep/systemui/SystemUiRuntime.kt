@@ -637,9 +637,9 @@ object SystemUiRuntime {
                     "anchor=${bubbleAnchorFrom(intent)}")
             val handled = when {
                 !ready -> false
-                // Zoom is entirely within SystemUI's floating preview:
-                // the task and its displayId never change. Bubble tap shrinks.
-                floatingDock.isCardZoomed() -> floatingDock.shrinkZoomedCard()
+                // The bubble returns the real fullscreen app to its
+                // reserved NeXtep virtual slot. Do not exchange with main.
+                floatingDock.hasTemporaryFullscreen() -> floatingDock.returnTemporaryFullscreen()
                 floatingDock.isExpanded() ->
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
                 workspaceController.isActive() -> false
