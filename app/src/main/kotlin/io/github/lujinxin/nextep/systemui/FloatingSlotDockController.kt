@@ -417,7 +417,22 @@ internal class FloatingSlotDockController(
             return
         }
         when (val state = coordinator?.slotStates()?.getOrNull(index)) {
-            is SlotState.Occupied -> zoomStableCard(index, state)
+            is SlotState.Occupied -> {
+                val task = floatingTaskRepository.findTask(state.taskId)
+                if (task?.userId != null &&
+                    pinnedSlotFor(task.component.packageName, task.userId) == index) {
+                    coordinator?.promotePinnedTask(index, state.taskId)
+                        ?.onSuccess {
+                            collapse()
+                            SystemUiRuntime.onPinnedTaskPromoted(state.taskId)
+                            NeXtepLog.info("auto_slot",
+                                "PIN_PROMOTED task=${state.taskId} slot=$index")
+                        }?.onFailure { error ->
+                            NeXtepLog.warn("auto_slot",
+                                "PIN_PROMOTE_FAILED task=${state.taskId}", error)
+                        }
+                } else zoomStableCard(index, state)
+            }
             is SlotState.Ready, is SlotState.Failed -> coordinator?.onSlotClicked(index)
             SlotState.Empty -> coordinator?.onTasksChanged()
             else -> Unit
@@ -613,6 +628,7 @@ internal class FloatingSlotDockController(
     private fun installRemoveBadges() {
         val frame = grid ?: return
         removeBadges.clear()
+        pinBadges.clear()
         for (index in slots.indices) {
             val badge = TextView(context).apply {
                 text = "×"
@@ -628,9 +644,22 @@ internal class FloatingSlotDockController(
             }
             removeBadges[index] = badge
             frame.addView(badge)
+            val pin = TextView(context).apply {
+                text = "●"
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setTextColor(Color.rgb(255, 199, 62))
+                contentDescription = "固定槽位 ${index + 1}"
+                background = rounded(Color.argb(213, 35, 45, 54), dp(9))
+                visibility = View.GONE
+                setOnClickListener { togglePinnedSlot(index) }
+            }
+            pinBadges[index] = pin
+            frame.addView(pin)
         }
         panel?.let(::positionRemoveBadges)
         updateRemoveBadges()
+        updatePinBadges()
     }
 
     private fun positionRemoveBadges(compact: Panel) {
@@ -646,10 +675,14 @@ internal class FloatingSlotDockController(
                 leftMargin = cell.x + cell.width - dp(21)
                 topMargin = cell.y + dp(2)
             }
+            pinBadges[index]?.layoutParams = FrameLayout.LayoutParams(
+                dp(19), dp(19), Gravity.TOP or Gravity.LEFT,
+            ).apply { leftMargin = cell.x + dp(2); topMargin = cell.y + dp(2) }
         }
     }
 
     private fun updateRemoveBadges() {
+        updatePinBadges()
         val states = coordinator?.slotStates().orEmpty()
         removeBadges.forEach { (index, badge) ->
             badge.visibility = if (index in visibleSlotIndices &&
@@ -999,9 +1032,13 @@ internal class FloatingSlotDockController(
                 returnAfterSharing = { false },
             )
             checkNotNull(coordinator).activate()
+            syncPinnedSlots()
             newSlots.forEachIndexed { index, slot ->
                 slot.view.setOnClickListener { onFloatingCardTapped(index) }
-                slot.view.setOnLongClickListener { true } // No ordinary task exchange in floating mode.
+                slot.view.setOnLongClickListener {
+                    togglePinnedSlot(index)
+                    true
+                }
                 slot.view.setOnTouchListener { _, event ->
                     if (stableZoom?.index == index) {
                         stableTouch(index, event)
