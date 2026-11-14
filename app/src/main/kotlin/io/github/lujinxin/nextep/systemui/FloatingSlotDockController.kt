@@ -613,6 +613,10 @@ internal class FloatingSlotDockController(
      */
     fun collapse(lockEvent: Boolean = false): Boolean {
         val root = host ?: return true
+        dismissRemovalPrompt()
+        // Return to the compact presentation before hiding the overlay,
+        // keeping every task on exactly the same virtual display.
+        if (zoomedCard != null && !restoreCompactCards()) return false
         if (!panelVisible) return true
         return runCatching {
             val wnd = root.layoutParams as WindowManager.LayoutParams
@@ -730,6 +734,7 @@ internal class FloatingSlotDockController(
             handler.removeCallbacks(playbackSlotRefresh)
             handler.postDelayed(playbackSlotRefresh, 1_000L)
             coordinator?.onTasksChanged()
+            updateRemoveBadges()
             NeXtepLog.info("floating_dock",
                 "Reshowed retained dock with existing tasks, displays and slot positions; " +
                     slots.joinToString { it.diagnosticOutputState() })
@@ -747,6 +752,8 @@ internal class FloatingSlotDockController(
      */
     fun destroySession(): Boolean {
         if (!hasSession()) return true
+        dismissRemovalPrompt()
+        if (zoomedCard != null && !restoreCompactCards()) return false
         lastError = null
         return runCatching {
             releaseIndependentWakeLock()
@@ -766,7 +773,14 @@ internal class FloatingSlotDockController(
 
     fun onTasksChanged() {
         if (!hasSession()) return
+        val zoom = zoomedCard
+        if (zoom != null &&
+            floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
+            NeXtepLog.warn("floating_zoom", "Zoomed task exited or was moved externally; restoring preview")
+            restoreCompactCards()
+        }
         coordinator?.onTasksChanged()
+        updateRemoveBadges()
         handler.removeCallbacks(playbackSlotRefresh)
         handler.postDelayed(playbackSlotRefresh, 900L)
     }
@@ -774,6 +788,12 @@ internal class FloatingSlotDockController(
     /** Reflow cells on rotation; keep the original displays and their task ownership alive. */
     fun reconfigure() {
         val root = host ?: return
+        if (zoomedCard != null) {
+            runCatching { applyZoomedLayout() }.onFailure {
+                NeXtepLog.warn("floating_zoom", "Reflow of zoomed preview failed", it)
+            }
+            return
+        }
         runCatching {
             val recorded = recordedLayoutProfile(true)
             profile = recorded
@@ -820,6 +840,10 @@ internal class FloatingSlotDockController(
     }
 
     private fun clear() {
+        dismissRemovalPrompt()
+        zoomActions = null
+        zoomedCard = null
+        removeBadges.clear()
         pickerGeneration += 1
         coordinator = null
         slots = emptyList()
@@ -866,6 +890,7 @@ internal class FloatingSlotDockController(
                 topMargin = cell.y
             }
         }
+        positionRemoveBadges(sizes)
     }
 
     /**
