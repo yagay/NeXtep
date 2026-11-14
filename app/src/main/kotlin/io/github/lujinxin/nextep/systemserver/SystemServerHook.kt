@@ -24,11 +24,13 @@ object SystemServerHook {
         val slotLockGuardInstalled = HookGuard.run("nextep_slot_lifecycle_guard") {
             NeXtepSlotLifecycleGuard.install(module, classLoader)
         }
-        // Disabled on this firmware pending a verified OEM-only state strategy.
-        // The last diagnostic showed zero invisible-pause hook hits and no
-        // playback preservation. Do not intercept system_server lifecycle
-        // while investigating SystemUI restart loops.
-        val nativeLockGuardInstalled = false
+        // Firmware-specific guarded session: pre-verify Task ID, UID and
+        // OEM window state before lock demotion, preserve that identity through
+        // the sleep transition. The unstable SystemUI profile receiver remains
+        // independently quarantined.
+        val nativeLockGuardInstalled = HookGuard.run("nextep_native_window_lifecycle_guard") {
+            NeXtepNativeWindowLifecycleGuard.install(module, classLoader)
+        }
         val displayPowerTracingInstalled = HookGuard.run("nextep_display_power_diagnostics") {
             NeXtepDisplayPowerDiagnostics.install(module, classLoader)
         }
