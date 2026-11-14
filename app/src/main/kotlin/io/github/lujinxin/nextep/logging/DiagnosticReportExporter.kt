@@ -206,7 +206,7 @@ object DiagnosticReportExporter {
         // Root is optional, but report precisely why this capture did not
         // work. Long first-run KernelSU prompts must not be mistaken for
         // successful collection of an empty buffer.
-        val process = ProcessBuilder("su", "-c", "logcat -d -t 30000 -b main,system -s NeXtep:* NeXtepDisplayPower:* NeXtepSlotGuard:* NeXtepNavFold:* NeXtepLauncherNav:*")
+        val process = ProcessBuilder("su", "-c", "logcat -d -t 30000 -b main,system -s NeXtep:* NeXtepDisplayPower:* NeXtepSlotGuard:* NeXtepNavFold:* NeXtepLauncherNav:* NeXtepNavLocal:*")
             .redirectErrorStream(true).start()
         val content = StringBuilder()
         val reader = Thread({
