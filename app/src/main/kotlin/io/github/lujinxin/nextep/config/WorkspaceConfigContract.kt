@@ -27,14 +27,7 @@ data class WorkspaceTopConfig(
     val textBold: Boolean = false,
     val statusBarGestureEnabled: Boolean = true,
     val floatingBubbleEnabled: Boolean = false,
-    val floatingPadModeEnabled: Boolean = false,
-    val floatingIndependentDisplayEnabled: Boolean = false,
-    val playbackCompatEnabled: Boolean = false,
-    val playbackCompatAutoResume: Boolean = false,
-    val playbackCompatLockAudio: Boolean = false,
-    val playbackCompatPackages: Set<String> = emptySet(),
-    val floatingAutoProtectPlayback: Boolean = true,
-    val floatingInteractionMode: String = WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE,
+    val floatingLockGuardEnabled: Boolean = false,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
     val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
     val slotBackgroundSwipeEnabled: Boolean = true,
@@ -64,14 +57,7 @@ object WorkspaceConfigContract {
     const val EXTRA_TEXT_BOLD = "io.github.lujinxin.nextep.extra.TOP_TEXT_BOLD"
     const val EXTRA_STATUS_BAR_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.STATUS_BAR_GESTURE_ENABLED"
     const val EXTRA_FLOATING_BUBBLE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_ENABLED"
-    const val EXTRA_FLOATING_PAD_MODE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_PAD_MODE_ENABLED"
-    const val EXTRA_FLOATING_INDEPENDENT_DISPLAY_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_INDEPENDENT_DISPLAY_ENABLED"
-    const val EXTRA_PLAYBACK_COMPAT_ENABLED = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_ENABLED"
-    const val EXTRA_PLAYBACK_COMPAT_AUTO_RESUME = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_AUTO_RESUME"
-    const val EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_LOCK_AUDIO"
-    const val EXTRA_PLAYBACK_COMPAT_PACKAGES = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_PACKAGES"
-    const val EXTRA_FLOATING_AUTO_PROTECT_PLAYBACK = "io.github.lujinxin.nextep.extra.FLOATING_AUTO_PROTECT_PLAYBACK"
-    const val EXTRA_FLOATING_INTERACTION_MODE = "io.github.lujinxin.nextep.extra.FLOATING_INTERACTION_MODE"
+    const val EXTRA_FLOATING_LOCK_GUARD_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_LOCK_GUARD_ENABLED"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
     const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
     const val FLOATING_INTERACTION_STABLE = "stable"
@@ -155,22 +141,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putBoolean(WorkspaceConfigContract.EXTRA_TEXT_BOLD, settings.textBold)
                 putBoolean(WorkspaceConfigContract.EXTRA_STATUS_BAR_GESTURE_ENABLED, settings.statusBarGestureEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, settings.floatingBubbleEnabled)
-                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_PAD_MODE_ENABLED,
-                    settings.floatingPadModeEnabled)
-                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_INDEPENDENT_DISPLAY_ENABLED,
-                    settings.floatingIndependentDisplayEnabled)
-                putBoolean(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_ENABLED,
-                    settings.playbackCompatEnabled)
-                putBoolean(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_AUTO_RESUME,
-                    settings.playbackCompatAutoResume)
-                putBoolean(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO,
-                    settings.playbackCompatLockAudio)
-                putStringArrayList(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
-                    ArrayList(settings.playbackCompatPackages.sorted()))
-                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_AUTO_PROTECT_PLAYBACK,
-                    settings.floatingAutoProtectPlayback)
-                putString(WorkspaceConfigContract.EXTRA_FLOATING_INTERACTION_MODE,
-                    settings.floatingInteractionMode)
+                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED,
+                    settings.floatingLockGuardEnabled)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
                 putInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT, settings.floatingDockSizePercent)
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, settings.fourFingerGestureEnabled)
@@ -315,30 +287,8 @@ object WorkspaceConfigClient {
             floatingBubbleEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, false,
             ),
-            floatingPadModeEnabled = extras.getBoolean(
-                WorkspaceConfigContract.EXTRA_FLOATING_PAD_MODE_ENABLED, false,
-            ),
-            floatingIndependentDisplayEnabled = extras.getBoolean(
-                WorkspaceConfigContract.EXTRA_FLOATING_INDEPENDENT_DISPLAY_ENABLED, false,
-            ),
-            playbackCompatEnabled = extras.getBoolean(
-                WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_ENABLED, false,
-            ),
-            playbackCompatAutoResume = extras.getBoolean(
-                WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_AUTO_RESUME, false,
-            ),
-            playbackCompatLockAudio = extras.getBoolean(
-                WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO, false,
-            ),
-            playbackCompatPackages = extras.getStringArrayList(
-                WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
-            ).orEmpty().filter { it.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) }
-                .take(60).toSet(),
-            floatingAutoProtectPlayback = extras.getBoolean(
-                WorkspaceConfigContract.EXTRA_FLOATING_AUTO_PROTECT_PLAYBACK, true,
-            ),
-            floatingInteractionMode = WorkspaceConfigContract.normalizeFloatingInteractionMode(
-                extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_INTERACTION_MODE),
+            floatingLockGuardEnabled = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED, false,
             ),
             floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
                 extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION),
