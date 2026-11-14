@@ -253,6 +253,8 @@ internal object NeXtepNativeWindowLifecycleGuard {
         val registration = identities[id] ?: return
         runCatching {
             val now = SystemClock.elapsedRealtime()
+            // Never latch a task in a routine foreground/layout demotion.
+            if (!screenOff() && now >= armUntil) return
             if (registration.createdAt > now ||
                 now - registration.createdAt > MAX_REGISTRY_AGE_MS) return
             val activity = resolveActivity(task) ?: run {
@@ -276,11 +278,19 @@ internal object NeXtepNativeWindowLifecycleGuard {
                 ?: field(activity, "mConfiguration")
             val extra = field(cfg, "mOplusExtraConfiguration")
             val scenario = (call(extra, "getScenario") ?: field(extra, "mScenario")) as? Int
-            // Registration alone is NOT sufficient: prove this task was
-            // still an OEM native window at keyguard demotion time.
-            if (mode != 100 && scenario != 1 && scenario != 2) {
+            // On this OxygenOS build FlexibleWindow often reports mode=1.
+            // YMiniGuard also recognizes a floating Task by bounded geometry;
+            // check the current Task's smaller bounds instead of trusting
+            // windowingMode=5, but never omit exact task/UID verification.
+            val bounds = call(task, "getBounds") as? android.graphics.Rect
+            val wc = field(call(task, "getConfiguration"), "windowConfiguration")
+            val maxBounds = call(wc, "getMaxBounds") as? android.graphics.Rect
+            val reducedBounds = bounds != null && maxBounds != null &&
+                !bounds.isEmpty && !maxBounds.isEmpty && bounds != maxBounds
+            if (mode != 100 && scenario != 1 && scenario != 2 && !reducedBounds) {
                 sessionsRejected.incrementAndGet()
-                status("NATIVE_SESSION_NOT_FLEXIBLE task=$id mode=$mode scenario=$scenario")
+                status("NATIVE_SESSION_NOT_FLEXIBLE task=$id mode=$mode " +
+                    "scenario=$scenario geometry=$reducedBounds")
                 return
             }
             lockSessions[id] = LockSession(uid, now)
