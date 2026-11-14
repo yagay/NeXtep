@@ -56,13 +56,23 @@ internal class NativeFreeformController(context: Context) {
             WindowContainerTransactionCompat.applyTaskLayout(
                 task.token, window, task.densityDpi, FREEFORM_MODE
             ).getOrThrow()
-            val actual = taskRepository.findTask(task.taskId)
-            check(actual != null && actual.windowingMode == FREEFORM_MODE &&
-                actual.displayId == Display.DEFAULT_DISPLAY) {
-                "OS rejected native freeform task=${task.taskId} mode=${actual?.windowingMode}"
-            }
+            // WindowManager applies organizer transactions asynchronously.
+            // Do not read RunningTaskInfo immediately and mistakenly roll
+            // back a transaction which is still being committed by WM Shell.
             tracked.add(task.taskId)
-            NeXtepLog.info("native_freeform", "OPEN_OK task=${task.taskId} bounds=$window")
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val actual = taskRepository.findTask(task.taskId)
+                if (actual?.windowingMode != FREEFORM_MODE ||
+                    actual.displayId != Display.DEFAULT_DISPLAY) {
+                    tracked.remove(task.taskId)
+                    NeXtepLog.warn("native_freeform",
+                        "OS_DID_NOT_ENTER_FREEFORM task=${task.taskId} mode=${actual?.windowingMode}")
+                } else {
+                    NeXtepLog.info("native_freeform",
+                        "CONFIRMED task=${task.taskId} bounds=${actual.bounds}")
+                }
+            }, 1_200L)
+            NeXtepLog.info("native_freeform", "REQUEST_SENT task=${task.taskId} bounds=$window")
             true
         }.getOrElse { error ->
             NeXtepLog.warn("native_freeform", "OPEN_FAILED task=${task.taskId}", error)
