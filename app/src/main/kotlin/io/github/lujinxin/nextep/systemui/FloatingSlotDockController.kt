@@ -193,6 +193,183 @@ internal class FloatingSlotDockController(
         }
     }
 
+    /**
+     * Stable mode deliberately keeps the Activity inside its original
+     * VirtualDisplay. Only the existing live TextureView's on-screen
+     * presentation is enlarged, and real input is injected back into that
+     * SAME display. No task reparent, app relaunch or display recreation.
+     */
+    private fun zoomStableCard(index: Int, state: SlotState.Occupied): Boolean {
+        if (stableZoom != null || fullscreenTask != null || movingFullscreenTask) return false
+        if (slots.getOrNull(index)?.displayId() != state.displayId ||
+            floatingTaskRepository.findTask(state.taskId)?.displayId != state.displayId) {
+            NeXtepLog.warn("floating_stable",
+                "ZOOM_REFUSED task=${state.taskId} display=${state.displayId} no longer in slot")
+            coordinator?.onTasksChanged()
+            return false
+        }
+        stableZoom = StableZoom(index, state.taskId, state.displayId)
+        return runCatching {
+            applyStableZoomLayout()
+            NeXtepLog.info("floating_stable",
+                "STABLE_ZOOM_ENTER task=${state.taskId} slot=$index display=${state.displayId}; no task move")
+            true
+        }.getOrElse {
+            NeXtepLog.warn("floating_stable", "Unable to zoom stable app", it)
+            restoreStableCompact()
+            false
+        }
+    }
+
+    private fun stableTouch(index: Int, event: MotionEvent) {
+        val zoom = stableZoom ?: return
+        if (zoom.index != index || suspendedForLock || removalPending || !panelVisible) return
+        val slot = slots.getOrNull(index) ?: return
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                stableTouchActive = slot.displayId() == zoom.displayId &&
+                    floatingTaskRepository.findTask(zoom.taskId)?.displayId == zoom.displayId
+                if (!stableTouchActive) {
+                    NeXtepLog.warn("floating_input",
+                        "STABLE_TOUCH_REFUSED task=${zoom.taskId} display=${zoom.displayId}")
+                    return
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP,
+            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                if (!stableTouchActive) return
+            else -> return
+        }
+        val geometry = slot.geometry() ?: return
+        val accepted = virtualInput.sendTouch(
+            event, slot.view.textureView, geometry, zoom.displayId)
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && !accepted) {
+            stableTouchActive = false
+        }
+        if (event.actionMasked == MotionEvent.ACTION_UP ||
+            event.actionMasked == MotionEvent.ACTION_CANCEL) stableTouchActive = false
+    }
+
+    private fun applyStableZoomLayout() {
+        val zoom = stableZoom ?: return
+        val root = host ?: return
+        check(slots.getOrNull(zoom.index)?.displayId() == zoom.displayId) {
+            "Stable zoom virtual display no longer exists"
+        }
+        val bounds = manager?.maximumWindowMetrics?.bounds
+            ?: Rect(0, 0, context.resources.displayMetrics.widthPixels,
+                context.resources.displayMetrics.heightPixels)
+        val insets = FloatingDockSafeArea.measure(context, manager)
+        val width = (bounds.width() - insets.left - insets.right).coerceAtLeast(dp(140))
+        val height = (bounds.height() - insets.top - insets.bottom).coerceAtLeast(dp(180))
+        val window = root.layoutParams as WindowManager.LayoutParams
+        window.width = width
+        window.height = height
+        window.x = insets.left
+        window.y = insets.top
+
+        picker?.visibility = View.GONE
+        toolbar?.visibility = View.GONE
+        railViewport?.layoutParams = FrameLayout.LayoutParams(width, height, Gravity.TOP)
+        grid?.layoutParams = FrameLayout.LayoutParams(width, height, Gravity.TOP)
+        grid?.translationX = 0f
+        grid?.translationY = 0f
+        slots.forEachIndexed { i, slot ->
+            slot.view.layoutParams = if (i == zoom.index) {
+                FrameLayout.LayoutParams(width, height, Gravity.TOP or Gravity.LEFT)
+            } else {
+                // Keep sibling TextureViews attached and their surfaces live.
+                val cell = panel?.cells?.getOrNull(i)
+                FrameLayout.LayoutParams(cell?.width ?: dp(32), cell?.height ?: dp(32),
+                    Gravity.TOP or Gravity.LEFT).apply { leftMargin = width + dp(12) }
+            }
+        }
+        removeBadges.values.forEach { it.visibility = View.GONE }
+        if (stableControls == null) {
+            val controls = FrameLayout(context).apply {
+                isClickable = false
+                clipChildren = false
+            }
+            fun smallControl(label: String, description: String, where: Int, click: () -> Unit) {
+                val button = TextView(context).apply {
+                    text = label
+                    textSize = 15f
+                    setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
+                    contentDescription = description
+                    isClickable = true
+                    background = rounded(Color.argb(218, 23, 39, 51), dp(11))
+                    elevation = dp(6).toFloat()
+                    setOnClickListener { click() }
+                }
+                val lp = FrameLayout.LayoutParams(dp(28), dp(28),
+                    Gravity.TOP or where).apply {
+                    topMargin = dp(6)
+                    if (where == Gravity.RIGHT) rightMargin = dp(6)
+                    if (where == Gravity.LEFT) leftMargin = dp(6)
+                }
+                controls.addView(button, lp)
+            }
+            smallControl("↙", str(R.string.floating_dock_zoom_restore),
+                Gravity.LEFT) { restoreStableCompact() }
+            smallControl("←", "Back in virtual app",
+                Gravity.CENTER_HORIZONTAL) {
+                if (!virtualInput.sendBack(zoom.displayId)) NeXtepLog.warn(
+                    "floating_input", "STABLE_BACK_FAILED display=${zoom.displayId}")
+            }
+            smallControl("×", str(R.string.floating_dock_remove_app),
+                Gravity.RIGHT) { requestRemoveApp(zoom.index) }
+            root.addView(controls, FrameLayout.LayoutParams(-1, -1))
+            stableControls = controls
+        }
+        manager?.updateViewLayout(root, window)
+        NeXtepLog.info("floating_stable",
+            "STABLE_DISPLAY_ONLY task=${zoom.taskId} display=${zoom.displayId} " +
+                "size=${width}x$height originalVDretained=true")
+    }
+
+    /** Shrink the live display presentation without moving its app task. */
+    private fun restoreStableCompact(): Boolean {
+        val previous = stableZoom ?: return true
+        val root = host ?: return false
+        val compact = panel ?: return false
+        return runCatching {
+            stableControls?.let { root.removeView(it) }
+            stableControls = null
+            stableTouchActive = false
+            toolbar?.visibility = View.VISIBLE
+            val window = root.layoutParams as WindowManager.LayoutParams
+            window.width = compact.width
+            window.height = compact.height
+            window.x = compact.x
+            window.y = compact.y
+            railViewport?.layoutParams = FrameLayout.LayoutParams(
+                compact.width, compact.height - compact.header, Gravity.TOP,
+            ).apply { topMargin = compact.header }
+            grid?.layoutParams = FrameLayout.LayoutParams(compact.railWidth, compact.railHeight)
+            slots.forEachIndexed { i, slot ->
+                val cell = compact.cells[i]
+                slot.view.layoutParams = FrameLayout.LayoutParams(
+                    cell.width, cell.height, Gravity.TOP or Gravity.LEFT,
+                ).apply {
+                    leftMargin = cell.x
+                    topMargin = cell.y
+                }
+            }
+            applyRailOffset()
+            positionRemoveBadges(compact)
+            manager?.updateViewLayout(root, window)
+            stableZoom = null
+            updateRemoveBadges()
+            NeXtepLog.info("floating_stable",
+                "STABLE_ZOOM_EXIT task=${previous.taskId} display=${previous.displayId}")
+            true
+        }.getOrElse {
+            NeXtepLog.warn("floating_stable", "Could not restore compact stable mode", it)
+            false
+        }
+    }
+
     private fun movePinnedTask(taskId: Int, displayId: Int) {
         TaskSurfaceCompat.markDisplayExchange(taskId, displayId)
         if (displayId == Display.DEFAULT_DISPLAY) TaskSurfaceCompat.cancelPreparedPromotion(taskId)
