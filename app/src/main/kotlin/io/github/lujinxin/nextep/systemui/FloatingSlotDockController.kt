@@ -101,7 +101,7 @@ internal class FloatingSlotDockController(
             if (!movingFullscreenTask && !suspendedForLock) {
                 checkTemporaryFullscreen(pinned, "fallback")
             }
-            if (fullscreenTask === pinned) {
+            if (fullscreenTask === pinned && !handler.hasCallbacks(this)) {
                 handler.postDelayed(this, FULLSCREEN_FALLBACK_MS)
             }
         }
@@ -114,7 +114,6 @@ internal class FloatingSlotDockController(
         NeXtepLog.debug("floating_pinned", "REVIEW_ARMED source=$source delayMs=$delayMs")
     }
 
-    private val fullScreenFallbackDescription = "shell-callback-first"
     private val removeBadges = mutableMapOf<Int, TextView>()
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
@@ -1520,8 +1519,9 @@ internal class FloatingSlotDockController(
         onTaskForegroundChanged()
         // A real Shell Task event supersedes the next watchdog observation.
         // The observer above checks only the currently pinned fullscreen Task.
-        if (fullscreenTask != null) scheduleFullscreenReview(
-            FULLSCREEN_FALLBACK_MS, "shell-task-event")
+        if (fullscreenTask != null && !handler.hasCallbacks(fullscreenWatchdog)) {
+            scheduleFullscreenReview(FULLSCREEN_FALLBACK_MS, "shell-task-event")
+        }
         stableZoom?.let { zoom ->
             if (slots.getOrNull(zoom.index)?.displayId() != zoom.displayId ||
                 floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
