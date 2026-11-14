@@ -188,6 +188,24 @@ object SettingsScreen {
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, matchWidth())
                     addView(settingDivider(activity))
+                    val interactionButton = SettingsRowButton.create(activity).apply {
+                        updateFloatingInteractionLabel(activity, this,
+                            settings.floatingInteractionMode)
+                        setOnClickListener {
+                            showFloatingInteractionDialog(activity, repository, this)
+                        }
+                    }
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.floating_interaction_mode_title),
+                        activity.getString(R.string.floating_interaction_mode_summary),
+                        interactionButton,
+                    ).apply {
+                        setOnClickListener { interactionButton.performClick() }
+                        isFocusable = false
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, matchWidth())
+                    addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.floating_pad_mode_title),
@@ -836,6 +854,45 @@ object SettingsScreen {
      * Compact, stateful sections: frequent controls stay visible while advanced
      * ones are tucked away. The original child controls/listeners are unchanged.
      */
+    /** Selection only controls the floating dock, not the original workspace. */
+    private fun updateFloatingInteractionLabel(
+        activity: AppCompatActivity,
+        button: MaterialButton,
+        value: String,
+    ) {
+        button.text = activity.getString(if (
+            WorkspaceConfigContract.normalizeFloatingInteractionMode(value) ==
+            WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE
+        ) R.string.floating_interaction_native else R.string.floating_interaction_stable)
+    }
+
+    private fun showFloatingInteractionDialog(
+        activity: AppCompatActivity,
+        repository: SettingsRepository,
+        button: MaterialButton,
+    ) {
+        val entries = arrayOf(
+            activity.getString(R.string.floating_interaction_stable) + "\n" +
+                activity.getString(R.string.floating_interaction_stable_desc),
+            activity.getString(R.string.floating_interaction_native) + "\n" +
+                activity.getString(R.string.floating_interaction_native_desc),
+        )
+        val currentMode = repository.topBarSettings().floatingInteractionMode
+        val selected = if (currentMode == WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE) 1 else 0
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.floating_interaction_mode_title)
+            .setSingleChoiceItems(entries, selected) { dialog, selectedIndex ->
+                val mode = if (selectedIndex == 1)
+                    WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE
+                else WorkspaceConfigContract.FLOATING_INTERACTION_STABLE
+                repository.setFloatingInteractionMode(mode)
+                updateFloatingInteractionLabel(activity, button, mode)
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
     /** Floating layout is configured here, never by stretching a live window. */
     private fun updateFloatingLayoutLabel(
         activity: AppCompatActivity,
