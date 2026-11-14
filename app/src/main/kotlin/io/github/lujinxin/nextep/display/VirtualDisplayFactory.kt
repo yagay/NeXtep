@@ -11,6 +11,7 @@ import io.github.lujinxin.nextep.logging.NeXtepLog
 
 class VirtualDisplayFactory(
     context: Context,
+    private val floatingSlot: Boolean = false,
 ) {
     private val displayManager = context.getSystemService(DisplayManager::class.java)
 
@@ -32,7 +33,7 @@ class VirtualDisplayFactory(
                 try {
                     // Preview displays need no 120/144 Hz mode simply because
                     // the physical display is fast. The main display stays native.
-                    val config = VirtualDisplayConfig.Builder("NeXtep-slot-$index",
+                    val config = VirtualDisplayConfig.Builder(if (floatingSlot) "NeXtep-floating-slot-$index" else "NeXtep-slot-$index",
                         geometry.width, geometry.height, geometry.densityDpi)
                         .setSurface(surface)
                         .setFlags(flags.value)
