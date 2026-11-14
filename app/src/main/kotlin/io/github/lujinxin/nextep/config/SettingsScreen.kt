@@ -299,6 +299,22 @@ object SettingsScreen {
                         settings.floatingLockGuardEnabled,
                         repository::setFloatingLockGuardEnabled,
                     ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        "原生小窗锁屏保活 / Native window lock guard",
+                        "仅针对 NeXtep 已确认的原生 Task（taskId + UID），熄屏时保护非结束性生命周期；独立于虚拟四槽位保活。",
+                        settings.nativeLockGuardEnabled,
+                        repository::setNativeLockGuardEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        "原生小窗冻结保护（实验性）",
+                        "默认关闭。保留设置入口，但暂不拦截 Hans/系统冻结，以避免影响其他进程。",
+                        settings.nativeFreezeProtectionEnabled,
+                        repository::setNativeFreezeProtectionEnabled,
+                    ), matchWidth())
             }, matchWidth().apply { bottomMargin = dp(activity, 12) })
             addView(collapsibleSettingCard(
                 activity, R.string.settings_group_gestures, R.string.settings_group_gestures_summary,
