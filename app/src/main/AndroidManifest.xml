@@ -7,6 +7,10 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
     </queries>
 
     <permission
@@ -40,6 +44,21 @@
             android:name=".config.MainActivity"
             android:exported="true"
             android:label="@string/app_name" />
+
+        <!-- Opt-in window-transition detector, never captures screen contents or gestures. -->
+        <service
+            android:name=".navigation.NeXtepNavigationAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true"
+            android:label="@string/nextep_accessibility_label"
+            android:description="@string/nextep_accessibility_description">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/nextep_navigation_accessibility" />
+        </service>
 
         <!-- User-authorized overlay; real task windows remain in SystemUI. -->
         <service
