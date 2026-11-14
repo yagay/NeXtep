@@ -51,6 +51,14 @@ internal object SystemNavigationKeyObserver {
         Log.i(TAG, "KEY_HOOK_SUMMARY installed=$installed mode=PASSIVE")
     }
 
+    // InputEvent#getDisplayId is hidden on some compile SDKs even though
+    // the runtime framework exposes it. Never let diagnostics break the hook.
+    private fun readDisplayId(event: KeyEvent): Int = runCatching {
+        val method = android.view.InputEvent::class.java.getDeclaredMethod("getDisplayId")
+        method.isAccessible = true
+        method.invoke(event) as Int
+    }.getOrDefault(-1)
+
     private fun installMethod(module: XposedModule, method: Method): Boolean =
         runCatching {
             method.isAccessible = true
@@ -61,13 +69,13 @@ internal object SystemNavigationKeyObserver {
                     if (event != null && event.keyCode in keyCodes &&
                         event.action == KeyEvent.ACTION_UP && event.repeatCount == 0) {
                         runCatching {
-                            val key = "${method.name}:${event.keyCode}:${event.displayId}"
+                            val key = "${method.name}:${event.keyCode}:${readDisplayId(event)}"
                             val now = SystemClock.elapsedRealtime()
                             val previous = lastSeen[key]
                             if (previous == null || now - previous >= 120L) {
                                 lastSeen[key] = now
                                 Log.i(TAG, "KEY_EVENT source=${method.name} code=${event.keyCode}" +
-                                    " action=UP display=${event.displayId}" +
+                                    " action=UP display=${readDisplayId(event)}" +
                                     " device=${event.deviceId} flags=${event.flags}")
                             }
                         }
