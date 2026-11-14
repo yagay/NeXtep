@@ -14,6 +14,7 @@ import java.lang.ref.WeakReference
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Optional ColorOS 17 system_server guard adapted from YMiniGuard.
@@ -33,6 +34,8 @@ internal object NeXtepSlotLifecycleGuard {
     private val observerQueued = AtomicBoolean(false)
     private val trackedTasks = ConcurrentHashMap<Int, WeakReference<Any>>()
     private val lastEvents = ConcurrentHashMap<String, Long>()
+    private val failureCount = AtomicInteger(0)
+    @Volatile private var disabledByErrors = false
     @Volatile private var context: Context? = null
     @Volatile private var enabled = false
 
@@ -66,7 +69,7 @@ internal object NeXtepSlotLifecycleGuard {
                 // suppress a normal same-app navigation or a user-driven pause.
                 val booleans = chain.args.filterIsInstance<Boolean>()
                 val uiSleeping = if (booleans.size >= 2) booleans[1] else sleepingArg
-                if (fragmentObject != null && shouldGuard(fragmentObject, uiSleeping)) {
+                if (fragmentObject != null && safeCondition { shouldGuard(fragmentObject, uiSleeping) }) {
                     logOnce("PAUSE:${taskId(fragmentObject)}",
                         "SLOT_PAUSE_BLOCK task=${taskId(fragmentObject)}")
                     false
@@ -80,7 +83,7 @@ internal object NeXtepSlotLifecycleGuard {
         }.forEach { method ->
             hook(module, method) { chain ->
                 val record = chain.thisObject
-                if (record != null && !isFinishing(record) && shouldGuard(record)) {
+                if (record != null && safeCondition { !isFinishing(record) && shouldGuard(record) }) {
                     call(record, "resumeKeyDispatchingLocked")
                     logOnce("STOP:${taskId(record)}",
                         "SLOT_STOP_BLOCK task=${taskId(record)}")
@@ -96,7 +99,7 @@ internal object NeXtepSlotLifecycleGuard {
             hook(module, method) { chain ->
                 val fragmentObject = chain.thisObject
                 val forceSleep = chain.args.any { it == true }
-                if (!forceSleep && fragmentObject != null && shouldGuard(fragmentObject)) {
+                if (!forceSleep && fragmentObject != null && safeCondition { shouldGuard(fragmentObject, true) }) {
                     logOnce("SLEEP:${taskId(fragmentObject)}",
                         "SLOT_SLEEP_BLOCK task=${taskId(fragmentObject)}")
                     true
@@ -116,7 +119,7 @@ internal object NeXtepSlotLifecycleGuard {
                     val uid = chain.args.filterIsInstance<Int>().firstOrNull { it >= 10000 }
                         ?: chain.args.firstOrNull { it?.javaClass?.name?.endsWith(".OplusHansPackage") == true }
                             ?.let { field(it, "uid") as? Int }
-                    if (uid != null && liveProtectedUid(uid)) {
+                    if (uid != null && safeCondition { liveProtectedUid(uid) }) {
                         logOnce("HANS:$uid", "SLOT_HANS_FREEZE_BLOCK uid=$uid")
                         false
                     } else chain.proceed()
@@ -151,7 +154,7 @@ internal object NeXtepSlotLifecycleGuard {
             }.forEach { method ->
                 hook(module, method) { chain ->
                     val uid = chain.args.filterIsInstance<Int>().firstOrNull { it >= 10000 }
-                    if (uid != null && liveProtectedUid(uid) && !explicitTermination()) {
+                    if (uid != null && safeCondition { liveProtectedUid(uid) && !explicitTermination() }) {
                         logOnce("UID:$uid", "SLOT_STOP_UID_BLOCK uid=$uid")
                         null
                     } else chain.proceed()
@@ -178,6 +181,22 @@ internal object NeXtepSlotLifecycleGuard {
                     throw error
                 }
         })
+    }
+
+    /** Bad OEM reflection fails open; three errors disable the guard until restart. */
+    private inline fun safeCondition(block: () -> Boolean): Boolean {
+        if (disabledByErrors) return false
+        return try {
+            block()
+        } catch (error: Throwable) {
+            if (failureCount.incrementAndGet() >= 3) {
+                disabledByErrors = true
+                Log.e(TAG, "SLOT_GUARD_AUTO_DISABLED after repeated hook lookup errors", error)
+            } else {
+                Log.w(TAG, "Slot guard lookup failed, original system behavior retained", error)
+            }
+            false
+        }
     }
 
     private fun trackActivity(record: Any?) {
