@@ -239,6 +239,8 @@
     <string name="floating_layout_apply">应用</string>
     <string name="floating_pad_mode_title">Pad 多任务模式（实验性）</string>
     <string name="floating_pad_mode_summary">优先使用平板式的独立显示器焦点，让多个小窗应用尽量同时保持活动。可能影响输入法及主屏焦点；下次新建悬浮工作台时生效，当前应用不会重启。</string>
+    <string name="floating_independent_display_title">独立显示锁屏播放（实验性）</string>
+    <string name="floating_independent_display_summary">仅保护 NeXtep 虚拟小窗内应用的系统级暂停、停止、休眠和冻结流程，不改变物理屏幕锁屏。新增 LSPosed Hook 首次需完整重启；设置在下次新建小窗时生效。不能保证所有播放器都支持。</string>
     <string name="playback_compat_enabled_title">小窗播放器后台兼容</string>
     <string name="playback_compat_enabled_summary">只监测选中的小窗播放器及媒体会话；默认关闭。</string>
     <string name="playback_compat_auto_title">折叠后尝试恢复播放（实验性）</string>
