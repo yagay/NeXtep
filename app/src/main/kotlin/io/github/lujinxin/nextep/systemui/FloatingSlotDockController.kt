@@ -261,6 +261,82 @@ internal class FloatingSlotDockController(
         return true
     }
 
+    /**
+     * Move a specifically captured pre-switch Task, never a newly focused
+     * task. Permission, package allowlist and foreground identity are checked
+     * by the caller; coordinator independently re-reads the actual task.
+     *
+     * The original four VirtualDisplays remain owned by one coordinator.
+     * This method is asynchronous because new VDs become Ready after their
+     * TextureViews attach. It never uses OEM Task Zoom or relaunches an app.
+     */
+    fun autoParkCaptured(
+        taskId: Int,
+        packageName: String,
+        userId: Int,
+        reason: String,
+        after: (() -> Unit)? = null,
+    ): Boolean {
+        if (taskId <= 0 || userId < 0 || suspendedForLock || removalPending ||
+            stableZoom != null) {
+            NeXtepLog.info("auto_slot", "REJECT_BUSY reason=$reason task=$taskId")
+            after?.invoke()
+            return false
+        }
+        val existed = hasSession()
+        val expanded = isExpanded()
+        if (!existed && !expand()) {
+            NeXtepLog.warn("auto_slot",
+                "NO_SESSION task=$taskId reason=$reason error=$lastError")
+            after?.invoke()
+            return false
+        }
+        fun finish() {
+            if (!expanded && hasSession()) collapse()
+            after?.invoke()
+        }
+        fun attempt(left: Int) {
+            if (!hasSession() || suspendedForLock) {
+                NeXtepLog.info("auto_slot", "CANCELLED task=$taskId reason=$reason")
+                finish()
+                return
+            }
+            val task = floatingTaskRepository.findTask(taskId)
+            if (task == null || task.component.packageName != packageName ||
+                task.userId != userId ||
+                task.displayId != android.view.Display.DEFAULT_DISPLAY ||
+                task.vendorWindowed || task.windowingMode != 1) {
+                NeXtepLog.info("auto_slot", "STALE_TASK task=$taskId reason=$reason")
+                finish()
+                return
+            }
+            val states = coordinator?.slotStates().orEmpty()
+            val ready = states.any { it is SlotState.Ready }
+            val waiting = states.any { it is SlotState.Empty }
+            if (!ready && waiting && left > 0) {
+                handler.postDelayed({ attempt(left - 1) }, 100L)
+                return
+            }
+            if (!ready) {
+                NeXtepLog.info("auto_slot", "NO_FREE_SLOT task=$taskId reason=$reason")
+                finish()
+                return
+            }
+            coordinator?.autoParkTask(taskId, packageName, userId)
+                ?.onSuccess { index ->
+                    revealOccupiedSlot(index, "auto-$reason")
+                    NeXtepLog.info("auto_slot",
+                        "PARKED reason=$reason task=$taskId user=$userId slot=$index")
+                }?.onFailure { error ->
+                    NeXtepLog.warn("auto_slot",
+                        "PARK_FAILED reason=$reason task=$taskId", error)
+                }
+            finish()
+        }
+        handler.post { attempt(if (reason == "lock") 3 else 12) }
+        return true
+    }
+
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
     fun isStableZoomed(): Boolean = stableZoom != null
