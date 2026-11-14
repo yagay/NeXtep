@@ -637,6 +637,10 @@ object SystemUiRuntime {
                     "anchor=${bubbleAnchorFrom(intent)}")
             val handled = when {
                 !ready -> false
+                // The bubble is the second-tap "shrink" control while a
+                // floating card's task is promoted to physical fullscreen.
+                // This never enters the ordinary workspace swap path.
+                floatingDock.hasPromotedApp() -> floatingDock.restorePromotedTask()
                 floatingDock.isExpanded() ->
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
                 workspaceController.isActive() -> false
