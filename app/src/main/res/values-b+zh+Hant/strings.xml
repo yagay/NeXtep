@@ -195,6 +195,8 @@
     <string name="floating_native_interaction_action">原生操作</string>
     <string name="floating_native_interaction_summary">暫時切到手機主螢幕操作，按首頁、切換應用程式或鎖定後返回小視窗。</string>
     <string name="floating_dock_zoom_restore">縮回小視窗</string>
+    <string name="floating_lock_guard_title">浮動小視窗鎖定保活（實驗性）</string>
+    <string name="floating_lock_guard_summary">僅保護 NeXtep 浮動小視窗的系統生命週期，盡量減少鎖定暫停與背景凍結。可能增加耗電，不保證所有播放器持續播放。</string>
     <string name="floating_dock_title">懸浮小視窗</string>
     <string name="floating_dock_add">選應用</string>
     <string name="floating_dock_close">×</string>
