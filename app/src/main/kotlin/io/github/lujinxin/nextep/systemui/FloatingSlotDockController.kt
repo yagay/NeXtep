@@ -696,6 +696,7 @@ internal class FloatingSlotDockController(
                 NeXtepLog.warn("floating_remove", "Ignored stale remove request task=${state.taskId}")
                 return@action
             }
+            if (stableZoom?.taskId == state.taskId && !restoreStableCompact()) return@action
             ActivityTaskManagerCompat.removeTask(state.taskId).onSuccess {
                 NeXtepLog.info("floating_remove",
                     "REMOVED_CONFIRMED task=${state.taskId} slot=$index display=${state.displayId}")
@@ -736,6 +737,30 @@ internal class FloatingSlotDockController(
             NeXtepLog.warn("floating_remove", "Removal confirmation unavailable", error)
             message(R.string.floating_dock_remove_failed)
         }
+    }
+
+    /**
+     * Switch only the floating interaction path. An existing virtual display
+     * is never torn down to apply a new mode.
+     */
+    fun applyInteractionMode(value: String) {
+        val normalized = WorkspaceConfigContract.normalizeFloatingInteractionMode(value)
+        if (interactionMode == normalized) return
+        if (stableZoom != null && !restoreStableCompact()) {
+            NeXtepLog.warn("floating_mode", "Mode switch deferred until stable zoom can shrink")
+            return
+        }
+        interactionMode = normalized
+        if (fullscreenTask != null && normalized ==
+            WorkspaceConfigContract.FLOATING_INTERACTION_STABLE) {
+            if (!returnFullscreenToSlot("mode switched to stable")) {
+                NeXtepLog.warn("floating_mode",
+                    "Native task return pending; source display remains reserved")
+            }
+        }
+        NeXtepLog.info("floating_mode",
+            "MODE_CHANGED selected=$normalized activeNative=${fullscreenTask != null} " +
+                "activeStable=${stableZoom != null}")
     }
 
     /** Reflow without releasing any VirtualDisplay or moving the running tasks. */
@@ -899,7 +924,12 @@ internal class FloatingSlotDockController(
             newSlots.forEachIndexed { index, slot ->
                 slot.view.setOnClickListener { onFloatingCardTapped(index) }
                 slot.view.setOnLongClickListener { true } // No ordinary task exchange in floating mode.
-
+                slot.view.setOnTouchListener { _, event ->
+                    if (stableZoom?.index == index) {
+                        stableTouch(index, event)
+                        true // Never collapse/trigger a second click during a touch gesture.
+                    } else false
+                }
             }
             installRemoveBadges()
             playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
@@ -933,6 +963,7 @@ internal class FloatingSlotDockController(
         // Return to the compact presentation before hiding the overlay,
         // keeping every task on exactly the same virtual display.
         if (fullscreenTask != null && !returnFullscreenToSlot("dock hide")) return false
+        if (stableZoom != null && !restoreStableCompact()) return false
         if (!panelVisible) return true
         return runCatching {
             val wnd = root.layoutParams as WindowManager.LayoutParams
@@ -1076,6 +1107,7 @@ internal class FloatingSlotDockController(
         if (!hasSession()) return true
         dismissRemovalPrompt()
         if (fullscreenTask != null && !returnFullscreenToSlot("session shutdown")) return false
+        if (stableZoom != null && !restoreStableCompact()) return false
         lastError = null
         return runCatching {
             releaseIndependentWakeLock()
@@ -1096,6 +1128,14 @@ internal class FloatingSlotDockController(
     fun onTasksChanged() {
         if (!hasSession()) return
         onTaskForegroundChanged()
+        stableZoom?.let { zoom ->
+            if (slots.getOrNull(zoom.index)?.displayId() != zoom.displayId ||
+                floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
+                NeXtepLog.warn("floating_stable",
+                    "Zoomed virtual app exited or moved; shrinking without disturbing tasks")
+                restoreStableCompact()
+            }
+        }
         coordinator?.onTasksChanged()
         updateRemoveBadges()
         handler.removeCallbacks(playbackSlotRefresh)
@@ -1106,6 +1146,18 @@ internal class FloatingSlotDockController(
     fun reconfigure() {
         val root = host ?: return
         if (fullscreenTask != null) return // Retain its source geometry until returned.
+        if (stableZoom != null) {
+            runCatching {
+                val recorded = recordedLayoutProfile(true)
+                profile = recorded
+                panel = calculatePanel(
+                    recorded.geometry.screenWidth, recorded.geometry.screenHeight, recorded)
+                applyStableZoomLayout()
+            }.onFailure { error ->
+                NeXtepLog.warn("floating_stable", "Stable zoom rotation reflow failed", error)
+            }
+            return
+        }
         runCatching {
             val recorded = recordedLayoutProfile(true)
             profile = recorded
@@ -1153,6 +1205,9 @@ internal class FloatingSlotDockController(
 
     private fun clear() {
         dismissRemovalPrompt()
+        stableControls = null
+        stableZoom = null
+        stableTouchActive = false
         handler.removeCallbacks(fullscreenWatchdog)
         fullscreenTask = null
         movingFullscreenTask = false
@@ -1336,7 +1391,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun showPicker() {
-        if (fullscreenTask != null || movingFullscreenTask) return
+        if (stableZoom != null || fullscreenTask != null || movingFullscreenTask) return
         val states = coordinator?.slotStates().orEmpty()
         val empty = states.indexOfFirst { it is SlotState.Ready }
         if (empty < 0) {
