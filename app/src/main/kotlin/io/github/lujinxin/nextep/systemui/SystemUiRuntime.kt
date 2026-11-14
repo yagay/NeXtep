@@ -177,7 +177,10 @@ object SystemUiRuntime {
             captured.taskId, captured.component.packageName,
             captured.userId, "lock",
         ) {
-            floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
+            // An early physical power-key event need not become a lock.
+            // Only suspend displays once keyguard or screen-off is real.
+            if (!isScreenReady() || isKeyguardLocked(applicationContext))
+                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
         }
         NeXtepLog.info("auto_slot",
             "LOCK_AUTO_PARK_REQUEST task=${captured.taskId} accepted=$accepted")
@@ -675,7 +678,10 @@ object SystemUiRuntime {
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 lifecycleHandler.removeCallbacks(hiddenFloatingResume)
                 TaskSurfaceCompat.finishWorkspaceExitAnimations()
-                if (::floatingDock.isInitialized && !autoParkForLock())
+                // If early prelock started migrating a Task, suspending the
+                // virtual display here would cause Activity pause mid-move.
+                if (::floatingDock.isInitialized &&
+                    !floatingDock.isAutoParkInProgress() && !autoParkForLock())
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
             }
             if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
