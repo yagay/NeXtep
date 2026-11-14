@@ -18,6 +18,8 @@ class SettingsRepository(private val context: Context) {
         val textBold: Boolean,
         val statusBarGestureEnabled: Boolean,
         val floatingBubbleEnabled: Boolean,
+        val floatingBubbleSizeDp: Int,
+        val floatingBubbleEdgeDp: Int,
         val floatingLockGuardEnabled: Boolean,
         val floatingPopupBackEnabled: Boolean,
         val floatingSwipeCollapseEnabled: Boolean,
@@ -54,6 +56,8 @@ class SettingsRepository(private val context: Context) {
         textBold = preferences.getBoolean("top_text_bold", false),
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
+        floatingBubbleSizeDp = preferences.getInt(KEY_FLOATING_BUBBLE_SIZE_DP, 52).coerceIn(32, 88),
+        floatingBubbleEdgeDp = preferences.getInt(KEY_FLOATING_BUBBLE_EDGE_DP, 8).coerceIn(0, 40),
         floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, true),
         floatingPopupBackEnabled = preferences.getBoolean(KEY_FLOATING_POPUP_BACK_ENABLED, true),
         floatingSwipeCollapseEnabled = preferences.getBoolean(KEY_FLOATING_SWIPE_COLLAPSE_ENABLED, true),
@@ -116,6 +120,18 @@ class SettingsRepository(private val context: Context) {
     fun setFloatingBubbleEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("floating_bubble_enabled", enabled).apply()
         notifyTopContentChanged()
+    }
+
+    fun setFloatingBubbleSizeDp(value: Int) {
+        if (preferences.edit().putInt(KEY_FLOATING_BUBBLE_SIZE_DP, value.coerceIn(32, 88)).commit()) {
+            notifyTopContentChanged()
+        }
+    }
+
+    fun setFloatingBubbleEdgeDp(value: Int) {
+        if (preferences.edit().putInt(KEY_FLOATING_BUBBLE_EDGE_DP, value.coerceIn(0, 40)).commit()) {
+            notifyTopContentChanged()
+        }
     }
 
     /** System-server floating lock guard is enabled by default; eligibility remains scoped to owned slots. */
@@ -250,6 +266,8 @@ class SettingsRepository(private val context: Context) {
 
     private companion object {
         const val KEY_TOP_TITLE = "top_title"
+        const val KEY_FLOATING_BUBBLE_SIZE_DP = "floating_bubble_size_dp"
+        const val KEY_FLOATING_BUBBLE_EDGE_DP = "floating_bubble_edge_dp"
         const val KEY_FLOATING_LOCK_GUARD_ENABLED = "floating_lock_guard_enabled"
         const val KEY_FLOATING_POPUP_BACK_ENABLED = "floating_popup_back_enabled"
         const val KEY_FLOATING_SWIPE_COLLAPSE_ENABLED = "floating_swipe_collapse_enabled"
