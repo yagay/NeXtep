@@ -88,7 +88,8 @@ internal object SystemNavigationFoldHook {
     private fun dispatch(policy: Any?, source: String) {
         val now = SystemClock.elapsedRealtime()
         // Multiple policy methods can observe the same gesture.
-        if (source == lastSource && now - lastAt < 350L) return
+        // One physical gesture may be seen by several policy callbacks.
+        if (now - lastAt in 0L..249L) return
         lastSource = source
         lastAt = now
         val ctx = generateSequence(policy?.javaClass) { it.superclass }
