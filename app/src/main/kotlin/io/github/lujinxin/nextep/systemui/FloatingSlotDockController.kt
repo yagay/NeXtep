@@ -114,6 +114,66 @@ internal class FloatingSlotDockController(
     private var stableTouchActive = false
     private val floatingTaskRepository = TaskRepository(context)
     private val removeBadges = mutableMapOf<Int, TextView>()
+
+    private val pinBadges = mutableMapOf<Int, TextView>()
+    private val pinPrefs = context.createDeviceProtectedStorageContext()
+        .getSharedPreferences("nextep_virtual_pinned_slots", Context.MODE_PRIVATE)
+    private val pinnedSlots = linkedMapOf<Int, Pair<String, Int>>()
+
+    init {
+        for (index in 0 until WORKSPACE_SLOT_COUNT) {
+            val value = pinPrefs.getString("slot_$index", null) ?: continue
+            val pkg = value.substringBeforeLast('|')
+            val user = value.substringAfterLast('|').toIntOrNull()
+            if (user != null && pkg.contains('.')) pinnedSlots[index] = pkg to user
+        }
+    }
+
+    fun pinnedSlotFor(packageName: String, userId: Int): Int? =
+        pinnedSlots.entries.firstOrNull { it.value == (packageName to userId) }?.key
+    fun hasPinnedBindings(): Boolean = pinnedSlots.isNotEmpty()
+
+    private fun syncPinnedSlots() {
+        coordinator?.setPinnedSlots(pinnedSlots.mapValues { it.value.first })
+        updatePinBadges()
+    }
+
+    private fun togglePinnedSlot(index: Int) {
+        if (index !in 0 until WORKSPACE_SLOT_COUNT) return
+        if (index in pinnedSlots) {
+            pinnedSlots.remove(index)
+            pinPrefs.edit().remove("slot_$index").apply()
+            syncPinnedSlots()
+            Toast.makeText(context, "已解除槽位 ${index + 1} 的应用锁定", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val occupied = coordinator?.slotStates()?.getOrNull(index) as? SlotState.Occupied ?: return
+        val task = floatingTaskRepository.findTask(occupied.taskId) ?: return
+        val user = task.userId ?: return
+        if (task.displayId != occupied.displayId ||
+            task.component.packageName != occupied.component.packageName) return
+        pinnedSlots.entries.filter { it.value == (task.component.packageName to user) }
+            .map { it.key }.forEach { old ->
+                pinnedSlots.remove(old)
+                pinPrefs.edit().remove("slot_$old").apply()
+            }
+        pinnedSlots[index] = task.component.packageName to user
+        pinPrefs.edit().putString("slot_$index", "${task.component.packageName}|$user").apply()
+        syncPinnedSlots()
+        Toast.makeText(context,
+            "已锁定槽位 ${index + 1}：点击切主屏，切后台或锁屏自动归位",
+            Toast.LENGTH_LONG).show()
+        NeXtepLog.info("auto_slot", "PIN_APP index=$index task=${task.taskId} user=$user")
+    }
+
+    private fun updatePinBadges() {
+        pinBadges.forEach { (index, badge) ->
+            badge.visibility = if (index in pinnedSlots &&
+                index in visibleSlotIndices && stableZoom == null && panelVisible)
+                View.VISIBLE else View.GONE
+        }
+    }
+
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
     private var autoParkPending = false
