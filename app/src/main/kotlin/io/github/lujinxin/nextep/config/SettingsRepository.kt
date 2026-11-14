@@ -52,7 +52,7 @@ class SettingsRepository(private val context: Context) {
         textBold = preferences.getBoolean("top_text_bold", false),
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
-        floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, false),
+        floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, true),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
             preferences.getString(KEY_FLOATING_DOCK_ORIENTATION,
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION),
