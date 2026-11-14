@@ -19,6 +19,8 @@ class SettingsRepository(private val context: Context) {
         val statusBarGestureEnabled: Boolean,
         val floatingBubbleEnabled: Boolean,
         val floatingLockGuardEnabled: Boolean,
+        val floatingPopupBackEnabled: Boolean,
+        val floatingSwipeCollapseEnabled: Boolean,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
         val slotBackgroundSwipeEnabled: Boolean,
@@ -53,6 +55,8 @@ class SettingsRepository(private val context: Context) {
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
         floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, false),
+        floatingPopupBackEnabled = preferences.getBoolean(KEY_FLOATING_POPUP_BACK_ENABLED, true),
+        floatingSwipeCollapseEnabled = preferences.getBoolean(KEY_FLOATING_SWIPE_COLLAPSE_ENABLED, true),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
             preferences.getString(KEY_FLOATING_DOCK_ORIENTATION,
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION),
@@ -117,6 +121,16 @@ class SettingsRepository(private val context: Context) {
     /** System-server floating lock guard is opt-in and disabled by default. */
     fun setFloatingLockGuardEnabled(enabled: Boolean) {
         if (preferences.edit().putBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    fun setFloatingPopupBackEnabled(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_FLOATING_POPUP_BACK_ENABLED, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    fun setFloatingSwipeCollapseEnabled(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_FLOATING_SWIPE_COLLAPSE_ENABLED, enabled).commit())
             notifyTopContentChanged()
     }
 
@@ -237,6 +251,8 @@ class SettingsRepository(private val context: Context) {
     private companion object {
         const val KEY_TOP_TITLE = "top_title"
         const val KEY_FLOATING_LOCK_GUARD_ENABLED = "floating_lock_guard_enabled"
+        const val KEY_FLOATING_POPUP_BACK_ENABLED = "floating_popup_back_enabled"
+        const val KEY_FLOATING_SWIPE_COLLAPSE_ENABLED = "floating_swipe_collapse_enabled"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
         const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
         const val KEY_TOP_APPS = "top_apps"
