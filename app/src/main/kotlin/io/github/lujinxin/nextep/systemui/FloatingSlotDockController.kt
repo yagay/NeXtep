@@ -78,6 +78,9 @@ internal class FloatingSlotDockController(
         val displayId: Int,
         val originalResizeMode: Int?,
         val beganAt: Long,
+        // True when the desktop/Recents stole a NeXtep-owned task. This
+        // must return immediately, unlike an explicit native fullscreen tap.
+        val externalLauncher: Boolean = false,
         var absentSince: Long = 0L,
     )
     private var fullscreenTask: TemporarilyFullscreen? = null
@@ -519,6 +522,15 @@ internal class FloatingSlotDockController(
             clearTemporaryFullscreen()
             return
         }
+        if (pin.externalLauncher) {
+            // Never wait for the user to press Home: a launcher-opened task
+            // is still owned by the floating slot and should go back now.
+            NeXtepLog.info("floating_pinned",
+                "STICKY_RETURN_ATTEMPT source=$source task=${pin.taskId} " +
+                    "display=${pin.displayId}")
+            returnFullscreenToSlot("sticky:$source")
+            return
+        }
         if (SystemClock.uptimeMillis() - pin.beganAt < 800L) return
         val foreground = floatingTaskRepository.foregroundTask() ?: return
         if (foreground.taskId == pin.taskId) return
@@ -535,18 +547,34 @@ internal class FloatingSlotDockController(
      * This callback is only wired for FloatingSlotDockController; regular
      * workspace tasks still use their original external-promotion rules.
      */
+    /**
+     * Strict floating-slot ownership:
+     * The launcher can reuse the same Task on Display 0, but that is NOT an
+     * explicit request to temporarily fullscreen it via NeXtep.
+     *
+     * Returning true keeps the occupied slot reserved during the coordinator's
+     * reconciliation. A posted restoration avoids reentrant task moves while
+     * that reconciliation is iterating its task snapshot.
+     */
     private fun reserveLauncherPromotedTask(
         index: Int,
         occupied: SlotState.Occupied,
         mainTask: TaskRepository.TaskSnapshot,
     ): Boolean {
-        if (!hasSession() || movingFullscreenTask || suspendedForLock ||
-            fullscreenTask != null || slots.getOrNull(index)?.displayId() != occupied.displayId ||
+        if (!hasSession() || slots.getOrNull(index)?.displayId() != occupied.displayId ||
             mainTask.taskId != occupied.taskId ||
             mainTask.displayId != Display.DEFAULT_DISPLAY) return false
+        val explicit = fullscreenTask
+        if (explicit != null) {
+            // Even when a native fullscreen request is in flight, the slot is
+            // reserved for this exact Task, not replaceable by another app.
+            return explicit.taskId == occupied.taskId &&
+                explicit.displayId == occupied.displayId
+        }
+        if (movingFullscreenTask) return true
         handler.post {
-            if (fullscreenTask == null && !movingFullscreenTask) {
-                adoptExternallyOpenedTask(index, occupied, "coordinator reservation")
+            if (fullscreenTask == null && !movingFullscreenTask && hasSession()) {
+                captureLauncherPromotion("coordinator ownership")
             }
         }
         return true
@@ -557,54 +585,47 @@ internal class FloatingSlotDockController(
         occupied: SlotState.Occupied,
         source: String,
     ): Boolean {
-        if (!hasSession() || movingFullscreenTask || fullscreenTask != null ||
+        if (!hasSession() || fullscreenTask != null || movingFullscreenTask ||
             slots.getOrNull(index)?.displayId() != occupied.displayId) return false
-        val moved = floatingTaskRepository.findTask(occupied.taskId) ?: return false
-        if (moved.displayId != Display.DEFAULT_DISPLAY) return false
-        if (stableZoom != null && !restoreStableCompact()) return false
-        val wasVisible = panelVisible
-        val adopted = TemporarilyFullscreen(
+        val current = floatingTaskRepository.findTask(occupied.taskId) ?: return false
+        if (current.displayId != Display.DEFAULT_DISPLAY) return false
+        val pin = TemporarilyFullscreen(
             index, occupied.taskId, occupied.displayId,
-            moved.resizeMode, SystemClock.uptimeMillis(),
+            current.resizeMode, SystemClock.uptimeMillis(),
+            externalLauncher = true,
         )
-        // Reserve BEFORE suspending reconciliation so the original slot
-        // cannot adopt a different Activity while the launcher owns the task.
-        fullscreenTask = adopted
-        return runCatching {
-            coordinator?.setSuspended(true)
-            if (panelVisible) hideRetainedDockForFullscreen()
-            handler.removeCallbacks(fullscreenWatchdog)
-            handler.postDelayed(fullscreenWatchdog, 420L)
-            NeXtepLog.info("floating_pinned",
-                "LAUNCHER_REUSED_FLOATING_TASK source=$source slot=$index " +
-                    "task=${occupied.taskId} virtualDisplay=${occupied.displayId} " +
-                    "mainDisplay=0 wasVisible=$wasVisible; original slot reserved")
-            true
-        }.getOrElse { error ->
-            NeXtepLog.warn("floating_pinned",
-                "Launcher task reservation failed; retained for retry", error)
-            // Keep the reservation if suspend was partially applied. A later
-            // watchdog pass can return it; never discard task ownership here.
-            handler.removeCallbacks(fullscreenWatchdog)
-            handler.postDelayed(fullscreenWatchdog, 450L)
-            false
+        fullscreenTask = pin
+        NeXtepLog.info("floating_pinned",
+            "STICKY_CAPTURE source=$source slot=$index task=${occupied.taskId} " +
+                "virtualDisplay=${occupied.displayId}; keep existing dock and surface")
+        // Never hide the dock or suspend all its virtual displays merely
+        // because Android temporarily reparented one Activity to Display 0.
+        // The restoration retries until the original task is back, then
+        // reconciliation resumes with unchanged slot identity.
+        handler.removeCallbacks(fullscreenWatchdog)
+        handler.post {
+            if (fullscreenTask === pin && !movingFullscreenTask) {
+                returnFullscreenToSlot("sticky:launcher")
+            }
         }
+        handler.postDelayed(fullscreenWatchdog, 400L)
+        return true
     }
 
-    /**
-     * Use the earliest SystemUI task-change callback, before coordinator's
-     * delayed reconciliation can turn the original floating slot into Ready.
-     */
+    /** Inspect existing owned Task IDs, not package names or an app guess. */
     private fun captureLauncherPromotion(source: String): Boolean {
-        if (!hasSession() || movingFullscreenTask || fullscreenTask != null) return false
-        val foreground = floatingTaskRepository.foregroundTask() ?: return false
-        if (foreground.displayId != Display.DEFAULT_DISPLAY) return false
-        val states = coordinator?.slotStates().orEmpty()
-        for ((index, state) in states.withIndex()) {
-            val occupied = state as? SlotState.Occupied ?: continue
-            if (occupied.taskId == foreground.taskId &&
-                slots.getOrNull(index)?.displayId() == occupied.displayId) {
-                return adoptExternallyOpenedTask(index, occupied, source)
+        if (!hasSession() || fullscreenTask != null || movingFullscreenTask) return false
+        val occupied = coordinator?.slotStates().orEmpty().mapIndexedNotNull { index, state ->
+            (state as? SlotState.Occupied)?.let { index to it }
+        }
+        if (occupied.isEmpty()) return false
+        val running = floatingTaskRepository.runningTasks()
+        for ((index, state) in occupied) {
+            if (slots.getOrNull(index)?.displayId() != state.displayId) continue
+            if (running.any {
+                it.taskId == state.taskId && it.displayId == Display.DEFAULT_DISPLAY
+            }) {
+                return adoptExternallyOpenedTask(index, state, source)
             }
         }
         return false
