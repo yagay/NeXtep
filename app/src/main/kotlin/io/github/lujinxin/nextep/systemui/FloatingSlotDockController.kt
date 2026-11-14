@@ -310,6 +310,13 @@ internal class FloatingSlotDockController(
         }
     }
 
+    /** Keyguard/display callbacks can precede the SCREEN_OFF broadcast. */
+    fun onPhysicalLockSignal(source: String) {
+        if (fullscreenTask == null || movingFullscreenTask) return
+        NeXtepLog.info("floating_pinned", "PRELOCK_RETURN source=$source")
+        returnFullscreenToSlot("prelock:$source")
+    }
+
     fun returnFullscreenToSlot(reason: String): Boolean {
         val pin = fullscreenTask ?: return true
         if (movingFullscreenTask) return false
