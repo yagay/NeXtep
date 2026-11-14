@@ -9,6 +9,8 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
@@ -62,6 +64,32 @@ internal class FloatingSlotDockController(
     private var popupBackEnabled = true
     private var swipeCollapseEnabled = true
     private var popupEverFocused = false
+    private var popupBackDispatcher: OnBackInvokedDispatcher? = null
+    private val popupBackCallback = OnBackInvokedCallback {
+        if (popupBackEnabled && panelVisible && !suspendedForLock) {
+            NeXtepLog.info("floating_dock", "POPUP_SYSTEM_BACK_COLLAPSE")
+            if (stableZoom != null) restoreStableCompact() else collapse()
+        }
+    }
+
+    private fun unregisterPopupBackCallback() {
+        val dispatcher = popupBackDispatcher ?: return
+        popupBackDispatcher = null
+        runCatching { dispatcher.unregisterOnBackInvokedCallback(popupBackCallback) }
+            .onFailure { NeXtepLog.warn("floating_dock", "POPUP_BACK_UNREGISTER_FAILED", it) }
+    }
+
+    private fun syncPopupBackCallback(view: View) {
+        unregisterPopupBackCallback()
+        if (!popupBackEnabled || !panelVisible || !view.isAttachedToWindow) return
+        runCatching {
+            val dispatcher = view.findOnBackInvokedDispatcher() ?: return
+            dispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, popupBackCallback)
+            popupBackDispatcher = dispatcher
+            NeXtepLog.info("floating_dock", "POPUP_BACK_CALLBACK_INSTALLED")
+        }.onFailure { NeXtepLog.warn("floating_dock", "POPUP_BACK_CALLBACK_UNAVAILABLE", it) }
+    }
     private var suspendedForLock = false
     private data class StableZoom(val index: Int, val taskId: Int, val displayId: Int)
     private var stableZoom: StableZoom? = null
@@ -146,6 +174,7 @@ internal class FloatingSlotDockController(
             }
             manager?.updateViewLayout(root, lp)
             if (panelVisible && backAndFocus) root.requestFocus()
+            syncPopupBackCallback(root)
         }.onFailure { NeXtepLog.warn("floating_dock", "POPUP_INPUT_POLICY_FAILED", it) }
     }
 
@@ -534,6 +563,16 @@ internal class FloatingSlotDockController(
             profile = recorded
             panel = layout
             val root = object : FrameLayout(context) {
+                override fun onAttachedToWindow() {
+                    super.onAttachedToWindow()
+                    handler.post { if (host === this && panelVisible) syncPopupBackCallback(this) }
+                }
+
+                override fun onDetachedFromWindow() {
+                    unregisterPopupBackCallback()
+                    super.onDetachedFromWindow()
+                }
+
                 override fun dispatchKeyEvent(event: KeyEvent): Boolean {
                     if (popupBackEnabled && panelVisible &&
                         event.keyCode in listOf(KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE)) {
@@ -705,6 +744,7 @@ internal class FloatingSlotDockController(
             panelVisible = true
             popupEverFocused = root.hasWindowFocus()
             if (popupBackEnabled) root.requestFocus()
+            syncPopupBackCallback(root)
             suspendedForLock = false
             coordinator = SlotTaskCoordinator(
                 context = context,
@@ -767,6 +807,7 @@ internal class FloatingSlotDockController(
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             manager?.updateViewLayout(root, wnd)
             popupEverFocused = false
+            unregisterPopupBackCallback()
             // Keep the root itself VISIBLE and attached: setting GONE or
             // removeViewImmediate can destroy live TextureView surfaces.
             panelVisible = false
@@ -861,6 +902,7 @@ internal class FloatingSlotDockController(
             panelVisible = true
             popupEverFocused = root.hasWindowFocus()
             if (popupBackEnabled) root.requestFocus()
+            syncPopupBackCallback(root)
             coordinator?.onTasksChanged()
             updateRemoveBadges()
             NeXtepLog.info("floating_dock",
