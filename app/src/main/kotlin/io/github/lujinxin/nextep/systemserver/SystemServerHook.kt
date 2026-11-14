@@ -27,6 +27,9 @@ object SystemServerHook {
         val displayPowerTracingInstalled = HookGuard.run("nextep_display_power_diagnostics") {
             NeXtepDisplayPowerDiagnostics.install(module, classLoader)
         }
+        HookGuard.run("nextep_system_navigation_keys") {
+            SystemNavigationKeyObserver.install(module, classLoader)
+        }
         HookGuard.run("workspace_ime_target") { WorkspaceImeTargetHook.install(module, classLoader) }
         HookGuard.run("workspace_navigation") { WorkspaceNavigationBarHook.install(module, classLoader) }
         HookGuard.run("slot_native_layout") { WorkspaceSlotNativeLayoutHook.install(module, classLoader) }
