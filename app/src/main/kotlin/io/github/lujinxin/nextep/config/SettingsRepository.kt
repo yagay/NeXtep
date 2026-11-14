@@ -24,6 +24,8 @@ class SettingsRepository(private val context: Context) {
         val floatingBubbleEdgeDp: Int,
         val floatingBubbleHalfHidden: Boolean,
         val floatingLockGuardEnabled: Boolean,
+        val nativeLockGuardEnabled: Boolean,
+        val nativeFreezeProtectionEnabled: Boolean,
         val floatingPopupBackEnabled: Boolean,
         val floatingSwipeCollapseEnabled: Boolean,
         val floatingDockOrientation: String,
@@ -65,6 +67,8 @@ class SettingsRepository(private val context: Context) {
         floatingBubbleEdgeDp = preferences.getInt(KEY_FLOATING_BUBBLE_EDGE_DP, 8).coerceIn(0, 40),
         floatingBubbleHalfHidden = preferences.getBoolean(KEY_FLOATING_BUBBLE_HALF_HIDDEN, false),
         floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, true),
+        nativeLockGuardEnabled = preferences.getBoolean(KEY_NATIVE_LOCK_GUARD_ENABLED, true),
+        nativeFreezeProtectionEnabled = preferences.getBoolean(KEY_NATIVE_FREEZE_PROTECTION_ENABLED, false),
         floatingPopupBackEnabled = preferences.getBoolean(KEY_FLOATING_POPUP_BACK_ENABLED, true),
         floatingSwipeCollapseEnabled = preferences.getBoolean(KEY_FLOATING_SWIPE_COLLAPSE_ENABLED, true),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
@@ -163,6 +167,16 @@ class SettingsRepository(private val context: Context) {
     /** System-server floating lock guard is enabled by default; eligibility remains scoped to owned slots. */
     fun setFloatingLockGuardEnabled(enabled: Boolean) {
         if (preferences.edit().putBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    fun setNativeLockGuardEnabled(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_NATIVE_LOCK_GUARD_ENABLED, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    fun setNativeFreezeProtectionEnabled(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_NATIVE_FREEZE_PROTECTION_ENABLED, enabled).commit())
             notifyTopContentChanged()
     }
 
@@ -298,6 +312,8 @@ class SettingsRepository(private val context: Context) {
         const val KEY_FLOATING_BUBBLE_EDGE_DP = "floating_bubble_edge_dp"
         const val KEY_FLOATING_BUBBLE_HALF_HIDDEN = "floating_bubble_half_hidden"
         const val KEY_FLOATING_LOCK_GUARD_ENABLED = "floating_lock_guard_enabled"
+        const val KEY_NATIVE_LOCK_GUARD_ENABLED = "native_lock_guard_enabled"
+        const val KEY_NATIVE_FREEZE_PROTECTION_ENABLED = "native_freeze_protection_enabled"
         const val KEY_FLOATING_POPUP_BACK_ENABLED = "floating_popup_back_enabled"
         const val KEY_FLOATING_SWIPE_COLLAPSE_ENABLED = "floating_swipe_collapse_enabled"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
