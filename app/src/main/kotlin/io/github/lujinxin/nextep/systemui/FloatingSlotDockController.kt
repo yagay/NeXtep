@@ -282,6 +282,37 @@ internal class FloatingSlotDockController(
         }
     }
 
+    /**
+     * Stable mode is a real virtual-display Activity but some OEM dialogs,
+     * IMEs and system navigation are restricted to physical Display 0. Give
+     * the user a one-off native interaction without changing their preferred
+     * stable mode or exchanging the current main-screen app into this slot.
+     * Existing native fullscreen auto-return handles Home/app-switch/lock.
+     */
+    private fun openNativeFromStableZoom() {
+        val zoom = stableZoom ?: return
+        if (suspendedForLock || removalPending || movingFullscreenTask) return
+        val occupied = coordinator?.slotStates()?.getOrNull(zoom.index) as? SlotState.Occupied
+        if (occupied?.taskId != zoom.taskId || occupied.displayId != zoom.displayId) {
+            NeXtepLog.warn("floating_stable",
+                "NATIVE_INTERACTION_REFUSED stale slot=${zoom.index} task=${zoom.taskId}")
+            return
+        }
+        if (floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
+            NeXtepLog.warn("floating_stable",
+                "NATIVE_INTERACTION_REFUSED task no longer on virtual display=${zoom.displayId}")
+            return
+        }
+        if (!restoreStableCompact()) return
+        NeXtepLog.info("floating_stable",
+            "NATIVE_INTERACTION_REQUESTED task=${zoom.taskId} " +
+                "display=${zoom.displayId}; stable default unchanged")
+        if (!promoteFloatingApp(zoom.index, occupied)) {
+            NeXtepLog.warn("floating_stable",
+                "NATIVE_INTERACTION_FAILED task=${zoom.taskId}; compact dock retained")
+        }
+    }
+
     private fun stableTouch(index: Int, event: MotionEvent) {
         val zoom = stableZoom ?: return
         if (zoom.index != index || suspendedForLock || removalPending || !panelVisible) return
@@ -363,11 +394,17 @@ internal class FloatingSlotDockController(
                     elevation = dp(6).toFloat()
                     setOnClickListener { click() }
                 }
+                val isBottomRight = where == (Gravity.BOTTOM or Gravity.RIGHT)
                 val lp = FrameLayout.LayoutParams(dp(28), dp(28),
-                    Gravity.TOP or where).apply {
-                    topMargin = dp(6)
-                    if (where == Gravity.RIGHT) rightMargin = dp(6)
-                    if (where == Gravity.LEFT) leftMargin = dp(6)
+                    if (isBottomRight) where else Gravity.TOP or where).apply {
+                    if (isBottomRight) {
+                        bottomMargin = dp(10)
+                        rightMargin = dp(9)
+                    } else {
+                        topMargin = dp(6)
+                        if (where == Gravity.RIGHT) rightMargin = dp(6)
+                        if (where == Gravity.LEFT) leftMargin = dp(6)
+                    }
                 }
                 controls.addView(button, lp)
             }
@@ -380,6 +417,11 @@ internal class FloatingSlotDockController(
             }
             smallControl("×", str(R.string.floating_dock_remove_app),
                 Gravity.RIGHT) { requestRemoveApp(zoom.index) }
+            // Genuine phone interactions (keyboard, dialogs, system gestures)
+            // use the already implemented native Task promotion path. This
+            // does not change the user's stable-mode preference.
+            smallControl("⤢", str(R.string.floating_native_interaction_action),
+                Gravity.BOTTOM or Gravity.RIGHT) { openNativeFromStableZoom() }
             root.addView(controls, FrameLayout.LayoutParams(-1, -1))
             stableControls = controls
         }
