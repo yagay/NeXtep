@@ -206,7 +206,7 @@ object DiagnosticReportExporter {
         // Root is optional, but report precisely why this capture did not
         // work. Long first-run KernelSU prompts must not be mistaken for
         // successful collection of an empty buffer.
-        val process = ProcessBuilder("su", "-c", "logcat -d -t 30000 -b main,system -s NeXtep:* NeXtepDisplayPower:* NeXtepSlotGuard:*")
+        val process = ProcessBuilder("su", "-c", "logcat -d -t 30000 -b main,system -s NeXtep:* NeXtepDisplayPower:* NeXtepSlotGuard:* NeXtepNavFold:* NeXtepLauncherNav:*")
             .redirectErrorStream(true).start()
         val content = StringBuilder()
         val reader = Thread({
@@ -233,7 +233,7 @@ object DiagnosticReportExporter {
             process.exitValue() != 0 ->
                 "Root logcat command failed (exit=${process.exitValue()}): ${output.take(500)}"
             output.isBlank() -> "Root logcat completed but returned no NeXtep diagnostic lines"
-            else -> "Root logcat captured (NeXtep, NeXtepDisplayPower, NeXtepSlotGuard tags)"
+            else -> "Root logcat captured (NeXtep, NeXtepDisplayPower, NeXtepSlotGuard, NeXtepNavFold, NeXtepLauncherNav tags)"
         }
         RootCapture(if (completed && process.exitValue() == 0 && output.isNotBlank()) output else null,
             status)
