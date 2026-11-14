@@ -51,7 +51,7 @@ internal class OplusNativeZoomBridge(private val context: Context) {
         }.getOrNull()
         if (zoomMode != null) extras.putInt("extra_window_mode", zoomMode)
         return runCatching {
-            val userId = task.userId ?: android.os.UserHandle.myUserId()
+            val userId = task.userId ?: 0
             val code = method.invoke(instance, launch, extras, userId,
                 context.packageName) as? Int
                 ?: return@runCatching Result.Rejected("Vendor returned no status")
