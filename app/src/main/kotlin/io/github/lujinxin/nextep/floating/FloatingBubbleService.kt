@@ -25,6 +25,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -52,6 +53,13 @@ class FloatingBubbleService : Service() {
     private var downX = 0
     private var downY = 0
     private var dragged = false
+    private var longPressTriggered = false
+    private val longPressAction = Runnable {
+        if (!dragged && !longPressTriggered && serviceAlive) {
+            longPressTriggered = true
+            quickAddForeground()
+        }
+    }
     private var togglePending = false
     private var expanded = false
     private val stateReceiver = object : BroadcastReceiver() {
@@ -324,12 +332,36 @@ class FloatingBubbleService : Service() {
         }
     }
 
+    private fun quickAddForeground() {
+        val position = layout ?: return
+        val interactive = getSystemService(PowerManager::class.java)?.isInteractive ?: true
+        if (!FloatingBubbleWakePolicy.mayOpenTaskDock(isKeyguardVisible(), interactive)) return
+        NeXtepLog.info("floating_icon", "QUICK_ADD_REQUESTED")
+        runCatching {
+            FloatingPanelCommand.quickAdd(this, position.x, position.y, size) { result ->
+                if (!serviceAlive) return@quickAdd
+                when (result) {
+                    is FloatingPanelCommand.Result.Ready ->
+                        NeXtepLog.info("floating_icon", "QUICK_ADD_ACCEPTED")
+                    is FloatingPanelCommand.Result.Failed -> {
+                        NeXtepLog.warn("floating_icon", "QUICK_ADD_REJECTED ${result.reason}")
+                        Toast.makeText(this, result.reason, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }.onFailure { NeXtepLog.warn("floating_icon", "QUICK_ADD_SEND_FAILED", it) }
+    }
+
     private fun dragOrClick(event: MotionEvent): Boolean {
         val params = layout ?: return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downRawX = event.rawX; downRawY = event.rawY
                 downX = params.x; downY = params.y; dragged = false
+                longPressTriggered = false
+                handler.removeCallbacks(longPressAction)
+                handler.postDelayed(longPressAction,
+                    ViewConfiguration.getLongPressTimeout().toLong())
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -337,6 +369,7 @@ class FloatingBubbleService : Service() {
                 val dy = event.rawY - downRawY
                 if (!dragged && abs(dx) < dp(8) && abs(dy) < dp(8)) return true
                 dragged = true
+                handler.removeCallbacks(longPressAction)
                 val safe = bubbleSafeRect()
                 params.x = (downX + dx.roundToInt()).coerceIn(
                     safe.left, (safe.right - size).coerceAtLeast(safe.left))
@@ -346,6 +379,8 @@ class FloatingBubbleService : Service() {
                 return true
             }
             MotionEvent.ACTION_UP -> {
+                handler.removeCallbacks(longPressAction)
+                if (longPressTriggered) return true
                 if (!dragged) bubble?.performClick()
                 else {
                     val safe = bubbleSafeRect()
@@ -364,7 +399,10 @@ class FloatingBubbleService : Service() {
                 }
                 return true
             }
-            MotionEvent.ACTION_CANCEL -> return true
+            MotionEvent.ACTION_CANCEL -> {
+                handler.removeCallbacks(longPressAction)
+                return true
+            }
         }
         return false
     }
@@ -395,6 +433,7 @@ class FloatingBubbleService : Service() {
         serviceAlive = false
         NeXtepLog.info("floating_icon", "SERVICE_DESTROYED pid=${Process.myPid()} instance=${System.identityHashCode(this)} pending=$togglePending")
         handler.removeCallbacks(wakeRetry)
+        handler.removeCallbacks(longPressAction)
         removeBubble()
         runCatching { unregisterReceiver(screenEvents) }
         runCatching { unregisterReceiver(stateReceiver) }
