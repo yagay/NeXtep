@@ -153,6 +153,10 @@ object SystemUiRuntime {
 
     private fun autoParkForLock(): Boolean {
         if (!::autoSlotTaskRepository.isInitialized) return false
+        if (::floatingDock.isInitialized && floatingDock.isAutoParkInProgress()) {
+            NeXtepLog.info("auto_slot", "LOCK_PREPARK_ALREADY_IN_FLIGHT")
+            return true
+        }
         val latest = autoSlotTaskRepository.foregroundTask()
         val captured = latest?.takeIf {
             it.userId != null && ::floatingDock.isInitialized &&
