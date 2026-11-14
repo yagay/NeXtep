@@ -28,6 +28,8 @@ data class WorkspaceTopConfig(
     val statusBarGestureEnabled: Boolean = true,
     val floatingBubbleEnabled: Boolean = false,
     val floatingLockGuardEnabled: Boolean = false,
+    val floatingPopupBackEnabled: Boolean = true,
+    val floatingSwipeCollapseEnabled: Boolean = true,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
     val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
     val slotBackgroundSwipeEnabled: Boolean = true,
@@ -58,6 +60,8 @@ object WorkspaceConfigContract {
     const val EXTRA_STATUS_BAR_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.STATUS_BAR_GESTURE_ENABLED"
     const val EXTRA_FLOATING_BUBBLE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_ENABLED"
     const val EXTRA_FLOATING_LOCK_GUARD_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_LOCK_GUARD_ENABLED"
+    const val EXTRA_FLOATING_POPUP_BACK_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_POPUP_BACK_ENABLED"
+    const val EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_SWIPE_COLLAPSE_ENABLED"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
     const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
     const val DEFAULT_FLOATING_DOCK_ORIENTATION = "horizontal"
@@ -129,6 +133,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, settings.floatingBubbleEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED,
                     settings.floatingLockGuardEnabled)
+                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_POPUP_BACK_ENABLED, settings.floatingPopupBackEnabled)
+                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED, settings.floatingSwipeCollapseEnabled)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
                 putInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT, settings.floatingDockSizePercent)
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, settings.fourFingerGestureEnabled)
@@ -276,6 +282,8 @@ object WorkspaceConfigClient {
             floatingLockGuardEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED, false,
             ),
+            floatingPopupBackEnabled = extras.getBoolean(WorkspaceConfigContract.EXTRA_FLOATING_POPUP_BACK_ENABLED, true),
+            floatingSwipeCollapseEnabled = extras.getBoolean(WorkspaceConfigContract.EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED, true),
             floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
                 extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION),
             ),
