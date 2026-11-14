@@ -175,8 +175,20 @@ internal object NeXtepNativeWindowLifecycleGuard {
                 ?: field(activity, "mConfiguration")
             val extra = field(configuration, "mOplusExtraConfiguration")
             val scenario = (call(extra, "getScenario") ?: field(extra, "mScenario")) as? Int
-            val isNativeWindow = mode == 100 || scenario == 1 || scenario == 2
-            isNativeWindow
+            NativeWindowLockPolicy.eligible(
+                enabled = enabled,
+                autoDisabled = autoDisabled,
+                expectedTaskId = id,
+                actualTaskId = id,
+                expectedUid = registered.uid,
+                actualUid = uid,
+                displayId = 0,
+                windowMode = mode,
+                vendorScenario = scenario,
+                physicallyOff = screenOff(),
+                lockPrearmed = now < armUntil,
+                finishing = finishing(activity),
+            )
         } catch (error: Throwable) {
             val errors = errorCount.incrementAndGet()
             if (errors >= 3) {
