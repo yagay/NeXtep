@@ -19,10 +19,12 @@ internal object NativeWindowLockPolicy {
         physicallyOff: Boolean,
         lockPrearmed: Boolean,
         finishing: Boolean,
+        verifiedLockSession: Boolean = false,
     ): Boolean =
         enabled && !autoDisabled && !finishing &&
             expectedTaskId > 0 && actualTaskId == expectedTaskId &&
             expectedUid >= 10000 && actualUid == expectedUid &&
             displayId == 0 && (physicallyOff || lockPrearmed) &&
-            (windowMode == 100 || vendorScenario == 1 || vendorScenario == 2)
+            (windowMode == 100 || vendorScenario == 1 || vendorScenario == 2 ||
+                verifiedLockSession)
 }
