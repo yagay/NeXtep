@@ -47,15 +47,18 @@ class FloatingBubbleService : Service() {
     private val prefs by lazy { getSharedPreferences("floating_bubble_position", MODE_PRIVATE) }
     private var iconSizeDp = 52
     private var iconEdgeDp = 8
+    private var halfHidden = false
     private val size get() = dp(iconSizeDp)
 
     private fun updateIconGeometry() {
         val settings = SettingsRepository(this).topBarSettings()
         val newSize = settings.floatingBubbleSizeDp
         val newEdge = settings.floatingBubbleEdgeDp
-        if (iconSizeDp == newSize && iconEdgeDp == newEdge) return
+        val newHalfHidden = settings.floatingBubbleHalfHidden
+        if (iconSizeDp == newSize && iconEdgeDp == newEdge && halfHidden == newHalfHidden) return
         iconSizeDp = newSize
         iconEdgeDp = newEdge
+        halfHidden = newHalfHidden
         val position = layout ?: return
         position.width = size
         position.height = size
@@ -68,7 +71,7 @@ class FloatingBubbleService : Service() {
         updateBubble()
         FloatingPanelCommand.updateAnchor(this, position.x, position.y, size)
         NeXtepLog.info("floating_icon",
-            "GEOMETRY_UPDATED sizeDp=$iconSizeDp edgeDp=$iconEdgeDp")
+            "GEOMETRY_UPDATED sizeDp=$iconSizeDp edgeDp=$iconEdgeDp halfHidden=$halfHidden")
     }
     private var bubble: FrameLayout? = null
     private var layout: WindowManager.LayoutParams? = null
@@ -475,8 +478,11 @@ class FloatingBubbleService : Service() {
         val insets = FloatingDockSafeArea.measure(this, windowManager)
         val left = (insets.left + dp(iconEdgeDp)).coerceIn(0, width - 1)
         val top = (insets.top + dp(8)).coerceIn(0, height - 1)
-        return Rect(left, top,
-            (width - insets.right - dp(iconEdgeDp)).coerceIn(left + 1, width),
+        val horizontalLeft = if (halfHidden) -(size / 2) else left
+        val horizontalRight = if (halfHidden) width + size / 2 else
+            (width - insets.right - dp(iconEdgeDp)).coerceIn(left + 1, width)
+        return Rect(horizontalLeft, top,
+            horizontalRight,
             (height - insets.bottom - dp(8)).coerceIn(top + 1, height))
     }
 
