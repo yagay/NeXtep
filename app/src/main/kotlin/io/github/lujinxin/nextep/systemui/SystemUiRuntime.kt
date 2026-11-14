@@ -88,9 +88,8 @@ object SystemUiRuntime {
             if (onLock) workspaceConfig.autoSlotOnLock
             else workspaceConfig.autoSlotOnBackground
         if (!enabled) return false
-        if (!pinned && (workspaceConfig.autoSlotPackages.isEmpty() ||
-            pkg !in workspaceConfig.autoSlotPackages) ||
-
+        if ((!pinned && (workspaceConfig.autoSlotPackages.isEmpty() ||
+            pkg !in workspaceConfig.autoSlotPackages)) ||
             pkg == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
             pkg == TriggerBroadcastContract.MODULE_PACKAGE ||
             pkg == TriggerBroadcastContract.resolveHomePackage(applicationContext)) return false
@@ -113,14 +112,17 @@ object SystemUiRuntime {
         val pkg = previous.component.packageName
         val userId = previous.userId
         autoSlotPending = true
-        lastAutoParkTaskId = taskId
-        lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
         lifecycleHandler.postDelayed({
             try {
                 if (isScreenReady() && !isKeyguardLocked(applicationContext) &&
                     isAutoSlotAllowed(previous, onLock = false) &&
                     autoSlotTaskRepository.foregroundTask()?.taskId != taskId) {
-                    floatingDock.autoParkCaptured(taskId, pkg, userId, "background")
+                    val accepted = floatingDock.autoParkCaptured(
+                        taskId, pkg, userId, "background")
+                    if (accepted) {
+                        lastAutoParkTaskId = taskId
+                        lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
+                    }
                 }
             } catch (error: Throwable) {
                 NeXtepLog.warn("auto_slot", "AUTO_BACKGROUND_EXCEPTION task=$taskId source=$source", error)
@@ -151,7 +153,11 @@ object SystemUiRuntime {
 
     private fun autoParkForLock(): Boolean {
         if (!::autoSlotTaskRepository.isInitialized) return false
-        val captured = observedForeground ?: autoSlotTaskRepository.foregroundTask()
+        val latest = autoSlotTaskRepository.foregroundTask()
+        val captured = latest?.takeIf {
+            it.userId != null && ::floatingDock.isInitialized &&
+                floatingDock.pinnedSlotFor(it.component.packageName, it.userId) != null
+        } ?: observedForeground ?: latest
         if (!isAutoSlotAllowed(captured, onLock = true) || captured?.userId == null)
             return false
         // Do not create a fresh focusable SystemUI overlay after keyguard is
