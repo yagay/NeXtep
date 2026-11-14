@@ -188,12 +188,6 @@
             android:exported="true"
             android:permission="android.permission.STATUS_BAR_SERVICE" />
 
-        <!-- Unprivileged player apps can ask only whether THEIR OWN UID was
-             explicitly opted in. Package lists/settings are never returned. -->
-        <provider
-            android:name=".config.PlaybackCompatPolicyProvider"
-            android:authorities="io.github.lujinxin.nextep.playback.policy"
-            android:exported="true" />
     </application>
 
 </manifest>
