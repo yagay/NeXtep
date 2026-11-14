@@ -470,9 +470,25 @@ internal class FloatingSlotDockController(
             val screenWidth = recorded.geometry.screenWidth
             val screenHeight = recorded.geometry.screenHeight
             val dimensions = calculatePanel(screenWidth, screenHeight, recorded)
-            panel = dimensions
-            slots.forEach { it.setLayoutProfile(recorded) }
             val wnd = root.layoutParams as WindowManager.LayoutParams
+            // A bubble tap that merely reopens the same window must not
+            // relayout live TextureViews; OEMs can treat that as a surface
+            // size change and recreate a video Activity on the virtual display.
+            if (recorded == profile && dimensions == panel &&
+                wnd.width == dimensions.width && wnd.height == dimensions.height &&
+                wnd.x == dimensions.x && wnd.y == dimensions.y
+            ) {
+                NeXtepLog.debug("floating_dock", "Retained geometry unchanged; skipped slot reflow")
+                return@runCatching
+            }
+            val oldPanel = panel
+            profile = recorded
+            panel = dimensions
+            NeXtepLog.info("floating_dock",
+                "Reflow retained layout old=${oldPanel?.width}x${oldPanel?.height} " +
+                    "new=${dimensions.width}x${dimensions.height} " +
+                    "oldCanvas=${slots.firstOrNull()?.geometry()} newCanvas=${recorded.canvas}")
+            slots.forEach { it.setLayoutProfile(recorded) }
             wnd.width = dimensions.width
             wnd.height = dimensions.height
             wnd.x = dimensions.x
