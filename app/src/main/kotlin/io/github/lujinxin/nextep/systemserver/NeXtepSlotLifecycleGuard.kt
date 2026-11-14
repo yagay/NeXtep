@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.util.Log
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
+import io.github.lujinxin.nextep.display.FloatingSlotDisplayIdentity
 import io.github.lujinxin.nextep.workspace.SystemServerWorkspaceBridge
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
@@ -285,7 +286,7 @@ internal object NeXtepSlotLifecycleGuard {
         val ownerPackage: String?,
     ) {
         val matched: Boolean get() =
-            displayId > 0 && name.matches(Regex("NeXtep-floating-slot-[0-3]")) &&
+            displayId > 0 && FloatingSlotDisplayIdentity.belongsToFloatingDock(name) &&
                 type == 5 &&
                 (ownerUid == 1000 || ownerPackage == "com.android.systemui")
     }
