@@ -542,7 +542,25 @@ object SystemUiRuntime {
                 }, PANEL_COLLAPSE_DELAY_MS)
                 return
             }
-            val handled = handleControl(context, intent)
+            // Bubble commands run in SystemUI's main-thread receiver. An
+            // unexpected OEM WindowManager/DisplayManager exception must not
+            // crash SystemUI and consequently destroy its virtual displays.
+            val handled = try {
+                handleControl(context, intent)
+            } catch (error: Throwable) {
+                if (error is VirtualMachineError || error is ThreadDeath) throw error
+                NeXtepLog.error("floating_icon",
+                    "SYSTEMUI_TOGGLE_EXCEPTION action=${intent.action}", error)
+                if (intent.action == TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL) {
+                    setResultExtras(Bundle().apply {
+                        putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
+                            "SystemUI floating icon handler failed: ${error.javaClass.simpleName}")
+                        putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_TRACE,
+                            android.util.Log.getStackTraceString(error).take(6_000))
+                    })
+                }
+                return
+            }
             if (!handled) {
                 if (intent.action == TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL) {
                     setResultExtras(Bundle().apply {
