@@ -30,6 +30,9 @@ class SettingsRepository(private val context: Context) {
         val floatingSwipeCollapseEnabled: Boolean,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
+        val autoSlotOnBackground: Boolean,
+        val autoSlotOnLock: Boolean,
+        val autoSlotPackages: Set<String>,
         val slotBackgroundSwipeEnabled: Boolean,
         val autoMinimizeMainOnTopAppSwitch: Boolean,
         val navigationButtonsEnabled: Boolean,
@@ -80,6 +83,10 @@ class SettingsRepository(private val context: Context) {
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT),
         ),
         slotBackgroundSwipeEnabled = preferences.getBoolean("slot_background_swipe_enabled", true),
+        autoSlotOnBackground = preferences.getBoolean(KEY_AUTO_SLOT_BACKGROUND, false),
+        autoSlotOnLock = preferences.getBoolean(KEY_AUTO_SLOT_LOCK, false),
+        autoSlotPackages = preferences.getStringSet(KEY_AUTO_SLOT_PACKAGES, emptySet())
+            .orEmpty().filter { it.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) }.toSet(),
         autoMinimizeMainOnTopAppSwitch = preferences.getBoolean("auto_minimize_main_on_top_app_switch", false),
         navigationButtonsEnabled = preferences.getBoolean("navigation_buttons_enabled", false),
         swapAnimationDurationMs = WorkspaceConfigContract.normalizeSwapAnimationDurationMs(
@@ -177,6 +184,24 @@ class SettingsRepository(private val context: Context) {
 
     fun setNativeFreezeProtectionEnabled(enabled: Boolean) {
         if (preferences.edit().putBoolean(KEY_NATIVE_FREEZE_PROTECTION_ENABLED, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    fun setAutoSlotOnBackground(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_AUTO_SLOT_BACKGROUND, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    fun setAutoSlotOnLock(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_AUTO_SLOT_LOCK, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    fun setAutoSlotPackages(packages: Set<String>) {
+        val safe = packages.map(String::trim)
+            .filter { it.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) }
+            .take(30).toSet()
+        if (preferences.edit().putStringSet(KEY_AUTO_SLOT_PACKAGES, safe).commit())
             notifyTopContentChanged()
     }
 
@@ -312,6 +337,9 @@ class SettingsRepository(private val context: Context) {
         const val KEY_FLOATING_BUBBLE_EDGE_DP = "floating_bubble_edge_dp"
         const val KEY_FLOATING_BUBBLE_HALF_HIDDEN = "floating_bubble_half_hidden"
         const val KEY_FLOATING_LOCK_GUARD_ENABLED = "floating_lock_guard_enabled"
+        const val KEY_AUTO_SLOT_BACKGROUND = "auto_slot_on_background"
+        const val KEY_AUTO_SLOT_LOCK = "auto_slot_on_lock"
+        const val KEY_AUTO_SLOT_PACKAGES = "auto_slot_packages"
         const val KEY_NATIVE_LOCK_GUARD_ENABLED = "native_lock_guard_enabled"
         const val KEY_NATIVE_FREEZE_PROTECTION_ENABLED = "native_freeze_protection_enabled"
         const val KEY_FLOATING_POPUP_BACK_ENABLED = "floating_popup_back_enabled"
