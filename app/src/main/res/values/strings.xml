@@ -192,6 +192,8 @@
     <string name="floating_service_stop">Turn off floating icon</string>
     <string name="floating_start_failed">Unable to start floating icon. Check overlay and background permissions.</string>
     <string name="floating_module_not_ready">Workspace unavailable: %1$s</string>
+    <string name="floating_auto_playback_title">Auto-protect playback in floating apps</string>
+    <string name="floating_auto_playback_summary">Automatically monitor playback only for apps added to a floating slot. If a previously playing session pauses on background or lock, make one safe resume attempt. Does not force playback or prevent all app stops.</string>
     <string name="floating_interaction_mode_title">Floating interaction mode</string>
     <string name="floating_interaction_mode_summary">Choose interactive virtual-display zoom or temporary native fullscreen. The original workspace is unchanged.</string>
     <string name="floating_interaction_stable">Stable interactive (default)</string>
