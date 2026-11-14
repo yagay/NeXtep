@@ -40,6 +40,7 @@ internal object NeXtepNativeWindowLifecycleGuard {
     private val prevented = AtomicInteger()
     private val invisiblePauseBlocked = AtomicInteger()
     private val invisiblePauseObserved = AtomicInteger()
+    private val stateTransitions = AtomicInteger()
     private val lockCallbackEntered = AtomicInteger()
     private val demotionObserved = AtomicInteger()
     private val observerStarted = AtomicBoolean()
@@ -55,7 +56,13 @@ internal object NeXtepNativeWindowLifecycleGuard {
                 hook(module, method) { chain ->
                     // Never suppress actual app-initiated lifecycle changes.
                     val result = chain.proceed()
-                    requestObserver(chain.thisObject)
+                    val record = chain.thisObject
+                    requestObserver(record)
+                    if (record != null && identities.containsKey(taskId(record)) &&
+                        (screenOff() || SystemClock.elapsedRealtime() < armUntil)) {
+                        stateTransitions.incrementAndGet()
+                        status("NATIVE_ACTIVITY_STATE task=${taskId(record)} state=${chain.args.firstOrNull()}")
+                    }
                     result
                 }
                 installed++
@@ -399,7 +406,8 @@ internal object NeXtepNativeWindowLifecycleGuard {
                     "enabled=$enabled hooks=$installedHooks registered=${identities.size} " +
                         "blocked=${prevented.get()} invisiblePauseObserved=${invisiblePauseObserved.get()} " +
                         "invisiblePauseBlocked=${invisiblePauseBlocked.get()} " +
-                        "keyguardDemotions=${demotionObserved.get()} lockCallbacks=${lockCallbackEntered.get()} " +
+                        "keyguardDemotions=${demotionObserved.get()} " +
+                        "activityTransitions=${stateTransitions.get()} lockCallbacks=${lockCallbackEntered.get()} " +
                         "errors=${errorCount.get()} " +
                         "autoDisabled=$autoDisabled freezer=false last=$lastEvent")
             }
