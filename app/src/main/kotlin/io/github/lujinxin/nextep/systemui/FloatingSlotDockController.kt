@@ -183,8 +183,9 @@ internal class FloatingSlotDockController(
 
     fun applyPlaybackCompatSettings(
         enabled: Boolean, autoResume: Boolean, lockAudio: Boolean, packages: Set<String>,
+        autoFloatingSlots: Boolean,
     ) {
-        playbackCompat.configure(enabled, autoResume, lockAudio, packages)
+        playbackCompat.configure(enabled, autoResume, lockAudio, packages, autoFloatingSlots)
         if (hasSession()) playbackCompat.onSlotPackagesChanged(currentPlayerPackages())
     }
     private var slots: List<VirtualDisplaySlot> = emptyList()
