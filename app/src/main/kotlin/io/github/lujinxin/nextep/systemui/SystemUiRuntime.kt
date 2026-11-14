@@ -598,14 +598,27 @@ object SystemUiRuntime {
             }
         }
         TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
-            if (!::floatingDock.isInitialized || !::workspaceController.isInitialized ||
-                !workspaceConfigReady || !workspaceConfig.floatingBubbleEnabled ||
-                !isScreenReady() || isKeyguardLocked(context)
-            ) false
-            else if (floatingDock.isExpanded())
-                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
-            else if (workspaceController.isActive()) false
-            else floatingDock.expand(bubbleAnchorFrom(intent))
+            val ready = ::floatingDock.isInitialized && ::workspaceController.isInitialized &&
+                workspaceConfigReady && workspaceConfig.floatingBubbleEnabled &&
+                isScreenReady() && !isKeyguardLocked(context)
+            val beforeSession = if (::floatingDock.isInitialized) floatingDock.hasSession() else false
+            val beforeExpanded = if (::floatingDock.isInitialized) floatingDock.isExpanded() else false
+            NeXtepLog.info("floating_icon",
+                "TOGGLE_RECEIVED ready=$ready hasSession=$beforeSession " +
+                    "expanded=$beforeExpanded workspaceActive=${::workspaceController.isInitialized && workspaceController.isActive()} " +
+                    "anchor=${bubbleAnchorFrom(intent)}")
+            val handled = when {
+                !ready -> false
+                floatingDock.isExpanded() ->
+                    floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
+                workspaceController.isActive() -> false
+                else -> floatingDock.expand(bubbleAnchorFrom(intent))
+            }
+            NeXtepLog.info("floating_icon",
+                "TOGGLE_RESULT handled=$handled wasSession=$beforeSession " +
+                    "nowSession=${floatingDock.hasSession()} wasExpanded=$beforeExpanded " +
+                    "nowExpanded=${floatingDock.isExpanded()} error=${floatingDock.lastError}")
+            handled
         }
         TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE,
         TriggerBroadcastContract.ACTION_SET_WORKSPACE -> {
