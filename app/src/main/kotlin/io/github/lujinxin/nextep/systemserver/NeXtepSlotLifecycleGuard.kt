@@ -149,6 +149,41 @@ internal object NeXtepSlotLifecycleGuard {
             installed++
         }
 
+        // ColorOS calls this OEM transition before it hides the window and
+        // sends activity pause/stop. Arm only already tracked NeXtep tasks;
+        // never alter the OEM keyguard callback or any other display.
+        runCatching {
+            val flexible = loader.loadClass("com.android.server.wm.FlexibleTaskController")
+            flexible.declaredMethods.filter { method ->
+                method.name == "onScreenLockedChanged" ||
+                    method.name == "notifyKeyguardStateChanged"
+            }.forEach { method ->
+                hook(module, method) { chain ->
+                    runCatching {
+                        when (method.name) {
+                            "onScreenLockedChanged" -> {
+                                if (chain.args.filterIsInstance<Boolean>().any { it }) {
+                                    armAllTracked("oplusScreenLocked")
+                                }
+                            }
+                            "notifyKeyguardStateChanged" -> {
+                                val showing = chain.args.filterIsInstance<Boolean>().getOrNull(1)
+                                if (showing == true) armAllTracked("oplusKeyguardShowing")
+                                if (showing == false) clearLockArms("oplusKeyguardHidden")
+                            }
+                        }
+                    }.onFailure {
+                        logOnce("SLOT_EARLY_LOCK_ERROR",
+                            "SLOT_EARLY_LOCK_ERROR source=${method.name} type=${it.javaClass.simpleName}")
+                    }
+                    chain.proceed()
+                }
+                installed++
+            }
+        }.onFailure {
+            Log.w(TAG, "OPlus early lock observer unavailable; lifecycle fallback remains", it)
+        }
+
         // Freezer and UID-stop suppression is additionally gated by a LIVE
         // ActivityRecord in the NeXtep display, not merely a stale package name.
         runCatching {
@@ -322,6 +357,30 @@ internal object NeXtepSlotLifecycleGuard {
         )
         val resumed = field(owner, "mResumedActivity")
         if (resumed != null) trackActivity(resumed, "lockPrearm")
+    }
+
+    private fun armAllTracked(source: String) {
+        if (!enabled || disabledByErrors) return
+        var armed = 0
+        val iter = trackedTasks.entries.iterator()
+        while (iter.hasNext()) {
+            val (id, ref) = iter.next()
+            val record = ref.get()
+            if (record == null || !isNeXtepSlot(record) || isFinishing(record)) {
+                iter.remove()
+                prearmedTasks.remove(id)
+                continue
+            }
+            val original = prearmedTasks.putIfAbsent(id, android.os.SystemClock.elapsedRealtime())
+            if (original == null) armed++
+        }
+        note("EARLY", "SLOT_EARLY_LOCK source=$source armed=$armed tracked=${trackedTasks.size}")
+    }
+
+    private fun clearLockArms(source: String) {
+        if (prearmedTasks.isEmpty()) return
+        prearmedTasks.clear()
+        note("UNLOCK", "SLOT_LOCK_ARMS_CLEARED source=$source")
     }
 
     private fun isPrearmed(owner: Any): Boolean {
