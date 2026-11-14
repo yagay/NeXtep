@@ -291,6 +291,7 @@ object SystemUiRuntime {
             val filter = IntentFilter().apply {
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL)
+                addAction(TriggerBroadcastContract.ACTION_QUICK_ADD_FLOATING_TASK)
                 addAction(TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR)
                 addAction(TriggerBroadcastContract.ACTION_SET_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_QUERY_WORKSPACE)
@@ -652,6 +653,13 @@ object SystemUiRuntime {
                 bubbleAnchorFrom(intent)?.let { floatingDock.updateAnchor(it) }
                 true
             }
+        }
+        TriggerBroadcastContract.ACTION_QUICK_ADD_FLOATING_TASK -> {
+            ::floatingDock.isInitialized && ::workspaceController.isInitialized &&
+                workspaceConfigReady && workspaceConfig.floatingBubbleEnabled &&
+                isScreenReady() && !isKeyguardLocked(context) &&
+                !workspaceController.isActive() &&
+                floatingDock.quickAddForeground(bubbleAnchorFrom(intent))
         }
         TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
             val sentAt = intent.getLongExtra(
