@@ -8,6 +8,7 @@ import android.view.Display
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.task.TaskRepository
 import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
+import io.github.lujinxin.nextep.workspace.SystemServerWorkspaceBridge
 
 /**
  * Native Oplus zoom window coordinator. Runs in LSPosed-injected SystemUI,
@@ -22,6 +23,39 @@ internal class NativeFreeformController(context: Context) {
     private val nativeTasks = LinkedHashSet<Int>()
     private val pending = LinkedHashMap<Int, Long>()
     private val capacity = 4
+    private val guardIdentities = LinkedHashMap<Int, Triple<Int, Int, Long>>()
+    private var guardEnabled = true
+
+    fun configureNativeLockGuard(enabled: Boolean) {
+        guardEnabled = enabled
+        if (!enabled) guardIdentities.clear()
+        publishIdentities()
+    }
+
+    private fun publishIdentities() {
+        SystemServerWorkspaceBridge.publishNativeTaskIdentities(context,
+            if (guardEnabled) guardIdentities.values else emptyList())
+    }
+
+    private fun rememberVerified(taskId: Int, packageName: String, userId: Int?) {
+        if (!guardEnabled || userId == null) return
+        val uid = runCatching {
+            val method = context.packageManager.javaClass.methods.firstOrNull {
+                it.name == "getPackageUidAsUser" && it.parameterCount == 2 &&
+                    it.parameterTypes[0] == String::class.java
+            }
+            if (method != null) method.invoke(context.packageManager, packageName, userId) as Int
+            else if (userId == 0) context.packageManager.getPackageUid(packageName, 0)
+            else null
+        }.getOrNull()
+        if (uid == null || uid < 10000) {
+            NeXtepLog.warn("native_lock", "UID_UNAVAILABLE task=$taskId package=$packageName user=$userId")
+            return
+        }
+        guardIdentities[taskId] = Triple(taskId, uid, SystemClock.elapsedRealtime())
+        publishIdentities()
+        NeXtepLog.info("native_lock", "TASK_REGISTERED task=$taskId uid=$uid")
+    }
 
     fun addForeground(): Boolean {
         refresh()
@@ -37,6 +71,7 @@ internal class NativeFreeformController(context: Context) {
         if (task.vendorWindowed || task.windowingMode == OPLUS_ZOOM_MODE ||
             task.windowingMode == FREEFORM_MODE) {
             nativeTasks.add(task.taskId)
+            rememberVerified(task.taskId, pkg, task.userId)
             NeXtepLog.info("native_oplus",
                 "ALREADY_WINDOWED task=${task.taskId} mode=${task.windowingMode} vendor=${task.vendorWindowed}")
             return true
@@ -73,6 +108,7 @@ internal class NativeFreeformController(context: Context) {
                 success -> {
                     pending.remove(taskId)
                     nativeTasks.add(taskId)
+                    rememberVerified(taskId, target!!.component.packageName, target.userId)
                     NeXtepLog.info("native_oplus",
                         "TASK_ZOOM_CONFIRMED task=$taskId mode=${target?.windowingMode} vendor=${target?.vendorWindowed} bounds=${target?.bounds}")
                 }
@@ -95,6 +131,8 @@ internal class NativeFreeformController(context: Context) {
                 (it.vendorWindowed || it.windowingMode == OPLUS_ZOOM_MODE ||
                     it.windowingMode == FREEFORM_MODE) }
         }
+        val actualIds = nativeTasks.toSet()
+        if (guardIdentities.keys.removeAll { it !in actualIds }) publishIdentities()
         val now = SystemClock.elapsedRealtime()
         pending.entries.removeAll { now - it.value > 5_000L }
     }
