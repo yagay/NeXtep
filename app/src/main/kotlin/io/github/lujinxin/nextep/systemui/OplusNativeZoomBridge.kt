@@ -46,10 +46,12 @@ internal class OplusNativeZoomBridge(private val context: Context) {
             Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
             Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val extras = ActivityOptions.makeBasic().toBundle()
+        // Without the OEM's own zoom window-mode constant, calling
+        // startZoomWindow may simply start the app fullscreen.
         val zoomMode = runCatching {
             managerClass.getField("WINDOWING_MODE_ZOOM").getInt(null)
-        }.getOrNull()
-        if (zoomMode != null) extras.putInt("extra_window_mode", zoomMode)
+        }.getOrNull()?.takeIf { it > 0 } ?: return Result.Unavailable
+        extras.putInt("extra_window_mode", zoomMode)
         val userId = task.userId ?: return Result.Rejected("Task user ID unavailable")
         return runCatching {
             val code = method.invoke(instance, launch, extras, userId,
