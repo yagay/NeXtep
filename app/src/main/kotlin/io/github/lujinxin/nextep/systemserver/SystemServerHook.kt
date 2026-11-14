@@ -24,6 +24,9 @@ object SystemServerHook {
         val slotLockGuardInstalled = HookGuard.run("nextep_slot_lifecycle_guard") {
             NeXtepSlotLifecycleGuard.install(module, classLoader)
         }
+        val nativeLockGuardInstalled = HookGuard.run("nextep_native_window_lifecycle_guard") {
+            NeXtepNativeWindowLifecycleGuard.install(module, classLoader)
+        }
         val displayPowerTracingInstalled = HookGuard.run("nextep_display_power_diagnostics") {
             NeXtepDisplayPowerDiagnostics.install(module, classLoader)
         }
@@ -103,7 +106,7 @@ object SystemServerHook {
                     "workspace task fitting=$workspaceTasksInstalled display hierarchy=$workspaceHierarchyInstalled " +
                     "control video input=$controlVideoInputInstalled panel rotation=$panelRotationInstalled " +
                     "display power tracing=$displayPowerTracingInstalled " +
-                    "slot lifecycle guard=$slotLockGuardInstalled",
+                    "slot lifecycle guard=$slotLockGuardInstalled native lifecycle guard=$nativeLockGuardInstalled",
             )
         }
     }
