@@ -1,8 +1,6 @@
 package io.github.lujinxin.nextep.config
 
-import android.content.Intent
 import android.graphics.Color
-import android.os.Process
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -22,7 +20,6 @@ import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.icons.LauncherIconManager
 import io.github.lujinxin.nextep.floating.FloatingBubbleController
 import io.github.lujinxin.nextep.logging.DiagnosticReportExporter
-import io.github.lujinxin.nextep.logging.NeXtepLog
 import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
@@ -39,10 +36,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        NeXtepLog.info("settings_activity", "onCreate pid=${Process.myPid()} " +
-            "instance=${System.identityHashCode(this)} taskId=$taskId " +
-            "restored=${savedInstanceState != null} root=$isTaskRoot " +
-            "action=${intent?.action}")
         supportActionBar?.hide()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.statusBarColor = Color.TRANSPARENT
@@ -155,28 +148,11 @@ class MainActivity : AppCompatActivity() {
         ViewCompat.requestApplyInsets(root)
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        NeXtepLog.info("settings_activity", "onNewIntent pid=${Process.myPid()} " +
-            "instance=${System.identityHashCode(this)} taskId=$taskId " +
-            "action=${intent.action}")
-    }
-
     override fun onResume() {
         super.onResume()
-        NeXtepLog.info("settings_activity", "onResume pid=${Process.myPid()} " +
-            "instance=${System.identityHashCode(this)} taskId=$taskId")
         LauncherIconManager.onAppOpened(this)
         // Settings returns here after the special-access grant.
         FloatingBubbleController.sync(this)
-    }
-
-    override fun onDestroy() {
-        NeXtepLog.info("settings_activity", "onDestroy pid=${Process.myPid()} " +
-            "instance=${System.identityHashCode(this)} taskId=$taskId " +
-            "finishing=$isFinishing changingConfig=$isChangingConfigurations")
-        super.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
