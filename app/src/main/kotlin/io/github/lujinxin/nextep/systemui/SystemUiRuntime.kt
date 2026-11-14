@@ -110,6 +110,10 @@ object SystemUiRuntime {
                         workspaceConfig.floatingDockOrientation,
                         workspaceConfig.floatingDockSizePercent,
                     )
+                    floatingDock.applyPopupInputSettings(
+                        workspaceConfig.floatingPopupBackEnabled,
+                        workspaceConfig.floatingSwipeCollapseEnabled,
+                    )
 
                 }
                 // A hidden floating session still owns live VirtualDisplays.
