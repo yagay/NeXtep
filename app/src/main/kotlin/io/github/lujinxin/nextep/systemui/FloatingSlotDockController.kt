@@ -452,7 +452,7 @@ internal class FloatingSlotDockController(
                     cell?.height ?: previous?.height?.coerceAtLeast(1) ?: dp(160),
                     Gravity.TOP or Gravity.LEFT,
                 ).apply {
-                    leftMargin = cell?.x ?: compact.railWidth + dp(20)
+                    leftMargin = cell?.x ?: maxOf(compact.railWidth, compact.width) + dp(24)
                     topMargin = cell?.y ?: dp(4)
                 }
             }
@@ -1171,7 +1171,7 @@ internal class FloatingSlotDockController(
             ).apply {
                 // Hidden slots are clipped outside the rail viewport while
                 // TextureViews remain attached and their VD surfaces alive.
-                leftMargin = cell?.x ?: sizes.railWidth + dp(20)
+                leftMargin = cell?.x ?: maxOf(sizes.railWidth, sizes.width) + dp(24)
                 topMargin = cell?.y ?: dp(4)
             }
         }
