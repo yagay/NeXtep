@@ -36,7 +36,7 @@ internal object LauncherNavigationFoldHook {
                                 // Overview shown/toggled is a navigation action, not
                                 // a regular touch UP or hover event.
                                 val owner = chain.thisObject
-                                val context = findContext(owner)
+                                val context = findContext(owner) ?: runCatching {\n                                    android.app.ActivityThread.currentApplication()\n                                }.getOrNull()
                                 if (context != null) signal(context, "launcher-$name")
                                 else Log.w(TAG, "OVERVIEW_CONTEXT_MISSING method=$name")
                                 return result
