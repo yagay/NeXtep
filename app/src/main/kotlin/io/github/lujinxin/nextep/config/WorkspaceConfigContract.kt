@@ -33,6 +33,7 @@ data class WorkspaceTopConfig(
     val playbackCompatAutoResume: Boolean = false,
     val playbackCompatLockAudio: Boolean = false,
     val playbackCompatPackages: Set<String> = emptySet(),
+    val floatingAutoProtectPlayback: Boolean = true,
     val floatingInteractionMode: String = WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
     val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
@@ -69,6 +70,7 @@ object WorkspaceConfigContract {
     const val EXTRA_PLAYBACK_COMPAT_AUTO_RESUME = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_AUTO_RESUME"
     const val EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_LOCK_AUDIO"
     const val EXTRA_PLAYBACK_COMPAT_PACKAGES = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_PACKAGES"
+    const val EXTRA_FLOATING_AUTO_PROTECT_PLAYBACK = "io.github.lujinxin.nextep.extra.FLOATING_AUTO_PROTECT_PLAYBACK"
     const val EXTRA_FLOATING_INTERACTION_MODE = "io.github.lujinxin.nextep.extra.FLOATING_INTERACTION_MODE"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
     const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
@@ -165,6 +167,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                     settings.playbackCompatLockAudio)
                 putStringArrayList(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
                     ArrayList(settings.playbackCompatPackages.sorted()))
+                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_AUTO_PROTECT_PLAYBACK,
+                    settings.floatingAutoProtectPlayback)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_INTERACTION_MODE,
                     settings.floatingInteractionMode)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
@@ -330,6 +334,9 @@ object WorkspaceConfigClient {
                 WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
             ).orEmpty().filter { it.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) }
                 .take(60).toSet(),
+            floatingAutoProtectPlayback = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_FLOATING_AUTO_PROTECT_PLAYBACK, true,
+            ),
             floatingInteractionMode = WorkspaceConfigContract.normalizeFloatingInteractionMode(
                 extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_INTERACTION_MODE),
             ),
