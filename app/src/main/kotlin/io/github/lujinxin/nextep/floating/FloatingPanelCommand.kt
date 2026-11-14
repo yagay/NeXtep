@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 
 /** Signature-permission-protected command to the injected SystemUI dock. */
@@ -40,6 +41,8 @@ object FloatingPanelCommand {
         }
         val intent = anchorIntent(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL,
             bubbleX, bubbleY, bubbleSize)
+            .putExtra(TriggerBroadcastContract.EXTRA_FLOATING_REQUEST_ELAPSED,
+                SystemClock.elapsedRealtime())
         runCatching {
             context.sendOrderedBroadcast(
                 intent, null, object : BroadcastReceiver() {
