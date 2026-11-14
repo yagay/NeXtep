@@ -25,10 +25,13 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.checkbox.MaterialCheckBox
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import io.github.lujinxin.nextep.R
+import io.github.lujinxin.nextep.floating.FloatingBubbleController
 import io.github.lujinxin.nextep.apps.LauncherAppCatalogContract
 import io.github.lujinxin.nextep.apps.LauncherAppRepository
 import io.github.lujinxin.nextep.trigger.NeXtepTileService
@@ -123,9 +126,10 @@ object SettingsScreen {
                 }
             }
 
-            addView(sectionCard(activity).apply {
-                addView(LinearLayout(activity).apply {
-                    orientation = LinearLayout.VERTICAL
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_general, R.string.settings_group_general_summary,
+                "general", true,
+            ) {
                     addView(settingRow(activity, activity.getString(R.string.tile_entry_title), activity.getString(R.string.tile_entry_summary), addTileButton), matchWidth())
                     addView(settingDivider(activity))
                     addView(settingRow(activity, activity.getString(R.string.language_title),
@@ -141,7 +145,131 @@ object SettingsScreen {
                         isFocusable = false
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, matchWidth())
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_floating, R.string.settings_group_floating_summary,
+                "floating", true,
+            ) {
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.floating_bubble_title),
+                        activity.getString(R.string.floating_bubble_summary),
+                        settings.floatingBubbleEnabled,
+                        { enabled ->
+                            repository.setFloatingBubbleEnabled(enabled)
+                            if (enabled && !FloatingBubbleController.hasPermission(activity)) {
+                                FloatingBubbleController.requestPermission(activity)
+                            } else FloatingBubbleController.sync(activity)
+                        },
+                    ), matchWidth())
                     addView(settingDivider(activity))
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.floating_permission_title),
+                        activity.getString(R.string.floating_permission_summary),
+                        MaterialButton(activity).apply {
+                            text = activity.getString(R.string.floating_permission_action)
+                            setOnClickListener { FloatingBubbleController.requestPermission(activity) }
+                        },
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    val layoutButton = SettingsRowButton.create(activity).apply {
+                        updateFloatingLayoutLabel(activity, this, repository.topBarSettings())
+                        setOnClickListener { showFloatingLayoutDialog(activity, repository, this) }
+                    }
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.floating_layout_settings_title),
+                        activity.getString(R.string.floating_layout_settings_summary),
+                        layoutButton,
+                    ).apply {
+                        setOnClickListener { layoutButton.performClick() }
+                        isFocusable = false
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, matchWidth())
+                    addView(settingDivider(activity))
+                    val interactionButton = SettingsRowButton.create(activity).apply {
+                        updateFloatingInteractionLabel(activity, this,
+                            settings.floatingInteractionMode)
+                        setOnClickListener {
+                            showFloatingInteractionDialog(activity, repository, this)
+                        }
+                    }
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.floating_interaction_mode_title),
+                        activity.getString(R.string.floating_interaction_mode_summary),
+                        interactionButton,
+                    ).apply {
+                        setOnClickListener { interactionButton.performClick() }
+                        isFocusable = false
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.floating_pad_mode_title),
+                        activity.getString(R.string.floating_pad_mode_summary),
+                        settings.floatingPadModeEnabled,
+                        repository::setFloatingPadModeEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.floating_independent_display_title),
+                        activity.getString(R.string.floating_independent_display_summary),
+                        settings.floatingIndependentDisplayEnabled,
+                        repository::setFloatingIndependentDisplayEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.floating_auto_playback_title),
+                        activity.getString(R.string.floating_auto_playback_summary),
+                        settings.floatingAutoProtectPlayback,
+                        repository::setFloatingAutoProtectPlayback,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_enabled_title),
+                        activity.getString(R.string.playback_compat_enabled_summary),
+                        settings.playbackCompatEnabled,
+                        repository::setPlaybackCompatEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_auto_title),
+                        activity.getString(R.string.playback_compat_auto_summary),
+                        settings.playbackCompatAutoResume,
+                        repository::setPlaybackCompatAutoResume,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_lock_title),
+                        activity.getString(R.string.playback_compat_lock_summary),
+                        settings.playbackCompatLockAudio,
+                        repository::setPlaybackCompatLockAudio,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    val playerButton = createPlaybackPackageSelector(activity, repository, apps)
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.playback_compat_apps_title),
+                        activity.getString(R.string.playback_compat_apps_summary),
+                        playerButton,
+                    ).apply {
+                        setOnClickListener { playerButton.performClick() }
+                        isFocusable = false
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    }, matchWidth())
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_gestures, R.string.settings_group_gestures_summary,
+                "gestures", false,
+            ) {
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.gesture_title),
@@ -174,7 +302,11 @@ object SettingsScreen {
                         isFocusable = false
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     }, matchWidth())
-                    addView(settingDivider(activity))
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_interaction, R.string.settings_group_interaction_summary,
+                "interaction", false,
+            ) {
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.background_swipe_title),
@@ -218,7 +350,11 @@ object SettingsScreen {
                         settings.autoMinimizeMainOnTopAppSwitch,
                         repository::setAutoMinimizeMainOnTopAppSwitch,
                     ), matchWidth())
-                    addView(settingDivider(activity))
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
+                activity, R.string.settings_group_display, R.string.settings_group_display_summary,
+                "display", false,
+            ) {
                     addView(settingSwitchRow(
                         activity,
                         activity.getString(R.string.navigation_buttons_title),
@@ -238,8 +374,8 @@ object SettingsScreen {
                         { activity.getString(R.string.frost_strength_value, it) },
                         repository::setFrostStrength,
                     ), matchWidth())
-                }, matchWidth())
-            }, matchWidth().apply { bottomMargin = dp(activity, 16) })
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+
 
             val titleInput = TextInputEditText(activity).apply {
                 background = null
@@ -380,10 +516,11 @@ object SettingsScreen {
             }, matchWidth())
             updateEditorFont()
             selectContent(settings.contentMode)
-            addView(sectionCard(activity).apply {
+            addView(collapsibleSettingCard(
+                activity, R.string.top_content_title, R.string.top_content_summary,
+                "top_content", false,
+            ) {
                 addView(sectionContent(activity).apply {
-                    addView(sectionTitle(activity, activity.getString(R.string.top_content_title)), matchWidth())
-                    addView(sectionDescription(activity, activity.getString(R.string.top_content_summary)), matchWidth())
                     addView(com.google.android.material.chip.ChipGroup(activity).apply {
                         isSingleSelection = true
                         isSelectionRequired = true
@@ -462,10 +599,11 @@ object SettingsScreen {
                 }
             }
 
-            addView(sectionCard(activity).apply {
+            addView(collapsibleSettingCard(
+                activity, R.string.app_strip_title, R.string.app_strip_summary,
+                "app_strip", false,
+            ) {
                 addView(sectionContent(activity).apply {
-                    addView(sectionTitle(activity, activity.getString(R.string.app_strip_title)), matchWidth())
-                    addView(sectionDescription(activity, activity.getString(R.string.app_strip_summary)), matchWidth())
                     addView(modeSelector, matchWidth().apply { topMargin = dp(activity, 14) })
                     addView(modeDescription, matchWidth().apply { topMargin = dp(activity, 8) })
                     addView(manualContainer.apply {
@@ -549,6 +687,51 @@ object SettingsScreen {
             scaleType = ImageView.ScaleType.CENTER
             contentDescription = activity.getString(R.string.app_drag_position, option.label)
         }, LinearLayout.LayoutParams(dp(activity, 44), dp(activity, 48)))
+    }
+
+    /** Opt-in package allowlist. Never auto-resume an unselected player. */
+    private fun createPlaybackPackageSelector(
+        activity: AppCompatActivity,
+        repository: SettingsRepository,
+        apps: List<AppOption>,
+    ) = SettingsRowButton.create(activity).apply {
+        fun updateLabel() {
+            text = activity.getString(R.string.playback_compat_apps_count,
+                repository.topBarSettings().playbackCompatPackages.size)
+        }
+        updateLabel()
+        setOnClickListener {
+            val selected = repository.topBarSettings().playbackCompatPackages.toMutableSet()
+            val names = linkedMapOf<String, String>()
+            apps.forEach { option ->
+                ComponentName.unflattenFromString(option.key.substringAfter('|'))?.packageName
+                    ?.let { names.putIfAbsent(it, option.label) }
+            }
+            selected.filterNot(names::containsKey).forEach { pkg ->
+                names[pkg] = runCatching {
+                    activity.packageManager.getApplicationInfo(pkg, 0)
+                        .loadLabel(activity.packageManager).toString()
+                }.getOrDefault(pkg)
+            }
+            val options = names.entries.sortedWith(
+                compareBy<Map.Entry<String, String>> { it.value.lowercase() }.thenBy { it.key })
+            val checked = options.map { it.key in selected }.toBooleanArray()
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.playback_compat_apps_title)
+                .setMultiChoiceItems(options.map { it.value }.toTypedArray(), checked) { _, idx, enabled ->
+                    if (enabled) selected.add(options[idx].key) else selected.remove(options[idx].key)
+                }
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    repository.setPlaybackCompatPackages(selected)
+                    updateLabel()
+                }
+                .setNegativeButton(R.string.action_cancel, null)
+                .setNeutralButton(R.string.four_finger_blacklist_clear) { _, _ ->
+                    repository.setPlaybackCompatPackages(emptySet())
+                    updateLabel()
+                }
+                .show()
+        }
     }
 
     private fun createFourFingerBlacklistButton(
@@ -674,6 +857,188 @@ object SettingsScreen {
                 ellipsize = TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
+
+    /**
+     * Compact, stateful sections: frequent controls stay visible while advanced
+     * ones are tucked away. The original child controls/listeners are unchanged.
+     */
+    /** Selection only controls the floating dock, not the original workspace. */
+    private fun updateFloatingInteractionLabel(
+        activity: AppCompatActivity,
+        button: MaterialButton,
+        value: String,
+    ) {
+        button.text = activity.getString(if (
+            WorkspaceConfigContract.normalizeFloatingInteractionMode(value) ==
+            WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE
+        ) R.string.floating_interaction_native else R.string.floating_interaction_stable)
+    }
+
+    private fun showFloatingInteractionDialog(
+        activity: AppCompatActivity,
+        repository: SettingsRepository,
+        button: MaterialButton,
+    ) {
+        val entries = arrayOf(
+            activity.getString(R.string.floating_interaction_stable) + "\n" +
+                activity.getString(R.string.floating_interaction_stable_desc),
+            activity.getString(R.string.floating_interaction_native) + "\n" +
+                activity.getString(R.string.floating_interaction_native_desc),
+        )
+        val currentMode = repository.topBarSettings().floatingInteractionMode
+        val selected = if (currentMode == WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE) 1 else 0
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.floating_interaction_mode_title)
+            .setSingleChoiceItems(entries, selected) { dialog, selectedIndex ->
+                val mode = if (selectedIndex == 1)
+                    WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE
+                else WorkspaceConfigContract.FLOATING_INTERACTION_STABLE
+                repository.setFloatingInteractionMode(mode)
+                updateFloatingInteractionLabel(activity, button, mode)
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /** Floating layout is configured here, never by stretching a live window. */
+    private fun updateFloatingLayoutLabel(
+        activity: AppCompatActivity,
+        button: MaterialButton,
+        settings: SettingsRepository.TopBarSettings,
+    ) {
+        button.text = activity.getString(
+            if (settings.floatingDockOrientation == "vertical")
+                R.string.floating_dock_switch_vertical else R.string.floating_dock_switch_horizontal,
+        ) + " · ${settings.floatingDockSizePercent}%"
+    }
+
+    private fun showFloatingLayoutDialog(
+        activity: AppCompatActivity,
+        repository: SettingsRepository,
+        button: MaterialButton,
+    ) {
+        val current = repository.topBarSettings()
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 22), dp(activity, 8),
+                dp(activity, 22), dp(activity, 8))
+        }
+        container.addView(sectionDescription(activity,
+            activity.getString(R.string.floating_dock_arrangement)), matchWidth())
+        val horizontal = modeButton(activity,
+            activity.getString(R.string.floating_dock_switch_horizontal))
+        val vertical = modeButton(activity,
+            activity.getString(R.string.floating_dock_switch_vertical))
+        val selector = MaterialButtonToggleGroup(activity).apply {
+            isSingleSelection = true
+            isSelectionRequired = true
+            addView(horizontal, LinearLayout.LayoutParams(0, dp(activity, 44), 1f))
+            addView(vertical, LinearLayout.LayoutParams(0, dp(activity, 44), 1f))
+            check(if (current.floatingDockOrientation == "vertical") vertical.id else horizontal.id)
+        }
+        container.addView(selector, matchWidth().apply { topMargin = dp(activity, 10) })
+        container.addView(sectionDescription(activity,
+            activity.getString(R.string.floating_dock_fixed_ratio)), matchWidth().apply {
+                topMargin = dp(activity, 20)
+            })
+        val sizeLabel = TextView(activity).apply {
+            text = "${current.floatingDockSizePercent}%"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(SettingsPalette.text(activity))
+        }
+        container.addView(sizeLabel, matchWidth().apply { topMargin = dp(activity, 10) })
+        val sizeSlider = Slider(activity).apply {
+            valueFrom = WorkspaceConfigContract.MIN_FLOATING_DOCK_SIZE_PERCENT.toFloat()
+            valueTo = WorkspaceConfigContract.MAX_FLOATING_DOCK_SIZE_PERCENT.toFloat()
+            stepSize = WorkspaceConfigContract.FLOATING_DOCK_SIZE_STEP_PERCENT.toFloat()
+            value = current.floatingDockSizePercent.toFloat()
+            setLabelFormatter { "${it.toInt()}%" }
+            addOnChangeListener { _, value, _ -> sizeLabel.text = "${value.toInt()}%" }
+        }
+        container.addView(sizeSlider, matchWidth())
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.floating_layout_settings_title)
+            .setView(container)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setNeutralButton(R.string.floating_dock_reset_size) { _, _ ->
+                repository.resetFloatingDockLayout()
+                updateFloatingLayoutLabel(activity, button, repository.topBarSettings())
+            }
+            .setPositiveButton(R.string.floating_layout_apply) { _, _ ->
+                repository.setFloatingDockLayout(
+                    if (selector.checkedButtonId == vertical.id) "vertical" else "horizontal",
+                    sizeSlider.value.toInt(),
+                )
+                updateFloatingLayoutLabel(activity, button, repository.topBarSettings())
+            }
+            .show()
+    }
+
+    private fun collapsibleSettingCard(
+        activity: AppCompatActivity,
+        titleRes: Int,
+        summaryRes: Int,
+        key: String,
+        initiallyExpanded: Boolean,
+        build: LinearLayout.() -> Unit,
+    ): MaterialCardView {
+        val prefs = activity.getSharedPreferences("nextep_settings_sections_v1",
+            android.content.Context.MODE_PRIVATE)
+        var expanded = prefs.getBoolean(key, initiallyExpanded)
+        val body = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            build()
+            visibility = if (expanded) View.VISIBLE else View.GONE
+        }
+        val arrow = TextView(activity).apply {
+            text = if (expanded) "⌃" else "⌄"
+            textSize = 23f
+            gravity = Gravity.CENTER
+            setTextColor(SettingsPalette.secondary(activity))
+        }
+        val header = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(activity, 66)
+            setPadding(dp(activity, 18), dp(activity, 9), dp(activity, 15), dp(activity, 9))
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(activity).apply {
+                    setText(titleRes)
+                    textSize = 17f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setTextColor(SettingsPalette.text(activity))
+                    ViewCompat.setAccessibilityHeading(this, true)
+                }, matchWidth())
+                addView(sectionDescription(activity, activity.getString(summaryRes)), matchWidth())
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(arrow, LinearLayout.LayoutParams(dp(activity, 38), dp(activity, 44)))
+            isClickable = true
+            isFocusable = true
+            fun updateAccessibility() {
+                contentDescription = activity.getString(titleRes) + ", " +
+                    activity.getString(if (expanded) R.string.settings_group_collapse
+                        else R.string.settings_group_expand)
+            }
+            updateAccessibility()
+            setOnClickListener {
+                expanded = !expanded
+                body.visibility = if (expanded) View.VISIBLE else View.GONE
+                arrow.text = if (expanded) "⌃" else "⌄"
+                prefs.edit().putBoolean(key, expanded).apply()
+                updateAccessibility()
+            }
+        }
+        return sectionCard(activity).apply {
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(header, matchWidth())
+                addView(body, matchWidth())
+            })
+        }
+    }
 
     private fun sectionCard(activity: AppCompatActivity) = MaterialCardView(activity).apply {
         radius = dp(activity, 16).toFloat()

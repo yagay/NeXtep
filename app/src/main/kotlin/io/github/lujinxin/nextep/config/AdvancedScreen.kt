@@ -10,9 +10,12 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import io.github.lujinxin.nextep.R
+import io.github.lujinxin.nextep.scope.ScopeProcessRestarter
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 
 internal object AdvancedScreen {
@@ -72,6 +75,61 @@ internal object AdvancedScreen {
                 isFocusable = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, LinearLayout.LayoutParams(-1, -2))
+            // One-tap SAF export for App, SystemUI and optional root NeXtep logs.
+            // The ZIP is created only at the location explicitly selected by the user.
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(80)
+                setPadding(0, dp(12), 0, dp(12))
+                addView(LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    addView(heading(R.string.diagnostic_export_title, 16f))
+                    addView(paragraph(activity.getString(R.string.diagnostic_export_summary)).apply {
+                        textSize = 13f
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
+                val button = SettingsRowButton.create(activity).apply {
+                    setText(R.string.diagnostic_export_action)
+                    minWidth = dp(72)
+                    setOnClickListener {
+                        (activity as? MainActivity)?.exportDiagnosticLogs()
+                    }
+                }
+                addView(button)
+                setOnClickListener { button.performClick() }
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(-1, -2))
+            addView(paragraph(activity.getString(R.string.diagnostic_export_privacy)).apply {
+                textSize = 12f
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+            // A single compact row opens the complete module scope list.
+            // system_server is deliberately informational, never killable.
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(76)
+                setPadding(0, dp(10), 0, dp(10))
+                addView(LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    addView(heading(R.string.scope_restart_title, 16f))
+                    addView(paragraph(activity.getString(R.string.scope_restart_summary)).apply {
+                        textSize = 13f
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(16) })
+                val button = SettingsRowButton.create(activity).apply {
+                    setText(R.string.scope_restart_manage)
+                    minWidth = dp(72)
+                    setOnClickListener { showScopeRestartPicker(activity) }
+                }
+                addView(button)
+                setOnClickListener { button.performClick() }
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
             addView(sectionHeading(activity, R.string.advanced_commands_title),
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(28); bottomMargin = dp(12) })
             addView(paragraph(activity.getString(R.string.advanced_intro)),
@@ -108,6 +166,52 @@ internal object AdvancedScreen {
                     LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
             }
         }
+    }
+
+    private fun showScopeRestartPicker(activity: AppCompatActivity) {
+        // Mirror META-INF/xposed/scope.list. "android" and "system" both load
+        // core framework hooks; present them as one non-restartable target.
+        val targets = listOf(
+            ScopeProcessRestarter.Target.SYSTEM_UI to R.string.scope_restart_systemui,
+            ScopeProcessRestarter.Target.OPLUS_LAUNCHER to R.string.scope_restart_launcher_oplus,
+            ScopeProcessRestarter.Target.ANDROID_LAUNCHER to R.string.scope_restart_launcher_aosp,
+            ScopeProcessRestarter.Target.OPLUS_MULTIAPP to R.string.scope_restart_multiapp,
+            ScopeProcessRestarter.Target.ASSISTANT_SCREEN to R.string.scope_restart_assistant,
+            ScopeProcessRestarter.Target.SYSTEM_FRAMEWORK to R.string.scope_restart_framework,
+        )
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.scope_restart_select_title)
+            .setItems(targets.map { activity.getString(it.second) }.toTypedArray()) { _, index ->
+                val (target, title) = targets[index]
+                if (!target.canRestart) {
+                    MaterialAlertDialogBuilder(activity)
+                        .setTitle(title)
+                        .setMessage(R.string.scope_restart_framework_warning)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show()
+                    return@setItems
+                }
+                MaterialAlertDialogBuilder(activity)
+                    .setTitle(activity.getString(R.string.scope_restart_confirm_title,
+                        activity.getString(title)))
+                    .setMessage(R.string.scope_restart_confirm_summary)
+                    .setNegativeButton(R.string.action_cancel, null)
+                    .setPositiveButton(R.string.scope_restart_action) { _, _ ->
+                        Toast.makeText(activity, R.string.scope_restart_busy, Toast.LENGTH_SHORT).show()
+                        ScopeProcessRestarter.restart(activity, target) { result ->
+                            if (activity.isFinishing || activity.isDestroyed) return@restart
+                            val message = when (result) {
+                                is ScopeProcessRestarter.Outcome.Requested ->
+                                    activity.getString(R.string.scope_restart_requested, result.process)
+                                is ScopeProcessRestarter.Outcome.Unavailable ->
+                                    activity.getString(R.string.scope_restart_failed, result.reason)
+                            }
+                            Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+                        }
+                    }.show()
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
     }
 
     private fun sectionHeading(activity: AppCompatActivity, title: Int): View {

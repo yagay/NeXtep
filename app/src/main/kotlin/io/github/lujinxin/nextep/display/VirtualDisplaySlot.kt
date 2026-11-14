@@ -4,7 +4,10 @@ import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.graphics.SurfaceTexture
+import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import android.view.TextureView
 import io.github.lujinxin.nextep.logging.NeXtepLog
@@ -15,6 +18,13 @@ import android.graphics.Matrix
 class VirtualDisplaySlot(
     context: Context,
     private val index: Int,
+    /**
+     * Floating mode opts in so hidden/locked windows retain a live output
+     * surface. The original workspace retains its existing safe disconnect
+     * behavior by default. This does not force an app into TOP_RESUMED.
+     */
+    private val keepOutputWhileSuspended: Boolean = false,
+    private val padMultiTaskMode: Boolean = false,
 ) : TextureView.SurfaceTextureListener {
     interface Listener {
         fun onDisplayReady(slotIndex: Int, displayId: Int)
@@ -25,7 +35,42 @@ class VirtualDisplaySlot(
     val view = TaskSwitcherView(context, index)
 
     private val applicationContext = context.applicationContext ?: context
-    private val factory = VirtualDisplayFactory(applicationContext)
+    private val factory = VirtualDisplayFactory(applicationContext, padMode = padMultiTaskMode)
+    private val displayManager = applicationContext.getSystemService(DisplayManager::class.java)
+    private var displayListenerRegistered = false
+    private var lastObservedDisplayState: Int? = null
+    private val displayStateListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != this@VirtualDisplaySlot.displayId()) return
+            val state = virtualDisplay?.display?.state ?: return
+            if (state == lastObservedDisplayState) return
+            val previous = lastObservedDisplayState
+            lastObservedDisplayState = state
+            NeXtepLog.info("virtual_display",
+                "Display state changed slot=$index displayId=$displayId " +
+                    "previous=$previous current=$state " +
+                    "surfaceConnected=$outputConnected surfaceValid=${surface?.isValid == true} " +
+                    "suspended=$suspended padMode=$padMultiTaskMode")
+        }
+    }
+    private fun registerDisplayStateListener() {
+        if (displayListenerRegistered) return
+        runCatching {
+            checkNotNull(displayManager).registerDisplayListener(
+                displayStateListener, Handler(Looper.getMainLooper()))
+            displayListenerRegistered = true
+        }.onFailure {
+            NeXtepLog.warn("virtual_display", "Unable to monitor display state slot=$index", it)
+        }
+    }
+    private fun unregisterDisplayStateListener() {
+        if (!displayListenerRegistered) return
+        runCatching { displayManager?.unregisterDisplayListener(displayStateListener) }
+        displayListenerRegistered = false
+        lastObservedDisplayState = null
+    }
     private var active = false
     private var suspended = false
     private var surface: Surface? = null
@@ -64,6 +109,11 @@ class VirtualDisplaySlot(
 
     fun isSuspended(): Boolean = suspended
 
+    fun diagnosticOutputState(): String =
+        "slot=$index displayId=${displayId()} displayState=${virtualDisplay?.display?.state} " +
+            "active=$active suspended=$suspended outputConnected=$outputConnected " +
+            "surfaceValid=${surface?.isValid == true} keepOutputOnLock=$keepOutputWhileSuspended"
+
     fun activate() {
         active = true
         val textureView = if (freshSurfaceRequired) {
@@ -95,11 +145,17 @@ class VirtualDisplaySlot(
     fun setSuspended(value: Boolean) {
         if (value) {
             suspended = true
-            // A null Surface turns the display off without removing its tasks/windows.
-            // Keep our Surface alive so unlock can reconnect the same display.
-            runCatching { updateOutputSurface(connected = false) }.onFailure {
-                NeXtepLog.warn("virtual_display", "Unable to suspend output slot=$index", it)
+            // Original workspace: disconnect output to reduce exposure during
+            // lock. Floating workspace: keep the SAME live Surface connected
+            // while the parent UI is fully transparent and not touchable.
+            // This avoids powering down the VD merely because the user hides
+            // the floating panel or locks the physical screen.
+            val connected = VirtualDisplayOutputPolicy.connectedOnSuspend(keepOutputWhileSuspended)
+            runCatching { updateOutputSurface(connected) }.onFailure {
+                NeXtepLog.warn("virtual_display",
+                    "Unable to set suspended output slot=$index connected=$connected", it)
             }
+            NeXtepLog.info("virtual_display", "Suspension changed: ${diagnosticOutputState()}")
             return
         }
         if (!suspended) return
@@ -123,7 +179,8 @@ class VirtualDisplaySlot(
     /** Warm buffers behind hidden panels without resuming input, task moves or pending launches. */
     fun updateSuspendedOutput(screenAwake: Boolean) {
         if (!active || !suspended) return
-        updateOutputSurface(connected = screenAwake)
+        updateOutputSurface(connected =
+            VirtualDisplayOutputPolicy.connectedDuringSuspend(keepOutputWhileSuspended, screenAwake))
     }
 
     private fun updateOutputSurface(connected: Boolean): Boolean {
@@ -216,6 +273,8 @@ class VirtualDisplaySlot(
                 surface = createdSurface
                 virtualDisplay = display
                 outputConnected = true
+                lastObservedDisplayState = display.display.state
+                registerDisplayStateListener()
                 listener?.onDisplayReady(index, display.display.displayId)
                 NeXtepLog.info(
                     "virtual_display",
@@ -248,6 +307,7 @@ class VirtualDisplaySlot(
     }
 
     private fun releaseDisplay(reason: String) {
+        unregisterDisplayStateListener()
         val releasedDisplayId = virtualDisplay?.display?.displayId
         runCatching { virtualDisplay?.setSurface(null) }
         virtualDisplay?.release()
