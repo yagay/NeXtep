@@ -198,7 +198,6 @@
     <string name="floating_dock_arrangement">排列方式</string>
     <string name="floating_dock_fixed_ratio">小視窗大小 · 鎖定長寬比例</string>
     <string name="floating_dock_reset_size">恢復 100%</string>
-    <string name="floating_dock_zoom_restore">縮回小視窗</string>
     <string name="floating_dock_remove_app">從懸浮小視窗移除應用程式</string>
     <string name="floating_dock_remove_question">確定要從懸浮小視窗移除此應用程式嗎？目前工作會關閉，但不會解除安裝。</string>
     <string name="floating_dock_remove_cancel">取消</string>
