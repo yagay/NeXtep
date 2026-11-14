@@ -538,7 +538,7 @@ object SystemUiRuntime {
                 applicationContext.registerReceiver(
                     physicalPowerPrelockReceiver,
                     IntentFilter(TriggerBroadcastContract.ACTION_POWER_KEY_PRELOCK),
-                    android.Manifest.permission.DEVICE_POWER,
+                    "android.permission.DEVICE_POWER",
                     lifecycleHandler,
                     Context.RECEIVER_EXPORTED,
                 )
