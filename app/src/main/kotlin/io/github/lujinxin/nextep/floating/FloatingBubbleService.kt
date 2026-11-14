@@ -35,6 +35,7 @@ import io.github.lujinxin.nextep.config.MainActivity
 import io.github.lujinxin.nextep.config.SettingsRepository
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.systemui.FloatingDockSafeArea
+import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -52,6 +53,31 @@ class FloatingBubbleService : Service() {
     private var downY = 0
     private var dragged = false
     private var togglePending = false
+    private var expanded = false
+    private val stateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != TriggerBroadcastContract.ACTION_FLOATING_PANEL_STATE_CHANGED) return
+            setExpandedIconState(intent.getBooleanExtra(
+                TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ACTIVE, false))
+        }
+    }
+
+    private fun setExpandedIconState(value: Boolean) {
+        if (expanded == value && bubble == null) return
+        expanded = value
+        bubble?.apply {
+            contentDescription = if (value) "NeXtep: four windows expanded"
+                else "NeXtep: four windows collapsed"
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(if (value) Color.argb(245, 0, 112, 120)
+                    else Color.argb(244, 27, 57, 68))
+                setStroke(dp(2), if (value) Color.rgb(135, 245, 235)
+                    else Color.rgb(113, 213, 224))
+            }
+        }
+        NeXtepLog.info("floating_icon", "STATE_MIRROR expanded=$value")
+    }
     private var lastToggleTime = 0L
     private var serviceAlive = false
     private val wakeRetry = Runnable {
@@ -96,6 +122,13 @@ class FloatingBubbleService : Service() {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
         }, Context.RECEIVER_NOT_EXPORTED)
+        registerReceiver(
+            stateReceiver,
+            IntentFilter(TriggerBroadcastContract.ACTION_FLOATING_PANEL_STATE_CHANGED),
+            "android.permission.STATUS_BAR_SERVICE",
+            handler,
+            Context.RECEIVER_EXPORTED,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -231,6 +264,7 @@ class FloatingBubbleService : Service() {
             checkNotNull(windowManager).addView(view, params)
             bubble = view
             layout = params
+            setExpandedIconState(expanded)
             // Re-anchor an already expanded SystemUI dock after rotation or
             // a service restart, without accidentally toggling its state.
             FloatingPanelCommand.updateAnchor(this, params.x, params.y, size)
@@ -270,6 +304,7 @@ class FloatingBubbleService : Service() {
             if (!serviceAlive) return@toggle
             when (result) {
                 is FloatingPanelCommand.Result.Ready -> {
+                    setExpandedIconState(result.expanded)
                     NeXtepLog.info("floating_icon", "TOGGLE_ACK expanded=${result.expanded}")
                 }
                 is FloatingPanelCommand.Result.Failed -> {
@@ -362,6 +397,7 @@ class FloatingBubbleService : Service() {
         handler.removeCallbacks(wakeRetry)
         removeBubble()
         runCatching { unregisterReceiver(screenEvents) }
+        runCatching { unregisterReceiver(stateReceiver) }
         super.onDestroy()
     }
 
