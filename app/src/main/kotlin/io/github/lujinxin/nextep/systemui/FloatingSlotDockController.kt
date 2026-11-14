@@ -204,6 +204,51 @@ internal class FloatingSlotDockController(
         collapse()
     }
 
+    /**
+     * Called by the bubble's long press. Keep the dock collapsed on success;
+     * only a previously absent session is created. Never overwrite occupied slots.
+     */
+    fun quickAddForeground(anchor: FloatingDockPlacement.Anchor?): Boolean {
+        if (suspendedForLock || removalPending || stableZoom != null) return false
+        val task = floatingTaskRepository.foregroundTask() ?: return false
+        if (task.displayId != android.view.Display.DEFAULT_DISPLAY ||
+            task.component.packageName == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
+            task.component.packageName == context.packageName ||
+            task.component.packageName == TriggerBroadcastContract.resolveHomePackage(context) ||
+            task.vendorWindowed) return false
+        val existing = coordinator?.slotStates().orEmpty()
+        if (existing.any { it is SlotState.Occupied && it.taskId == task.taskId }) return false
+        if (hasSession() && existing.none { it is SlotState.Ready }) return false
+        val wasExpanded = isExpanded()
+        if (!hasSession() && !expand(anchor)) return false
+        // VirtualDisplay creation reports readiness asynchronously; retry only
+        // while this exact Task remains physically foreground.
+        fun attempt(remaining: Int) {
+            if (!hasSession() || suspendedForLock) return
+            if (floatingTaskRepository.foregroundTask()?.taskId != task.taskId) {
+                NeXtepLog.warn("floating_quick_add", "FOREGROUND_CHANGED task=${task.taskId}")
+                if (!wasExpanded) collapse()
+                return
+            }
+            val states = coordinator?.slotStates().orEmpty()
+            if (states.none { it is SlotState.Ready } && remaining > 0 &&
+                states.any { it is SlotState.Empty }) {
+                handler.postDelayed({ attempt(remaining - 1) }, 150L)
+                return
+            }
+            coordinator?.quickParkForeground(task.taskId)
+                ?.onSuccess { index ->
+                    NeXtepLog.info("floating_quick_add",
+                        "PARKED task=${task.taskId} slot=$index")
+                }?.onFailure { error ->
+                    NeXtepLog.warn("floating_quick_add", "PARK_FAILED task=${task.taskId}", error)
+                }
+            if (!wasExpanded) collapse()
+        }
+        handler.post { attempt(20) }
+        return true
+    }
+
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
     fun isStableZoomed(): Boolean = stableZoom != null
