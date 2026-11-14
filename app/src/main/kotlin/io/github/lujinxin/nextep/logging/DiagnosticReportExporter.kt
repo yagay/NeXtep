@@ -105,6 +105,14 @@ object DiagnosticReportExporter {
                     appendLine("Floating bubble: ${settings.floatingBubbleEnabled}")
                     appendLine("Floating Pad mode requested: ${settings.floatingPadModeEnabled}")
                     appendLine("Independent display experimental mode: ${settings.floatingIndependentDisplayEnabled}")
+                    appendLine("System server lock policy: " + runCatching {
+                        android.provider.Settings.Global.getInt(context.contentResolver,
+                            "nextep_slot_independent_lock_guard_v1", -1).toString()
+                    }.getOrDefault("unavailable"))
+                    appendLine("System server lifecycle guard: " + runCatching {
+                        android.provider.Settings.Global.getString(context.contentResolver,
+                            "nextep_slot_guard_diagnostics_v1") ?: "not published"
+                    }.getOrDefault("unavailable"))
                     appendLine("Floating player compatibility: ${settings.playbackCompatEnabled}")
                     appendLine("One-shot MediaSession recovery: ${settings.playbackCompatAutoResume}")
                     appendLine("One-shot screen-lock audio continuation: ${settings.playbackCompatLockAudio}")
@@ -164,7 +172,7 @@ object DiagnosticReportExporter {
         // Root is optional, but report precisely why this capture did not
         // work. Long first-run KernelSU prompts must not be mistaken for
         // successful collection of an empty buffer.
-        val process = ProcessBuilder("su", "-c", "logcat -d -t 5000 -s NeXtep:* NeXtepDisplayPower:* NeXtepSlotGuard:*")
+        val process = ProcessBuilder("su", "-c", "logcat -d -t 30000 -b main,system -s NeXtep:* NeXtepDisplayPower:* NeXtepSlotGuard:*")
             .redirectErrorStream(true).start()
         val content = StringBuilder()
         val reader = Thread({
