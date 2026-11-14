@@ -11,7 +11,6 @@ import io.github.lujinxin.nextep.logging.NeXtepLog
 
 class VirtualDisplayFactory(
     context: Context,
-    private val padMode: Boolean = false,
 ) {
     private val displayManager = context.getSystemService(DisplayManager::class.java)
 
@@ -25,7 +24,7 @@ class VirtualDisplayFactory(
         runCatching {
             val manager = checkNotNull(displayManager) { "DisplayManager unavailable" }
             var lastFailure: Throwable? = null
-            VirtualDisplayFlagsCompat.resolveCandidates(padMode = padMode).forEach { flags ->
+            VirtualDisplayFlagsCompat.resolveCandidates().forEach { flags ->
                 if ("ALWAYS_UNLOCKED" in flags.names && unlockedPermissionDenied.get()) {
                     NeXtepLog.debug("virtual_display", "Skipping denied ALWAYS_UNLOCKED candidate slot=$index")
                     return@forEach
@@ -44,17 +43,10 @@ class VirtualDisplayFactory(
                         NeXtepLog.info(
                             "virtual_display",
                             "Allocated slot=$index displayId=${display.display.displayId} " +
-                                "profile=${if (padMode) "pad" else "standard"} " +
+                                "profile=${"standard"} " +
                                 "flags=${flags.names.joinToString()} " +
                                 "state=${display.display.state}",
                         )
-                        if (padMode && "ALWAYS_UNLOCKED" !in flags.names) {
-                            NeXtepLog.warn(
-                                "virtual_display",
-                                "Slot=$index using Pad fallback without ALWAYS_UNLOCKED; " +
-                                    "screen lock may still pause tasks on this device",
-                            )
-                        }
                         if ("OWN_FOCUS" !in flags.names) {
                             NeXtepLog.warn(
                                 "virtual_display",
