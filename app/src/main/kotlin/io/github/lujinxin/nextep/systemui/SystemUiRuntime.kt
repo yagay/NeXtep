@@ -96,7 +96,8 @@ object SystemUiRuntime {
     }
 
     private fun captureAutoSlotForeground(source: String, parkOnChange: Boolean) {
-        if (!::autoSlotTaskRepository.isInitialized) return
+        if (!::autoSlotTaskRepository.isInitialized ||
+            (!workspaceConfig.autoSlotOnBackground && !workspaceConfig.autoSlotOnLock)) return
         val next = autoSlotTaskRepository.foregroundTask()
         val previous = observedForeground
         observedForeground = next
@@ -228,6 +229,21 @@ object SystemUiRuntime {
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
                 if (workspaceConfig.autoSlotOnBackground || workspaceConfig.autoSlotOnLock)
                     captureAutoSlotForeground("config-init", parkOnChange = false)
+                // Prepare four hidden real VirtualDisplays while the screen is
+                // still unlocked. Creating a focusable SystemUI overlay after
+                // ACTION_SCREEN_OFF is too late and can disrupt keyguard.
+                if (workspaceConfig.autoSlotOnLock &&
+                    workspaceConfig.autoSlotPackages.isNotEmpty() &&
+                    workspaceConfig.floatingBubbleEnabled &&
+                    workspaceConfig.floatingWindowMode ==
+                        WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL &&
+                    ::floatingDock.isInitialized &&
+                    ::workspaceController.isInitialized &&
+                    !workspaceController.isActive() && isScreenReady() &&
+                    !isKeyguardLocked(applicationContext)) {
+                    val ready = floatingDock.prepareHiddenAutoSession()
+                    NeXtepLog.info("auto_slot", "PREPARE_HIDDEN_LOCK_DOCK ready=$ready")
+                }
                 if (::nativeFreeform.isInitialized) nativeFreeform.configureNativeLockGuard(
                     workspaceConfig.nativeLockGuardEnabled &&
                     workspaceConfig.floatingWindowMode == WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM)
