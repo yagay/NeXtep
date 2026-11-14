@@ -24,6 +24,7 @@ class VirtualDisplaySlot(
      * behavior by default. This does not force an app into TOP_RESUMED.
      */
     private val keepOutputWhileSuspended: Boolean = false,
+    private val floatingSlot: Boolean = false,
 ) : TextureView.SurfaceTextureListener {
     interface Listener {
         fun onDisplayReady(slotIndex: Int, displayId: Int)
@@ -34,7 +35,7 @@ class VirtualDisplaySlot(
     val view = TaskSwitcherView(context, index)
 
     private val applicationContext = context.applicationContext ?: context
-    private val factory = VirtualDisplayFactory(applicationContext)
+    private val factory = VirtualDisplayFactory(applicationContext, floatingSlot = floatingSlot)
     private val displayManager = applicationContext.getSystemService(DisplayManager::class.java)
     private var displayListenerRegistered = false
     private var lastObservedDisplayState: Int? = null
