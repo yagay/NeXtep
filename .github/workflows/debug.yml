@@ -8,6 +8,7 @@ on:
       - refactor/main-selected-floating
       - main
       - restart/main-clean
+      - test
   workflow_dispatch:
 
 permissions:
