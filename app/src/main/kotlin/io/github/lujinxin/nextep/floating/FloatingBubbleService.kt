@@ -45,7 +45,29 @@ class FloatingBubbleService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val windowManager by lazy { getSystemService(WindowManager::class.java) }
     private val prefs by lazy { getSharedPreferences("floating_bubble_position", MODE_PRIVATE) }
-    private val size by lazy { dp(52) }
+    private var iconSizeDp = 52
+    private var iconEdgeDp = 8
+    private val size get() = dp(iconSizeDp)
+
+    private fun updateIconGeometry() {
+        val settings = SettingsRepository(this).topBarSettings()
+        val newSize = settings.floatingBubbleSizeDp
+        val newEdge = settings.floatingBubbleEdgeDp
+        if (iconSizeDp == newSize && iconEdgeDp == newEdge) return
+        iconSizeDp = newSize
+        iconEdgeDp = newEdge
+        val position = layout ?: return
+        position.width = size
+        position.height = size
+        val safe = bubbleSafeRect()
+        val side = prefs.getInt(KEY_SIDE, 1).coerceIn(0, 1)
+        position.x = if (side == 0) safe.left else (safe.right - size).coerceAtLeast(safe.left)
+        position.y = position.y.coerceIn(safe.top, (safe.bottom - size).coerceAtLeast(safe.top))
+        updateBubble()
+        FloatingPanelCommand.updateAnchor(this, position.x, position.y, size)
+        NeXtepLog.info("floating_icon",
+            "GEOMETRY_UPDATED sizeDp=$iconSizeDp edgeDp=$iconEdgeDp")
+    }
     private var bubble: FrameLayout? = null
     private var layout: WindowManager.LayoutParams? = null
     private var downRawX = 0f
@@ -152,6 +174,7 @@ class FloatingBubbleService : Service() {
         }
         return runCatching {
             ensureForeground()
+            updateIconGeometry()
             reconcileBubble(FloatingBubbleWakePolicy.Event.SERVICE_START, "service_start")
             START_STICKY
         }.getOrElse { error ->
@@ -230,6 +253,7 @@ class FloatingBubbleService : Service() {
 
     private fun showBubble() {
         if (bubble != null || !Settings.canDrawOverlays(this)) return
+        updateIconGeometry()
         val safe = bubbleSafeRect()
         val height = (windowManager?.maximumWindowMetrics?.bounds?.height()
             ?: resources.displayMetrics.heightPixels).coerceAtLeast(size + dp(16))
@@ -446,10 +470,10 @@ class FloatingBubbleService : Service() {
         val width = (physical?.width() ?: metrics.widthPixels).coerceAtLeast(size + dp(16))
         val height = (physical?.height() ?: metrics.heightPixels).coerceAtLeast(size + dp(16))
         val insets = FloatingDockSafeArea.measure(this, windowManager)
-        val left = (insets.left + dp(8)).coerceIn(0, width - 1)
+        val left = (insets.left + dp(iconEdgeDp)).coerceIn(0, width - 1)
         val top = (insets.top + dp(8)).coerceIn(0, height - 1)
         return Rect(left, top,
-            (width - insets.right - dp(8)).coerceIn(left + 1, width),
+            (width - insets.right - dp(iconEdgeDp)).coerceIn(left + 1, width),
             (height - insets.bottom - dp(8)).coerceIn(top + 1, height))
     }
 
