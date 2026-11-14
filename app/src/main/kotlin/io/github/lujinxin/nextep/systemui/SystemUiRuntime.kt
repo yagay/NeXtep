@@ -119,6 +119,7 @@ object SystemUiRuntime {
                         workspaceConfig.playbackCompatAutoResume,
                         workspaceConfig.playbackCompatLockAudio,
                         workspaceConfig.playbackCompatPackages,
+                        workspaceConfig.floatingAutoProtectPlayback,
                     )
                 }
                 // A hidden floating session still owns live VirtualDisplays.
