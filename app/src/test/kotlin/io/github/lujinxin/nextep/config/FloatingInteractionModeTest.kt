@@ -13,6 +13,22 @@ class FloatingInteractionModeTest {
             WorkspaceConfigContract.normalizeFloatingInteractionMode("invalid"))
     }
 
+    @Test fun nativeLauncherCanUseMainScreenUntilItEntersBackground() {
+        assertEquals(false, WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
+            WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE, true))
+        assertEquals(true, WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
+            WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE, false))
+    }
+
+    @Test fun stableModeAlwaysPinsLauncherReusedTask() {
+        assertEquals(true, WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
+            WorkspaceConfigContract.FLOATING_INTERACTION_STABLE, true))
+        assertEquals(true, WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
+            WorkspaceConfigContract.FLOATING_INTERACTION_STABLE, false))
+        assertEquals(true, WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
+            null, true))
+    }
+
     @Test fun explicitNativeAndStableChoicesPersistAsRecognizableValues() {
         assertEquals(WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE,
             WorkspaceConfigContract.normalizeFloatingInteractionMode("native"))
