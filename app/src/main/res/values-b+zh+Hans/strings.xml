@@ -198,7 +198,6 @@
     <string name="floating_dock_arrangement">排列方式</string>
     <string name="floating_dock_fixed_ratio">小窗大小 · 锁定宽高比例</string>
     <string name="floating_dock_reset_size">恢复 100%</string>
-    <string name="floating_dock_zoom_restore">缩回小窗</string>
     <string name="floating_dock_remove_app">从悬浮小窗移除应用</string>
     <string name="floating_dock_remove_question">确定从悬浮小窗移除这个应用吗？当前任务会关闭，但不会卸载应用。</string>
     <string name="floating_dock_remove_cancel">取消</string>
