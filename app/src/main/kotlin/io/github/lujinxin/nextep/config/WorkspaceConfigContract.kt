@@ -27,7 +27,7 @@ data class WorkspaceTopConfig(
     val textBold: Boolean = false,
     val statusBarGestureEnabled: Boolean = true,
     val floatingBubbleEnabled: Boolean = false,
-    val floatingLockGuardEnabled: Boolean = false,
+    val floatingLockGuardEnabled: Boolean = true,
     val floatingPopupBackEnabled: Boolean = true,
     val floatingSwipeCollapseEnabled: Boolean = true,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
@@ -280,7 +280,7 @@ object WorkspaceConfigClient {
                 WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, false,
             ),
             floatingLockGuardEnabled = extras.getBoolean(
-                WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED, false,
+                WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED, true,
             ),
             floatingPopupBackEnabled = extras.getBoolean(WorkspaceConfigContract.EXTRA_FLOATING_POPUP_BACK_ENABLED, true),
             floatingSwipeCollapseEnabled = extras.getBoolean(WorkspaceConfigContract.EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED, true),
