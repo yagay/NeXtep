@@ -366,6 +366,16 @@ object SystemUiRuntime {
         }
     }
     private val keyguardStateListener = KeyguardManager.KeyguardLockedStateListener {
+        // This callback can precede SCREEN_OFF on OxygenOS. Attempt pinned
+        // return while the physical display is still interactive. The
+        // ACTION_SCREEN_OFF path remains the bounded fallback.
+        if (workspaceConfigReady && ::floatingDock.isInitialized &&
+            ::workspaceController.isInitialized && !workspaceController.isActive() &&
+            isScreenReady() && isKeyguardLocked(applicationContext) &&
+            (floatingDock.hasPinnedBindings() || workspaceConfig.autoSlotOnLock)) {
+            NeXtepLog.info("auto_slot", "KEYGUARD_PRELOCK_EVENT")
+            autoParkForLock()
+        }
         // Re-read current state: a queued callback can belong to an earlier wake.
         lockStateObserver.run()
     }
