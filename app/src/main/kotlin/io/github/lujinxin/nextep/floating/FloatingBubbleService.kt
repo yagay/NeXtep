@@ -20,6 +20,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.Process
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
@@ -49,6 +51,9 @@ class FloatingBubbleService : Service() {
     private var downX = 0
     private var downY = 0
     private var dragged = false
+    private var togglePending = false
+    private var lastToggleTime = 0L
+    private var serviceAlive = false
     private val wakeRetry = Runnable {
         reconcileBubble(FloatingBubbleWakePolicy.Event.SCREEN_ON, "wake_retry")
     }
@@ -84,6 +89,8 @@ class FloatingBubbleService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        serviceAlive = true
+        NeXtepLog.info("floating_icon", "SERVICE_CREATED pid=${Process.myPid()} instance=${System.identityHashCode(this)}")
         registerReceiver(screenEvents, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
@@ -118,18 +125,9 @@ class FloatingBubbleService : Service() {
             NotificationChannel(CHANNEL_ID, getString(R.string.floating_service_title),
                 NotificationManager.IMPORTANCE_LOW),
         )
-        // A notification can be tapped while Settings is alive but another
-        // Activity is on top. SINGLE_TOP alone only reuses a TOP instance,
-        // so it previously created a second MainActivity ("app restarted").
-        // CLEAR_TOP + SINGLE_TOP routes back to that existing instance.
         val configure = PendingIntent.getActivity(
             this, 1, Intent(this, MainActivity::class.java)
-                .setAction(ACTION_OPEN_SETTINGS)
-                .addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                ),
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val stop = PendingIntent.getService(
@@ -245,28 +243,47 @@ class FloatingBubbleService : Service() {
         }
     }
 
+    /** One physical icon tap must produce at most one cross-process toggle. */
     private fun toggleWorkspace() {
+        val now = SystemClock.elapsedRealtime()
+        if (togglePending || now - lastToggleTime < 400L) {
+            NeXtepLog.info("floating_icon",
+                "TOGGLE_IGNORED pending=$togglePending sinceLast=${now - lastToggleTime}ms")
+            return
+        }
         val interactive = getSystemService(PowerManager::class.java)?.isInteractive ?: true
-        if (!FloatingBubbleWakePolicy.mayOpenTaskDock(isKeyguardVisible(), interactive)) {
-            // Only the icon is allowed while the phone is locked. No tasks,
-            // app names or previews are exposed across the keyguard.
-            NeXtepLog.info("floating_workspace",
-                "Ignored dock opening on locked or non-interactive display")
+        val locked = isKeyguardVisible()
+        if (!FloatingBubbleWakePolicy.mayOpenTaskDock(locked, interactive)) {
+            // The icon can be visible at keyguard, but never reveal a task.
+            NeXtepLog.info("floating_icon",
+                "TOGGLE_LOCK_REJECTED interactive=$interactive keyguard=$locked")
             return
         }
         val position = layout ?: return
+        lastToggleTime = now
+        togglePending = true
+        NeXtepLog.info("floating_icon",
+            "TOGGLE_SENT pid=${Process.myPid()} instance=${System.identityHashCode(this)} " +
+                "x=${position.x} y=${position.y} size=$size attached=${bubble?.isAttachedToWindow}")
         FloatingPanelCommand.toggle(this, position.x, position.y, size) { result ->
-            if (result is FloatingPanelCommand.Result.Failed) {
-                NeXtepLog.warn("floating_workspace", "Floating panel toggle rejected: ${result.reason}")
-                // This is an ordered-broadcast failure from another process.
-                // Preserve its original stack in the app-side diagnostic ring
-                // even when SystemUI log snapshot is unavailable or stale.
-                result.remoteTrace?.lineSequence()?.take(18)?.forEachIndexed { index, line ->
-                    NeXtepLog.warn("floating_remote_trace", "SystemUI[$index]: $line")
+            togglePending = false
+            if (!serviceAlive) return@toggle
+            when (result) {
+                is FloatingPanelCommand.Result.Ready -> {
+                    NeXtepLog.info("floating_icon", "TOGGLE_ACK expanded=${result.expanded}")
                 }
-                handler.post {
-                    Toast.makeText(this, getString(R.string.floating_module_not_ready, result.reason),
-                        Toast.LENGTH_LONG).show()
+                is FloatingPanelCommand.Result.Failed -> {
+                    NeXtepLog.warn("floating_workspace", "Floating panel toggle rejected: ${result.reason}")
+                    NeXtepLog.warn("floating_icon", "TOGGLE_FAILED reason=${result.reason}")
+                    result.remoteTrace?.lineSequence()?.take(18)?.forEachIndexed { index, line ->
+                        NeXtepLog.warn("floating_remote_trace", "SystemUI[$index]: $line")
+                    }
+                    handler.post {
+                        if (serviceAlive) Toast.makeText(
+                            this, getString(R.string.floating_module_not_ready, result.reason),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 }
             }
         }
@@ -340,6 +357,8 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onDestroy() {
+        serviceAlive = false
+        NeXtepLog.info("floating_icon", "SERVICE_DESTROYED pid=${Process.myPid()} instance=${System.identityHashCode(this)} pending=$togglePending")
         handler.removeCallbacks(wakeRetry)
         removeBubble()
         runCatching { unregisterReceiver(screenEvents) }
@@ -365,7 +384,6 @@ class FloatingBubbleService : Service() {
         const val CHANNEL_ID = "nextep_floating_workspace"
         const val NOTIFICATION_ID = 41015
         const val ACTION_STOP = "io.github.lujinxin.nextep.action.STOP_FLOATING_BUBBLE"
-        const val ACTION_OPEN_SETTINGS = "io.github.lujinxin.nextep.action.OPEN_FLOATING_SETTINGS"
         const val KEY_SIDE = "side"
         const val KEY_Y = "vertical"
     }
