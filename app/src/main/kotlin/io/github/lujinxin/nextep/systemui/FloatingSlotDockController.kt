@@ -787,15 +787,15 @@ internal class FloatingSlotDockController(
             }
             return
         }
-        if (panelVisible && !suspendedForLock && !removalPending &&
-            expandedMainTaskId != null) {
-            val original = expandedMainTaskId
-            // Shell callbacks are supplementary to direct navigation events.
-            // Never mistake a virtual-display task for a Display 0 change.
+        // Shell task callbacks also fire for NeXtep's own task promotion and
+        // migration. These are NOT navigation events: only observe them for
+        // diagnostics, never auto-fold from a task-id difference.
+        if (panelVisible && !suspendedForLock && expandedMainTaskId != null) {
             val current = floatingTaskRepository.foregroundTask()
             if (current != null && current.displayId == Display.DEFAULT_DISPLAY &&
-                current.taskId != original) {
-                onSystemNavigation("shell-task-change:$original->${current.taskId}")
+                current.taskId != expandedMainTaskId) {
+                NeXtepLog.debug("floating_dock",
+                    "TASK_CHANGE_IGNORED baseline=$expandedMainTaskId current=${current.taskId}")
             }
         }
     }
