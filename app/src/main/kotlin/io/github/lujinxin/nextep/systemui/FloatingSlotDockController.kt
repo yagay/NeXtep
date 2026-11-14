@@ -79,9 +79,12 @@ internal class FloatingSlotDockController(
         val displayId: Int,
         val originalResizeMode: Int?,
         val beganAt: Long,
-        // True when the desktop/Recents stole a NeXtep-owned task. This
-        // must return immediately, unlike an explicit native fullscreen tap.
+        // Desktop/Recents can reuse the original task. In stable mode this
+        // must be returned immediately, but in NATIVE mode a user-initiated
+        // launcher open is a legitimate fullscreen interaction and should be
+        // returned only after background/lock.
         val externalLauncher: Boolean = false,
+        val stickyReturn: Boolean = false,
         var absentSince: Long = 0L,
         var lastReturnAttemptAt: Long = 0L,
         var failedReturnAttempts: Int = 0,
@@ -557,9 +560,9 @@ internal class FloatingSlotDockController(
             clearTemporaryFullscreen()
             return
         }
-        if (pin.externalLauncher) {
-            // Never wait for the user to press Home: a launcher-opened task
-            // is still owned by the floating slot and should go back now.
+        if (pin.externalLauncher && pin.stickyReturn) {
+            // Stable interaction: launcher reparent must not steal the slot.
+            // Native fullscreen: permit genuine user foreground use instead.
             NeXtepLog.info("floating_pinned",
                 "STICKY_RETURN_ATTEMPT source=$source task=${pin.taskId} " +
                     "display=${pin.displayId}")
@@ -624,26 +627,50 @@ internal class FloatingSlotDockController(
             slots.getOrNull(index)?.displayId() != occupied.displayId) return false
         val current = floatingTaskRepository.findTask(occupied.taskId) ?: return false
         if (current.displayId != Display.DEFAULT_DISPLAY) return false
+        val nativeForeground = interactionMode ==
+            WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE &&
+            floatingTaskRepository.foregroundTask()?.taskId == occupied.taskId
         val pin = TemporarilyFullscreen(
             index, occupied.taskId, occupied.displayId,
             current.resizeMode, SystemClock.uptimeMillis(),
             externalLauncher = true,
+            stickyReturn = !nativeForeground,
         )
         fullscreenTask = pin
-        NeXtepLog.info("floating_pinned",
-            "STICKY_CAPTURE source=$source slot=$index task=${occupied.taskId} " +
-                "virtualDisplay=${occupied.displayId}; keep existing dock and surface")
-        // Never hide the dock or suspend all its virtual displays merely
-        // because Android temporarily reparented one Activity to Display 0.
-        // The restoration retries until the original task is back, then
-        // reconciliation resumes with unchanged slot identity.
         handler.removeCallbacks(fullscreenWatchdog)
-        handler.post {
-            if (fullscreenTask === pin && !movingFullscreenTask) {
-                returnFullscreenToSlot("sticky:launcher")
+        if (nativeForeground) {
+            // This is an explicit tap on a launcher or Recents icon while
+            // NATIVE mode is selected. Keep the original virtual display
+            // reserved, but allow the real app to remain on Display 0.
+            // As soon as the user goes Home, switches apps or locks the
+            // device, the existing fullscreen watchdog returns it to its
+            // original virtual display.
+            runCatching {
+                coordinator?.setSuspended(true)
+                if (panelVisible) hideRetainedDockForFullscreen()
+            }.onFailure { error ->
+                NeXtepLog.warn("floating_pinned",
+                    "NATIVE_LAUNCH_UI_HIDE_FAILED; task reservation remains", error)
             }
+            NeXtepLog.info("floating_pinned",
+                "NATIVE_LAUNCH_ALLOWED source=$source slot=$index " +
+                    "task=${occupied.taskId} virtualDisplay=${occupied.displayId} " +
+                    "mainDisplay=0; return on Home/app switch/lock")
+            handler.postDelayed(fullscreenWatchdog, 750L)
+        } else {
+            // Stable interaction mode (or a task reparented while not the
+            // physical foreground) keeps the app fixed to its slot. Do not
+            // hide the dock and do not move a different Task.
+            NeXtepLog.info("floating_pinned",
+                "STICKY_CAPTURE source=$source slot=$index task=${occupied.taskId} " +
+                    "virtualDisplay=${occupied.displayId}; strict slot ownership")
+            handler.post {
+                if (fullscreenTask === pin && !movingFullscreenTask) {
+                    returnFullscreenToSlot("sticky:launcher")
+                }
+            }
+            handler.postDelayed(fullscreenWatchdog, 400L)
         }
-        handler.postDelayed(fullscreenWatchdog, 400L)
         return true
     }
 
