@@ -581,7 +581,6 @@ internal class FloatingSlotDockController(
             val newSlots = List(WORKSPACE_SLOT_COUNT) { index ->
                 VirtualDisplaySlot(context, index,
                     keepOutputWhileSuspended = true,
-                    padMultiTaskMode = false,
                 ).apply {
                     setLayoutProfile(recorded)
                     // In floating mode a card is fixed in its original slot.
