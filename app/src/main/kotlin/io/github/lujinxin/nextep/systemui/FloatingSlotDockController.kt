@@ -63,6 +63,7 @@ internal class FloatingSlotDockController(
     private var stableZoom: StableZoom? = null
     private var stableControls: FrameLayout? = null
     private val virtualInput = FloatingVirtualDisplayInput(context)
+    private val floatingTaskRepository = TaskRepository(context)
     private var stableTouchActive = false
     private val removeBadges = mutableMapOf<Int, TextView>()
     private var removalPrompt: FrameLayout? = null
@@ -726,9 +727,6 @@ internal class FloatingSlotDockController(
         if (!collapse(lockEvent = true)) {
             NeXtepLog.warn("floating_dock", "Failed to hide window at lock")
         }
-        // Even if already folded, SCREEN_OFF must notify the audio adapter.
-        // Capture the last PLAYING MediaSessions before the system discards
-        // their state, without making the hidden surface visible.
         runCatching {
             coordinator?.setSuspended(true)
             suspendedForLock = true
@@ -822,7 +820,7 @@ internal class FloatingSlotDockController(
         lastError = null
         return runCatching {
             coordinator?.deactivate()
-                handler.removeCallbacks(playbackSlotRefresh)
+            handler.removeCallbacks(playbackSlotRefresh)
             host?.let { manager?.removeViewImmediate(it) }
             clear()
             NeXtepLog.info("floating_dock", "Closed floating session; parked tasks safely")
@@ -867,7 +865,7 @@ internal class FloatingSlotDockController(
         }
         runCatching {
             val recorded = recordedLayoutProfile(true)
-            profile = recorded
+            val oldProfile = profile
             val screenWidth = recorded.geometry.screenWidth
             val screenHeight = recorded.geometry.screenHeight
             val dimensions = calculatePanel(screenWidth, screenHeight, recorded)
@@ -875,7 +873,7 @@ internal class FloatingSlotDockController(
             // A bubble tap that merely reopens the same window must not
             // relayout live TextureViews; OEMs can treat that as a surface
             // size change and recreate a video Activity on the virtual display.
-            if (recorded == profile && dimensions == panel &&
+            if (recorded == oldProfile && dimensions == panel &&
                 wnd.width == dimensions.width && wnd.height == dimensions.height &&
                 wnd.x == dimensions.x && wnd.y == dimensions.y
             ) {
