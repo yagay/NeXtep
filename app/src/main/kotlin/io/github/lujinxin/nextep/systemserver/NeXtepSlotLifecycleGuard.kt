@@ -240,6 +240,11 @@ internal object NeXtepSlotLifecycleGuard {
         }.onFailure { Log.i(TAG, "Stop UID hook unavailable: ${it.javaClass.simpleName}") }
 
         installedCount = installed
+        // Subscribe to the trusted policy as early as the system context is
+        // available, rather than waiting for a later Activity lifecycle event.
+        // If system_server is not fully ready, the normal event-driven observer
+        // path will retry without blocking service startup.
+        queueObserver(this)
         recordStatus("installed")
         Log.i(TAG, "Installed scoped ColorOS slot lifecycle hooks=$installed; mode awaits trusted SystemUI setting")
         Log.i("NeXtep", "NeXtep scoped lifecycle hook count=$installed")
