@@ -549,6 +549,39 @@ class SlotTaskCoordinator(
         }.map { index }
     }
 
+    /**
+     * Auto-park an exact previously observed task after a foreground switch.
+     * Unlike quickParkForeground(), this does not require it to remain TOP;
+     * it must still exist on Display 0 and match the captured UID/user/package.
+     * Never switch the current foreground app back to HOME.
+     */
+    fun autoParkTask(
+        taskId: Int,
+        expectedPackage: String,
+        expectedUserId: Int,
+    ): Result<Int> {
+        ensureMainThread()
+        if (!active || suspended || transitionInProgress || recentSelectionPending)
+            return Result.failure(IllegalStateException("Floating slots are busy"))
+        val index = slotRecords.indexOfFirst { record ->
+            record.state is SlotState.Ready && record.pendingComponent == null &&
+                record.retainedTaskId == null && record.migrationRecoveryTask == null
+        }
+        if (index < 0) return Result.failure(IllegalStateException("No free floating slot"))
+        val task = taskRepository.findTask(taskId)
+            ?: return Result.failure(IllegalStateException("Captured task no longer exists"))
+        if (task.component.packageName != expectedPackage ||
+            task.userId != expectedUserId || !isExchangeableMainTask(task) ||
+            expectedPackage == TriggerBroadcastContract.MODULE_PACKAGE)
+            return Result.failure(IllegalStateException("Captured task identity or window changed"))
+        if (slotRecords.any { (it.state as? SlotState.Occupied)?.taskId == taskId })
+            return Result.failure(IllegalStateException("Task already assigned"))
+        val ready = slotRecords[index].state as SlotState.Ready
+        return runTransition("automatic four-slot park task=$taskId slot=$index") {
+            parkMainTaskInSlot(index, ready, task, leaveOverview = false)
+        }.map { index }
+    }
+
     fun slotStates(): List<SlotState> = slotRecords.map { it.state }
 
     override fun onDisplayReady(slotIndex: Int, displayId: Int) {
