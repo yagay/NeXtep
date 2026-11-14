@@ -285,12 +285,19 @@ internal class FloatingSlotDockControllerV2(
             geometryProvider = { checkNotNull(profile).geometry },
             preserveFullscreenMain = true,
             returnAfterSharing = { false },
-            onExternalForegroundPromotion = { _, occupied, task ->
-                // External launcher promotion must not create a second Task.
+            onExternalForegroundPromotion = { index, occupied, task ->
+                // Run after reconciliation: moving the task again while the
+                // coordinator iterates Shell snapshots would be reentrant.
                 if (task.taskId == occupied.taskId &&
                     task.displayId == Display.DEFAULT_DISPLAY) {
+                    handler.post {
+                        if (hasSession() && !native.active) {
+                            native.adoptExternal(index, occupied,
+                                mode == WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE)
+                        }
+                    }
                     NeXtepLog.info("floating_v2",
-                        "EXTERNAL_PROMOTION_DETECTED task=${task.taskId}; reservation retained")
+                        "EXTERNAL_PROMOTION_RESERVED task=${task.taskId} slot=$index")
                     true
                 } else false
             },
