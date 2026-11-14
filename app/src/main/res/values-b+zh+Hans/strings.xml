@@ -190,6 +190,7 @@
     <string name="floating_interaction_stable_desc">应用固定在原小窗，放大后通过触摸转发操作；最适合后台与锁屏播放。某些系统输入法可能不兼容。</string>
     <string name="floating_interaction_native">原生全屏</string>
     <string name="floating_interaction_native_desc">临时切到主屏真实操作，按 Home、切应用或锁屏时自动回到原小窗；切换显示器可能重建页面。</string>
+    <string name="floating_dock_zoom_restore">缩回小窗</string>
     <string name="floating_dock_title">悬浮小窗</string>
     <string name="floating_dock_add">选应用</string>
     <string name="floating_dock_close">×</string>
