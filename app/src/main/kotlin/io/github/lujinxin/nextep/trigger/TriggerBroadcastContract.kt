@@ -10,6 +10,7 @@ object TriggerBroadcastContract {
     const val ACTION_TOGGLE_WORKSPACE = "io.github.lujinxin.nextep.action.TOGGLE_WORKSPACE"
     const val ACTION_TOGGLE_FLOATING_PANEL = "io.github.lujinxin.nextep.action.TOGGLE_FLOATING_PANEL"
     const val ACTION_SYSTEM_NAVIGATION_FOLD = "io.github.lujinxin.nextep.action.SYSTEM_NAVIGATION_FOLD"
+    const val ACTION_SYSTEM_NAVIGATION_FOLD_PRIVILEGED = "io.github.lujinxin.nextep.action.SYSTEM_NAVIGATION_FOLD_PRIVILEGED"
     const val ACTION_FLOATING_PANEL_STATE_CHANGED = "io.github.lujinxin.nextep.action.FLOATING_PANEL_STATE_CHANGED"
     const val EXTRA_NAVIGATION_EVENT_SOURCE = "io.github.lujinxin.nextep.extra.NAVIGATION_EVENT_SOURCE"
 
