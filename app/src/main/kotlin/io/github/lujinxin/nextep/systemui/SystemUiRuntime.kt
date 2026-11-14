@@ -196,13 +196,26 @@ object SystemUiRuntime {
     }
     private val keyguardStateListener = KeyguardManager.KeyguardLockedStateListener {
         // Re-read current state: a queued callback can belong to an earlier wake.
+        if (::floatingDock.isInitialized && floatingDock.hasTemporaryFullscreen() &&
+            isKeyguardLocked(applicationContext)) {
+            floatingDock.onPhysicalLockSignal("keyguard")
+        }
         lockStateObserver.run()
     }
     private val displayStateListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
         override fun onDisplayRemoved(displayId: Int) = Unit
         override fun onDisplayChanged(displayId: Int) {
-            if (displayId == Display.DEFAULT_DISPLAY) lockStateObserver.run()
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                if (::floatingDock.isInitialized && floatingDock.hasTemporaryFullscreen()) {
+                    val state = applicationContext.getSystemService(DisplayManager::class.java)
+                        ?.getDisplay(Display.DEFAULT_DISPLAY)?.state
+                    if (state != null && state != Display.STATE_ON) {
+                        floatingDock.onPhysicalLockSignal("display-state:$state")
+                    }
+                }
+                lockStateObserver.run()
+            }
         }
     }
 
