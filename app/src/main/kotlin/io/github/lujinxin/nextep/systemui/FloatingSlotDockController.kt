@@ -404,6 +404,9 @@ internal class FloatingSlotDockController(
         return true
     }
 
+    /** Never suspend a retained virtual display while its Task is mid-migration. */
+    fun isAutoParkInProgress(): Boolean = autoParkPending
+
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
     fun isStableZoomed(): Boolean = stableZoom != null
