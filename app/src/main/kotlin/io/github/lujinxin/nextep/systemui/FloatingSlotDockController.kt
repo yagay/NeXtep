@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.Display
 import android.view.Gravity
 import android.view.View
@@ -23,6 +24,7 @@ import android.widget.Toast
 import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.apps.LauncherAppRepository
 import io.github.lujinxin.nextep.config.AppLanguage
+import io.github.lujinxin.nextep.config.WorkspaceConfigContract
 import io.github.lujinxin.nextep.display.SlotState
 import io.github.lujinxin.nextep.display.SlotTaskCoordinator
 import io.github.lujinxin.nextep.display.VirtualDisplaySlot
@@ -62,6 +64,13 @@ internal class FloatingSlotDockController(
     private var host: FrameLayout? = null
     private var panelVisible = false
     private var suspendedForLock = false
+    // A floating-only choice. Do not apply this mode to the ordinary workspace.
+    private var interactionMode = WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE
+    private data class StableZoom(val index: Int, val taskId: Int, val displayId: Int)
+    private var stableZoom: StableZoom? = null
+    private var stableControls: FrameLayout? = null
+    private val virtualInput = FloatingVirtualDisplayInput(context)
+    private var stableTouchActive = false
     /** Floating-only temporary foreground: the slot and VirtualDisplay stay allocated. */
     private data class TemporarilyFullscreen(
         val index: Int,
@@ -151,6 +160,8 @@ internal class FloatingSlotDockController(
 
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
+    fun isStableZoomed(): Boolean = stableZoom != null
+    fun shrinkStableZoom(): Boolean = restoreStableCompact()
     fun hasTemporaryFullscreen(): Boolean = fullscreenTask != null
     fun returnTemporaryFullscreen(): Boolean = returnFullscreenToSlot("floating icon")
 
@@ -162,12 +173,21 @@ internal class FloatingSlotDockController(
      */
     private fun onFloatingCardTapped(index: Int) {
         if (!panelVisible || suspendedForLock || removalPending || movingFullscreenTask) return
+        if (stableZoom != null) {
+            restoreStableCompact()
+            return
+        }
         if (fullscreenTask != null) {
             returnFullscreenToSlot("floating card")
             return
         }
         when (val state = coordinator?.slotStates()?.getOrNull(index)) {
-            is SlotState.Occupied -> promoteFloatingApp(index, state)
+            is SlotState.Occupied -> if (interactionMode ==
+                WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE) {
+                promoteFloatingApp(index, state)
+            } else {
+                zoomStableCard(index, state)
+            }
             is SlotState.Ready, SlotState.Empty -> showPicker()
             else -> Unit
         }
@@ -444,7 +464,7 @@ internal class FloatingSlotDockController(
     private fun updateRemoveBadges() {
         val states = coordinator?.slotStates().orEmpty()
         removeBadges.forEach { (index, badge) ->
-            badge.visibility = if (fullscreenTask == null && panelVisible &&
+            badge.visibility = if (fullscreenTask == null && stableZoom == null && panelVisible &&
                 states.getOrNull(index) is SlotState.Occupied) View.VISIBLE else View.GONE
         }
     }
