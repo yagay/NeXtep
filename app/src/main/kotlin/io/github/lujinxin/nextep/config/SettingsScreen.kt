@@ -241,6 +241,63 @@ object SettingsScreen {
                         setOnClickListener { windowModeButton.performClick() }
                     }, matchWidth())
                     addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        "切换后台自动移入四槽位",
+                        "切换到其他 App 或桌面时，将选中的原前台 App 的原 Task 移入空闲虚拟槽位。仅在已选择应用且有空位时生效。",
+                        settings.autoSlotOnBackground,
+                        repository::setAutoSlotOnBackground,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        "锁屏自动移入四槽位（实验性）",
+                        "收到屏幕关闭事件时，先尝试迁移当前指定 App，再隐藏并保留四槽位；是否赶在系统暂停之前取决于厂商时序。",
+                        settings.autoSlotOnLock,
+                        repository::setAutoSlotOnLock,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    val autoSlotAppsButton = SettingsRowButton.create(activity).apply {
+                        fun refreshLabel() {
+                            text = "已选择 ${repository.topBarSettings().autoSlotPackages.size} 个 App"
+                        }
+                        refreshLabel()
+                        setOnClickListener {
+                            val current = repository.topBarSettings().autoSlotPackages.toMutableSet()
+                            val candidates = apps.mapNotNull { entry ->
+                                val pkg = ComponentName.unflattenFromString(
+                                    entry.key.substringAfter('|'))?.packageName
+                                    ?: return@mapNotNull null
+                                pkg to entry.label
+                            }.distinctBy { it.first }.sortedBy { it.second.lowercase() }
+                            val all = (candidates + current.filter { pkg ->
+                                candidates.none { it.first == pkg }
+                            }.map { it to it }).distinctBy { it.first }
+                            val labels = all.map { "${it.second}  (${it.first})" }.toTypedArray()
+                            val checks = BooleanArray(all.size) { all[it].first in current }
+                            MaterialAlertDialogBuilder(activity)
+                                .setTitle("自动移入四槽位的应用")
+                                .setMultiChoiceItems(labels, checks) { _, index, selected ->
+                                    if (selected) current.add(all[index].first)
+                                    else current.remove(all[index].first)
+                                }
+                                .setPositiveButton(android.R.string.ok) { _, _ ->
+                                    repository.setAutoSlotPackages(current)
+                                    refreshLabel()
+                                }
+                                .setNegativeButton(R.string.action_cancel, null)
+                                .setNeutralButton("清空") { _, _ ->
+                                    repository.setAutoSlotPackages(emptySet())
+                                    refreshLabel()
+                                }.show()
+                        }
+                    }
+                    addView(settingRow(
+                        activity, "自动移入目标应用",
+                        "必须手动选择 App；空列表不会自动迁移任何应用。只处理普通全屏应用，避免误操作桌面和 SystemUI。",
+                        autoSlotAppsButton,
+                    ).apply { setOnClickListener { autoSlotAppsButton.performClick() } }, matchWidth())
+                    addView(settingDivider(activity))
                     val layoutButton = SettingsRowButton.create(activity).apply {
                         updateFloatingLayoutLabel(activity, this, repository.topBarSettings())
                         setOnClickListener { showFloatingLayoutDialog(activity, repository, this) }
