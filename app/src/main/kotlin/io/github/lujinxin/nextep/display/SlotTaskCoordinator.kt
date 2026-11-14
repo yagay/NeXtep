@@ -75,6 +75,30 @@ class SlotTaskCoordinator(
     )
     private val handler = Handler(Looper.getMainLooper())
     private val slotRecords = MutableList(slots.size) { SlotRecord() }
+    private val pinnedPackages = mutableMapOf<Int, String>()
+
+    fun setPinnedSlots(pins: Map<Int, String>) {
+        ensureMainThread()
+        pinnedPackages.clear()
+        pinnedPackages.putAll(pins.filterKeys { it in slots.indices })
+    }
+
+    /** Promote a pinned Task to Display 0 without putting the main app into its reserved slot. */
+    fun promotePinnedTask(slotIndex: Int, expectedTaskId: Int): Result<Unit> {
+        ensureMainThread()
+        val occupied = slotRecords.getOrNull(slotIndex)?.state as? SlotState.Occupied
+            ?: return Result.failure(IllegalStateException("Pinned slot is empty"))
+        if (occupied.taskId != expectedTaskId ||
+            pinnedPackages[slotIndex] != occupied.component.packageName)
+            return Result.failure(IllegalStateException("Pinned task changed"))
+        if (!active || suspended || transitionInProgress || recentSelectionPending)
+            return Result.failure(IllegalStateException("Pinned slot busy"))
+        return runTransition("promote pinned task=$expectedTaskId slot=$slotIndex",
+            mainSlotIndex = slotIndex) {
+            swapWithMain(slotIndex, occupied, exchangeCurrentMain = false)
+        }
+    }
+
     private var active = false
     private var suspended = false
     private var transitionInProgress = false
@@ -534,10 +558,12 @@ class SlotTaskCoordinator(
         ensureMainThread()
         if (!active || suspended || transitionInProgress || recentSelectionPending)
             return Result.failure(IllegalStateException("Floating slots are busy"))
-        val index = slotRecords.indexOfFirst { record ->
-            record.state is SlotState.Ready && record.pendingComponent == null &&
-                record.retainedTaskId == null && record.migrationRecoveryTask == null
-        }
+        val index = slotRecords.indices.firstOrNull { index ->
+            val record = slotRecords[index]
+            index !in pinnedPackages && record.state is SlotState.Ready &&
+                record.pendingComponent == null && record.retainedTaskId == null &&
+                record.migrationRecoveryTask == null
+        } ?: -1
         if (index < 0) return Result.failure(IllegalStateException("No free floating slot"))
         val ready = slotRecords[index].state as SlotState.Ready
         val current = taskRepository.foregroundTask()
@@ -559,14 +585,26 @@ class SlotTaskCoordinator(
         taskId: Int,
         expectedPackage: String,
         expectedUserId: Int,
+        preferredSlot: Int = -1,
     ): Result<Int> {
         ensureMainThread()
         if (!active || suspended || transitionInProgress || recentSelectionPending)
             return Result.failure(IllegalStateException("Floating slots are busy"))
-        val index = slotRecords.indexOfFirst { record ->
-            record.state is SlotState.Ready && record.pendingComponent == null &&
-                record.retainedTaskId == null && record.migrationRecoveryTask == null
-        }
+        val index = if (preferredSlot >= 0) {
+            if (preferredSlot !in slots.indices ||
+                pinnedPackages[preferredSlot] != expectedPackage) -1
+            else preferredSlot.takeIf { index ->
+                slotRecords[index].let { record ->
+                    record.state is SlotState.Ready && record.pendingComponent == null &&
+                        record.retainedTaskId == null && record.migrationRecoveryTask == null
+                }
+            } ?: -1
+        } else slotRecords.indices.firstOrNull { index ->
+            val record = slotRecords[index]
+            index !in pinnedPackages && record.state is SlotState.Ready &&
+                record.pendingComponent == null && record.retainedTaskId == null &&
+                record.migrationRecoveryTask == null
+        } ?: -1
         if (index < 0) return Result.failure(IllegalStateException("No free floating slot"))
         val task = taskRepository.findTask(taskId)
             ?: return Result.failure(IllegalStateException("Captured task no longer exists"))
@@ -1214,7 +1252,8 @@ class SlotTaskCoordinator(
             packageName != TriggerBroadcastContract.SYSTEM_UI_PACKAGE
     }
 
-    private fun swapWithMain(slotIndex: Int, occupied: SlotState.Occupied) {
+    private fun swapWithMain(slotIndex: Int, occupied: SlotState.Occupied,
+        exchangeCurrentMain: Boolean = true) {
         val slotTask = taskRepository.findTask(occupied.taskId)
             ?: error("Slot task ${occupied.taskId} exited")
         val mainTask = taskRepository.foregroundTask()
@@ -1224,7 +1263,7 @@ class SlotTaskCoordinator(
             // of where the task originally entered its VirtualDisplay slot.
             defaultMainLayout(slotTask.resizeMode)
         } else record.originalLayout ?: defaultMainLayout(slotTask.resizeMode)
-        val mainIsExchangeable = mainTask != null &&
+        val mainIsExchangeable = exchangeCurrentMain && mainTask != null &&
             isExchangeableMainTask(mainTask) &&
             mainTask.taskId != slotTask.taskId
 
