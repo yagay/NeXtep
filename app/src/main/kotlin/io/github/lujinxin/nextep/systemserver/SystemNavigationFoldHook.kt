@@ -102,7 +102,7 @@ internal object SystemNavigationFoldHook {
         }
         runCatching {
             ctx.sendBroadcast(
-                Intent(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD)
+                Intent(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD_PRIVILEGED)
                     .setPackage(TriggerBroadcastContract.SYSTEM_UI_PACKAGE)
                     .putExtra(TriggerBroadcastContract.EXTRA_NAVIGATION_EVENT_SOURCE, source)
                     .putExtra(TriggerBroadcastContract.EXTRA_GESTURE_EVENT_TIME, now),
