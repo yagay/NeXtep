@@ -80,9 +80,10 @@ class FloatingDockRailLayoutTest {
     }
 
     @Test fun sizeClampsToSafePresets() {
-        assertEquals(60, FloatingDockRailLayout.normalizedScale(-90))
-        assertEquals(140, FloatingDockRailLayout.normalizedScale(155))
-        assertEquals(90, FloatingDockRailLayout.normalizedScale(99))
+        assertEquals(50, FloatingDockRailLayout.normalizedScale(-90))
+        assertEquals(155, FloatingDockRailLayout.normalizedScale(155))
+        assertEquals(200, FloatingDockRailLayout.normalizedScale(260))
+        assertEquals(99, FloatingDockRailLayout.normalizedScale(99))
     }
     @Test fun verticalDoesNotKeepGiantEmptyBackingPanel() {
         // A 100px-wide scaled slot should have a compact ~2-button-width
