@@ -5,6 +5,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloatingLockGuardScopeTest {
+    @Test fun protectionRequiresBubbleAndRespectsExplicitOff() {
+        assertTrue(FloatingLockGuardScope.shouldEnablePolicy(true, true))
+        assertFalse(FloatingLockGuardScope.shouldEnablePolicy(true, false))
+        assertFalse(FloatingLockGuardScope.shouldEnablePolicy(false, true))
+        assertFalse(FloatingLockGuardScope.shouldEnablePolicy(false, false))
+    }
+
     @Test fun acceptsOnlySystemUiOwnedFloatingSlots() {
         assertTrue(FloatingLockGuardScope.isEligibleDisplay(
             24, "NeXtep-floating-slot-0", 5, 1000, "com.android.systemui"))
