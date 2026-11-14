@@ -242,50 +242,135 @@ internal object NeXtepSlotLifecycleGuard {
         }
     }
 
-    private fun trackActivity(record: Any?) {
+    private data class SlotIdentity(
+        val displayId: Int,
+        val name: String,
+        val type: Int?,
+        val ownerUid: Int?,
+        val ownerPackage: String?,
+    ) {
+        val matched: Boolean get() =
+            displayId > 0 && name.matches(Regex("NeXtep-slot-[0-3]")) &&
+                type == 5 &&
+                (ownerUid == 1000 || ownerPackage == "com.android.systemui")
+    }
+
+    private fun slotIdentity(owner: Any): SlotIdentity? {
+        val task = call(owner, "getTask")
+        val display = call(owner, "getDisplayContent")
+            ?: field(owner, "mDisplayContent")
+            ?: call(task, "getDisplayContent")
+            ?: field(task, "mDisplayContent")
+            ?: return null
+        val info = call(display, "getDisplayInfo") ?: field(display, "mDisplayInfo")
+            ?: return null
+        val displayId = (call(display, "getDisplayId") as? Int)
+            ?: (field(info, "displayId") as? Int) ?: -1
+        val name = field(info, "name") as? String ?: "<unknown>"
+        return SlotIdentity(
+            displayId, name, field(info, "type") as? Int,
+            field(info, "ownerUid") as? Int,
+            field(info, "ownerPackageName") as? String,
+        )
+    }
+
+    private fun probe(owner: Any, source: String) {
+        if (disabledByErrors) return
+        queueObserver(owner)
+        val identity = slotIdentity(owner)
+        val id = taskId(owner)
+        // Probe every NeXtep-labelled candidate, including failed owner or
+        // display-type checks, without logging unrelated foreground apps.
+        if (identity?.name?.startsWith("NeXtep") == true) {
+            logOnce(
+                "SLOT_PROBE:$source:$id:${identity.displayId}",
+                "SLOT_GUARD_MATCH source=$source task=$id " +
+                    "display=${identity.displayId} name=${identity.name} " +
+                    "type=${identity.type} ownerUid=${identity.ownerUid} " +
+                    "ownerPackage=${identity.ownerPackage} " +
+                    "matched=${identity.matched} policy=$enabled",
+            )
+            if (identity.matched) recordStatus("matched:$source:$id")
+        }
+    }
+
+    private fun trackActivity(record: Any?, source: String) {
         if (record == null) return
         queueObserver(record)
+        probe(record, source)
         val id = taskId(record)
         if (id < 0) return
         if (isNeXtepSlot(record) && !isFinishing(record)) {
             trackedTasks[id] = WeakReference(record)
+            logOnce("SLOT_TRACK:$id", "SLOT_TASK_TRACKED task=$id source=$source uid=${recordUid(record)}")
+            recordStatus("tracked:$id")
         } else {
             trackedTasks.remove(id)
+            prearmedTasks.remove(id)
         }
         if (trackedTasks.size > 32) cleanup()
     }
 
+    private fun armForLock(owner: Any, source: String) {
+        if (!enabled || !isNeXtepSlot(owner) || isFinishing(owner)) return
+        val id = taskId(owner)
+        if (id < 0) return
+        val first = prearmedTasks.putIfAbsent(id, android.os.SystemClock.elapsedRealtime())
+        if (first == null) note(
+            "PREARM", "SLOT_LOCK_PREARM source=$source task=$id " +
+                "display=${slotIdentity(owner)?.displayId}",
+        )
+        val resumed = field(owner, "mResumedActivity")
+        if (resumed != null) trackActivity(resumed, "lockPrearm")
+    }
+
+    private fun isPrearmed(owner: Any): Boolean {
+        val id = taskId(owner)
+        val armed = prearmedTasks[id] ?: return false
+        val elapsed = android.os.SystemClock.elapsedRealtime() - armed
+        if (elapsed in 0..PREARM_WINDOW_MS) return true
+        prearmedTasks.remove(id, armed)
+        return false
+    }
+
     private fun shouldGuard(owner: Any, explicitSleep: Boolean = false): Boolean {
         queueObserver(owner)
-        return enabled && isNeXtepSlot(owner) &&
-            (explicitSleep || displaySleeping(owner)) &&
-            !isFinishing(owner)
+        return enabled && !disabledByErrors && isNeXtepSlot(owner) &&
+            !isFinishing(owner) &&
+            (explicitSleep || displaySleeping(owner) || isPrearmed(owner))
     }
 
     private fun liveProtectedUid(uid: Int): Boolean {
-        if (!enabled || uid < 10000) return false
+        if (!enabled || disabledByErrors || uid < 10000) return false
         val iterator = trackedTasks.entries.iterator()
         while (iterator.hasNext()) {
-            val (_, ref) = iterator.next()
+            val (id, ref) = iterator.next()
             val record = ref.get()
             if (record == null || isFinishing(record) || !isNeXtepSlot(record)) {
                 iterator.remove()
+                prearmedTasks.remove(id)
                 continue
             }
-            if (recordUid(record) == uid && displaySleeping(record)) return true
+            if (recordUid(record) == uid &&
+                (displaySleeping(record) || isPrearmed(record))) return true
         }
         return false
     }
 
     private fun cleanup() {
-        trackedTasks.entries.removeIf { (_, ref) ->
+        trackedTasks.entries.removeIf { (id, ref) ->
             val activity = ref.get()
-            activity == null || isFinishing(activity) || !isNeXtepSlot(activity)
+            val stale = activity == null || isFinishing(activity) || !isNeXtepSlot(activity)
+            if (stale) prearmedTasks.remove(id)
+            stale
         }
     }
 
     private fun displaySleeping(owner: Any): Boolean {
-        val display = call(owner, "getDisplayContent") ?: field(owner, "mDisplayContent")
+        val task = call(owner, "getTask")
+        val display = call(owner, "getDisplayContent")
+            ?: field(owner, "mDisplayContent")
+            ?: call(task, "getDisplayContent")
         return call(display, "isSleeping") == true ||
             call(owner, "shouldSleepActivities") == true
     }
@@ -299,13 +384,11 @@ internal object NeXtepSlotLifecycleGuard {
 
     private fun queueObserver(owner: Any) {
         if (observerStarted.get() || !observerQueued.compareAndSet(false, true)) return
-        val ctx = runCatching {
-            val service = field(owner, "mAtmService") ?: field(owner, "mWmService")
-            field(service, "mContext") as? Context
-                ?: field(service, "mUiContext") as? Context
-        }.getOrNull()
+        val ctx = systemContext(owner)
         if (ctx == null) {
             observerQueued.set(false)
+            logOnce("SLOT_CONTEXT_MISSING",
+                "SLOT_POLICY_CONTEXT_MISSING source=${owner.javaClass.simpleName}")
             return
         }
         handler.post {
@@ -314,21 +397,38 @@ internal object NeXtepSlotLifecycleGuard {
                 val resolver = ctx.contentResolver
                 val key = SystemServerWorkspaceBridge.INDEPENDENT_SLOT_LOCK_GUARD_KEY
                 val observer = object : ContentObserver(handler) {
-                    override fun onChange(selfChange: Boolean) {
-                        refresh(ctx)
-                    }
+                    override fun onChange(selfChange: Boolean) = refresh(ctx)
                 }
                 resolver.registerContentObserver(Settings.Global.getUriFor(key), false, observer)
                 context = ctx
                 observerStarted.set(true)
                 refresh(ctx)
-                Log.i(TAG, "Registered trusted independent-slot setting observer")
+                Log.i(TAG, "SLOT_POLICY_OBSERVER_READY source=system_server")
+                recordStatus("observer-ready")
             } catch (error: Throwable) {
-                Log.w(TAG, "Policy observer unavailable; fail closed", error)
+                Log.w(TAG, "SLOT_POLICY_OBSERVER_FAILED; fail closed", error)
             } finally {
                 observerQueued.set(false)
             }
         }
+    }
+
+    private fun systemContext(owner: Any): Context? {
+        val task = call(owner, "getTask")
+        val service = field(owner, "mAtmService") ?: field(owner, "mWmService")
+            ?: field(task, "mAtmService") ?: field(task, "mWmService")
+        val direct = field(service, "mContext") as? Context
+            ?: field(service, "mUiContext") as? Context
+        if (direct != null) return direct
+        return runCatching {
+            val klass = Class.forName("android.app.ActivityThread")
+            val current = klass.getDeclaredMethod("currentActivityThread").apply {
+                isAccessible = true
+            }.invoke(null)
+            klass.getDeclaredMethod("getSystemContext").apply {
+                isAccessible = true
+            }.invoke(current) as? Context
+        }.getOrNull()
     }
 
     private fun refresh(ctx: Context) {
@@ -336,31 +436,53 @@ internal object NeXtepSlotLifecycleGuard {
             Settings.Global.getInt(ctx.contentResolver,
                 SystemServerWorkspaceBridge.INDEPENDENT_SLOT_LOCK_GUARD_KEY, 0) == 1
         }.getOrDefault(false)
-        if (enabled != next) {
-            enabled = next
-            Log.i(TAG, "SLOT_LOCK_POLICY enabled=$next")
-        }
+        enabled = next
+        if (!next) prearmedTasks.clear()
+        Log.i(TAG, "SLOT_LOCK_POLICY enabled=$next tracked=${trackedTasks.size}")
+        recordStatus("policy:$next")
     }
 
-    private fun isNeXtepSlot(owner: Any): Boolean {
-        val display = call(owner, "getDisplayContent") ?: field(owner, "mDisplayContent")
-            ?: return false
-        val info = call(display, "getDisplayInfo") ?: return false
-        val name = field(info, "name") as? String ?: return false
-        if (!name.startsWith("NeXtep-slot-")) return false
-        val type = field(info, "type") as? Int
-        val ownerUid = field(info, "ownerUid") as? Int
-        return (type == null || type == 5) && (ownerUid == null || ownerUid == 1000)
+    private fun recordStatus(event: String) {
+        lastEvent = event
+        if (!statusQueued.compareAndSet(false, true)) return
+        handler.postDelayed({
+            try {
+                val ctx = context ?: return@postDelayed
+                val counts = counters.entries.sortedBy { it.key }
+                    .joinToString(",") { "${it.key}:${it.value.get()}" }
+                val snapshot = "enabled=$enabled hooks=$installedCount " +
+                    "tracked=${trackedTasks.size} armed=${prearmedTasks.size} " +
+                    "errors=${failureCount.get()} disabledByErrors=$disabledByErrors " +
+                    "last=$lastEvent counters=$counts"
+                Settings.Global.putString(ctx.contentResolver, STATUS_KEY, snapshot)
+            } catch (error: Throwable) {
+                Log.w(TAG, "SLOT_STATUS_WRITE_FAILED", error)
+            } finally {
+                statusQueued.set(false)
+            }
+        }, 180L)
     }
+
+    private fun note(event: String, message: String) {
+        counters.computeIfAbsent(event) { AtomicInteger(0) }.incrementAndGet()
+        logOnce("SLOT_EVENT:$event:${message.substringAfter("task=", "")}", message)
+        recordStatus(event)
+    }
+
+    private fun isNeXtepSlot(owner: Any): Boolean =
+        slotIdentity(owner)?.matched == true
 
     private fun taskId(owner: Any): Int {
-        val task = call(owner, "getTask") ?: return -1
+        val task = call(owner, "getTask")
+            ?: if (owner.javaClass.name == "com.android.server.wm.Task") owner else null
+            ?: return -1
         return (call(task, "getTaskId") as? Int)
             ?: (field(task, "mTaskId") as? Int) ?: -1
     }
 
     private fun isFinishing(owner: Any): Boolean =
-        field(owner, "finishing") == true
+        field(owner, "finishing") == true ||
+            field(field(owner, "mResumedActivity"), "finishing") == true
 
     private fun recordUid(record: Any): Int? {
         val info = field(record, "info") as? ActivityInfo
