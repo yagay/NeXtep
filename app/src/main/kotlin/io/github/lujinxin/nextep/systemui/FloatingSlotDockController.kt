@@ -8,6 +8,7 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
@@ -58,6 +59,9 @@ internal class FloatingSlotDockController(
     private val handler = Handler(Looper.getMainLooper())
     private var host: FrameLayout? = null
     private var panelVisible = false
+    private var popupBackEnabled = true
+    private var swipeCollapseEnabled = true
+    private var popupEverFocused = false
     private var suspendedForLock = false
     private data class StableZoom(val index: Int, val taskId: Int, val displayId: Int)
     private var stableZoom: StableZoom? = null
@@ -122,6 +126,28 @@ internal class FloatingSlotDockController(
         private set
     var lastErrorTrace: String? = null
         private set
+
+    /**
+     * Input policy for the Android-style expanded popup. Only an expanded popup
+     * can request focus; folded/locked windows are always non-touchable and
+     * non-focusable. The user can disable focus-taking for incompatible players.
+     */
+    fun applyPopupInputSettings(backAndFocus: Boolean, swipeCollapse: Boolean) {
+        popupBackEnabled = backAndFocus
+        swipeCollapseEnabled = swipeCollapse
+        val root = host ?: return
+        if (!root.isAttachedToWindow) return
+        runCatching {
+            val lp = root.layoutParams as WindowManager.LayoutParams
+            lp.flags = if (panelVisible && backAndFocus) {
+                lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+            } else {
+                lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            }
+            manager?.updateViewLayout(root, lp)
+            if (panelVisible && backAndFocus) root.requestFocus()
+        }.onFailure { NeXtepLog.warn("floating_dock", "POPUP_INPUT_POLICY_FAILED", it) }
+    }
 
     /** Visible and interactive, as opposed to a retained hidden live session. */
     fun isExpanded(): Boolean = host != null && panelVisible
@@ -508,6 +534,35 @@ internal class FloatingSlotDockController(
             profile = recorded
             panel = layout
             val root = object : FrameLayout(context) {
+                override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                    if (popupBackEnabled && panelVisible &&
+                        event.keyCode in listOf(KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE)) {
+                        if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) {
+                            NeXtepLog.info("floating_dock",
+                                "POPUP_KEY_COLLAPSE code=${event.keyCode}")
+                            if (stableZoom != null) restoreStableCompact() else collapse()
+                        }
+                        return true
+                    }
+                    return super.dispatchKeyEvent(event)
+                }
+
+                override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+                    super.onWindowFocusChanged(hasWindowFocus)
+                    if (hasWindowFocus) {
+                        popupEverFocused = true
+                    } else if (popupBackEnabled && popupEverFocused && panelVisible &&
+                        !removalPending && !suspendedForLock) {
+                        handler.post {
+                            if (popupBackEnabled && panelVisible && !removalPending &&
+                                !hasWindowFocus()) {
+                                NeXtepLog.info("floating_dock", "POPUP_FOCUS_LOST_COLLAPSE")
+                                collapse()
+                            }
+                        }
+                    }
+                }
+
                 override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                     if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
                         foldForOutsideTap(event)
@@ -540,7 +595,14 @@ internal class FloatingSlotDockController(
                             true
                         }
                         MotionEvent.ACTION_UP -> {
+                            val deltaY = event.y - blankDownY
+                            val deltaX = event.x - blankDownX
                             if (!blankTapMoved) foldForOutsideTap(null)
+                            else if (swipeCollapseEnabled && deltaY > dp(48) &&
+                                kotlin.math.abs(deltaX) < deltaY) {
+                                NeXtepLog.info("floating_dock", "POPUP_SWIPE_COLLAPSE")
+                                collapse()
+                            }
                             true
                         }
                         MotionEvent.ACTION_CANCEL -> {
@@ -550,6 +612,8 @@ internal class FloatingSlotDockController(
                         else -> false
                     }
                 }
+                isFocusable = true
+                isFocusableInTouchMode = true
                 clipChildren = true
                 clipToPadding = true
                 // The old opaque full-size backing rectangle is removed.
@@ -619,7 +683,7 @@ internal class FloatingSlotDockController(
             })
             val wnd = WindowManager.LayoutParams(
                 layout.width, layout.height, type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                (if (popupBackEnabled) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
@@ -639,6 +703,8 @@ internal class FloatingSlotDockController(
             checkNotNull(manager).addView(root, wnd)
             host = root
             panelVisible = true
+            popupEverFocused = root.hasWindowFocus()
+            if (popupBackEnabled) root.requestFocus()
             suspendedForLock = false
             coordinator = SlotTaskCoordinator(
                 context = context,
@@ -697,8 +763,10 @@ internal class FloatingSlotDockController(
         return runCatching {
             val wnd = root.layoutParams as WindowManager.LayoutParams
             wnd.alpha = 0f
-            wnd.flags = wnd.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            wnd.flags = wnd.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             manager?.updateViewLayout(root, wnd)
+            popupEverFocused = false
             // Keep the root itself VISIBLE and attached: setting GONE or
             // removeViewImmediate can destroy live TextureView surfaces.
             panelVisible = false
@@ -786,8 +854,13 @@ internal class FloatingSlotDockController(
             val wnd = root.layoutParams as WindowManager.LayoutParams
             wnd.alpha = 1f
             wnd.flags = wnd.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            wnd.flags = if (popupBackEnabled)
+                wnd.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+            else wnd.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             manager?.updateViewLayout(root, wnd)
             panelVisible = true
+            popupEverFocused = root.hasWindowFocus()
+            if (popupBackEnabled) root.requestFocus()
             coordinator?.onTasksChanged()
             updateRemoveBadges()
             NeXtepLog.info("floating_dock",
