@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 internal object NeXtepSlotLifecycleGuard {
     private const val TAG = "NeXtepSlotGuard"
-    internal const val STATUS_KEY = "nextep_slot_guard_diagnostics_v1"
+    internal const val STATUS_KEY = "nextep_floating_slot_guard_diagnostics_v2"
     private const val PREARM_WINDOW_MS = 20_000L
     private val prearmedTasks = ConcurrentHashMap<Int, Long>()
     private val counters = ConcurrentHashMap<String, AtomicInteger>()
@@ -454,7 +454,7 @@ internal object NeXtepSlotLifecycleGuard {
             try {
                 if (observerStarted.get()) return@post
                 val resolver = ctx.contentResolver
-                val key = SystemServerWorkspaceBridge.INDEPENDENT_SLOT_LOCK_GUARD_KEY
+                val key = SystemServerWorkspaceBridge.FLOATING_SLOT_LOCK_GUARD_KEY
                 val observer = object : ContentObserver(handler) {
                     override fun onChange(selfChange: Boolean) = refresh(ctx)
                 }
@@ -493,7 +493,7 @@ internal object NeXtepSlotLifecycleGuard {
     private fun refresh(ctx: Context) {
         val next = runCatching {
             Settings.Global.getInt(ctx.contentResolver,
-                SystemServerWorkspaceBridge.INDEPENDENT_SLOT_LOCK_GUARD_KEY, 0) == 1
+                SystemServerWorkspaceBridge.FLOATING_SLOT_LOCK_GUARD_KEY, 0) == 1
         }.getOrDefault(false)
         enabled = next
         if (!next) prearmedTasks.clear()
