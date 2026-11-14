@@ -247,6 +247,8 @@
     <string name="floating_layout_apply">Apply</string>
     <string name="floating_pad_mode_title">Pad multi-task mode (experimental)</string>
     <string name="floating_pad_mode_summary">Prioritize independent per-display focus for floating apps and Android multi-resume. May change keyboard/main-screen focus. Takes effect on the next new floating session; existing apps are kept.</string>
+    <string name="floating_independent_display_title">Independent display lock playback (experimental)</string>
+    <string name="floating_independent_display_summary">Keep activities in NeXtep virtual windows running through physical screen lock by protecting only their system-server lifecycle. Requires a full reboot once for new LSPosed hooks; new window sessions use the setting. Not guaranteed for every player.</string>
     <string name="playback_compat_enabled_title">Floating player compatibility</string>
     <string name="playback_compat_enabled_summary">Monitor media sessions only for selected floating-window apps. Off by default.</string>
     <string name="playback_compat_auto_title">One-time resume after folding (experimental)</string>
