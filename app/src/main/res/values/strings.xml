@@ -206,6 +206,12 @@
     <string name="floating_dock_arrangement">Arrangement</string>
     <string name="floating_dock_fixed_ratio">Window size · Lock aspect ratio</string>
     <string name="floating_dock_reset_size">Reset to 100%</string>
+    <string name="floating_dock_zoom_restore">Shrink to floating window</string>
+    <string name="floating_dock_remove_app">Remove app from floating window</string>
+    <string name="floating_dock_remove_question">Remove this app from the floating window? Its task will be closed, but the app will not be uninstalled.</string>
+    <string name="floating_dock_remove_cancel">Cancel</string>
+    <string name="floating_dock_remove_confirm">Remove</string>
+    <string name="floating_dock_remove_failed">Could not remove this app. Try again.</string>
     <string name="floating_dock_settings_done">Done</string>
     <string name="diagnostic_export_title">Export diagnostic logs</string>
     <string name="diagnostic_export_action">Export</string>
