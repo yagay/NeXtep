@@ -38,10 +38,10 @@ internal object NeXtepNativeWindowLifecycleGuard {
     @Volatile private var armUntil = 0L
     private val errorCount = AtomicInteger()
     private val prevented = AtomicInteger()
-    private val visibilityBlocked = AtomicInteger()
-    private val visibilityObserved = AtomicInteger()
+    private val invisiblePauseBlocked = AtomicInteger()
+    private val invisiblePauseObserved = AtomicInteger()
     private val lockCallbackEntered = AtomicInteger()
-    private val oemLockCallback = ThreadLocal.withInitial { false }
+    private val demotionObserved = AtomicInteger()
     private val observerStarted = AtomicBoolean()
     private val observerQueued = AtomicBoolean()
     private val handler = Handler(Looper.getMainLooper())
@@ -139,49 +139,72 @@ internal object NeXtepNativeWindowLifecycleGuard {
                     }
                     if (method.name == "notifyKeyguardStateChanged" &&
                         bools.size >= 2 && !bools[1]) armUntil = 0L
-                    // Exactly the vendor lock callback thread, not the full
-                    // period while the screen is non-interactive.
-                    val previous = oemLockCallback.get()
-                    if (locking) oemLockCallback.set(true)
-                    try { chain.proceed() }
-                    finally { oemLockCallback.set(previous) }
+                    // This firmware posts some lock work asynchronously and
+                    // runs keyguard demotion through another method. A
+                    // thread-local visibility filter would miss that work.
+                    chain.proceed()
                 }
                 installed++
             }
         }.onFailure { Log.w(TAG, "OEM lock observation unavailable (lifecycle hooks remain)", it) }
 
-        // YMiniGuard-style front-activity retention: ColorOS hides its
-        // native floating Activity inside the OEM keyguard callback, even
-        // when PAUSE/STOP/SLEEP have already been suppressed. Block only the
-        // *hide* call for a verified task in that same OEM callback thread.
-        for (method in activity.declaredMethods.filter {
-            (it.name == "setVisibility" && it.returnType == Void.TYPE &&
-                it.parameterCount >= 1 && it.parameterTypes.any { type ->
-                    type == Boolean::class.javaPrimitiveType ||
-                        type == Boolean::class.javaObjectType
-                }) ||
-            (it.name == "makeInvisible" && it.returnType == Void.TYPE)
-        }) {
-            hook(module, method) { chain ->
-                if (!oemLockCallback.get()) return@hook chain.proceed()
-                if (method.name == "setVisibility" &&
-                    chain.args.filterIsInstance<Boolean>().firstOrNull() != false)
-                    return@hook chain.proceed()
-                val owner = chain.thisObject
-                visibilityObserved.incrementAndGet()
-                // Check the source is an OEM lock-induced hide, then enforce
-                // the same exact taskId/UID/vendor scenario as other guards.
-                val fragment = call(owner, "getTaskFragment")
-                val sleeping = call(fragment, "shouldSleepActivities") == true ||
-                    call(field(owner, "mDisplayContent"), "isSleeping") == true
-                if ((sleeping || SystemClock.elapsedRealtime() < armUntil) &&
-                    safeEligible(owner)) {
-                    visibilityBlocked.incrementAndGet()
-                    status("NATIVE_LOCK_VISIBILITY_BLOCK task=${taskId(owner)} method=${method.name}")
-                    null
-                } else chain.proceed()
+        // Verified from the user's oplus-services.jar, classes3.dex:
+        // ActivityRecordExtImpl.pauseSelfIfInvisibleResumedInFlexibleTask
+        // calls TaskFragment.startPausing(...). This is the OEM's exact
+        // self-pause path for a resumed but invisible flexible task.
+        // Intercept its decision, NOT the global Activity visibility flag:
+        // the secure keyguard must still be able to cover app surfaces.
+        runCatching {
+            val ext = loader.loadClass("com.android.server.wm.ActivityRecordExtImpl")
+            ext.declaredMethods.filter { method ->
+                method.name == "pauseSelfIfInvisibleResumedInFlexibleTask" &&
+                    method.returnType == Boolean::class.javaPrimitiveType &&
+                    method.parameterCount == 2 &&
+                    method.parameterTypes[0].name == "com.android.server.wm.TaskFragment" &&
+                    method.parameterTypes[1].name == "com.android.server.wm.ActivityRecord"
+            }.forEach { method ->
+                hook(module, method) { chain ->
+                    val activity = chain.args.getOrNull(1)
+                    requestObserver(activity)
+                    if (activity != null && identities.containsKey(taskId(activity))) {
+                        invisiblePauseObserved.incrementAndGet()
+                        if (safeEligible(activity)) {
+                            invisiblePauseBlocked.incrementAndGet()
+                            prevented.incrementAndGet()
+                            status("NATIVE_OEM_INVISIBLE_PAUSE_BLOCK task=${taskId(activity)}")
+                            false
+                        } else chain.proceed()
+                    } else chain.proceed()
+                }
+                installed++
             }
-            installed++
+        }.onFailure {
+            Log.w(TAG, "OEM invisible-resumed pause hook unavailable", it)
+        }
+
+        // The OEM keyguard method confirmed in oplus-services.jar directly
+        // demotes Task always-on-top state and rearranges task layers. Observe
+        // only: skipping it could put app content over the secure lockscreen.
+        runCatching {
+            val flexible = loader.loadClass("com.android.server.wm.FlexibleTaskController")
+            flexible.declaredMethods.filter {
+                it.name == "applyKeyguardHideDemotionIfNeed" &&
+                    it.parameterCount == 1 &&
+                    it.parameterTypes[0].name == "com.android.server.wm.Task"
+            }.forEach { method ->
+                hook(module, method) { chain ->
+                    val task = chain.args.firstOrNull()
+                    val id = task?.let(::taskIdFromTask) ?: -1
+                    if (identities.containsKey(id)) {
+                        demotionObserved.incrementAndGet()
+                        status("NATIVE_OEM_KEYGUARD_DEMOTION task=$id preservedSecurity=true")
+                    }
+                    chain.proceed()
+                }
+                installed++
+            }
+        }.onFailure {
+            Log.w(TAG, "OEM keyguard task demotion tracing unavailable", it)
         }
 
         installedHooks = installed
@@ -374,8 +397,9 @@ internal object NeXtepNativeWindowLifecycleGuard {
             runCatching {
                 Settings.Global.putString(ctx.contentResolver, STATUS_KEY,
                     "enabled=$enabled hooks=$installedHooks registered=${identities.size} " +
-                        "blocked=${prevented.get()} visibilityObserved=${visibilityObserved.get()} " +
-                        "visibilityBlocked=${visibilityBlocked.get()} lockCallbacks=${lockCallbackEntered.get()} " +
+                        "blocked=${prevented.get()} invisiblePauseObserved=${invisiblePauseObserved.get()} " +
+                        "invisiblePauseBlocked=${invisiblePauseBlocked.get()} " +
+                        "keyguardDemotions=${demotionObserved.get()} lockCallbacks=${lockCallbackEntered.get()} " +
                         "errors=${errorCount.get()} " +
                         "autoDisabled=$autoDisabled freezer=false last=$lastEvent")
             }
