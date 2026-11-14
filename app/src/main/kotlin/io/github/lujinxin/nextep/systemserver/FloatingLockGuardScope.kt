@@ -9,6 +9,12 @@ package io.github.lujinxin.nextep.systemserver
 internal object FloatingLockGuardScope {
     private val namePattern = Regex("NeXtep-floating-slot-[0-3]")
 
+    /** The protection switch never affects the ordinary workspace or unrelated apps.
+     * Persisted explicit OFF always wins, even if the floating bubble is running.
+     */
+    fun shouldEnablePolicy(floatingBubbleEnabled: Boolean, guardEnabled: Boolean): Boolean =
+        floatingBubbleEnabled && guardEnabled
+
     fun isEligibleDisplay(
         displayId: Int,
         name: String,
