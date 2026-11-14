@@ -27,6 +27,7 @@ data class WorkspaceTopConfig(
     val textBold: Boolean = false,
     val statusBarGestureEnabled: Boolean = true,
     val floatingBubbleEnabled: Boolean = false,
+    val floatingWindowMode: String = WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL,
     val floatingLockGuardEnabled: Boolean = true,
     val floatingPopupBackEnabled: Boolean = true,
     val floatingSwipeCollapseEnabled: Boolean = true,
@@ -59,6 +60,11 @@ object WorkspaceConfigContract {
     const val EXTRA_TEXT_BOLD = "io.github.lujinxin.nextep.extra.TOP_TEXT_BOLD"
     const val EXTRA_STATUS_BAR_GESTURE_ENABLED = "io.github.lujinxin.nextep.extra.STATUS_BAR_GESTURE_ENABLED"
     const val EXTRA_FLOATING_BUBBLE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_ENABLED"
+    const val EXTRA_FLOATING_WINDOW_MODE = "io.github.lujinxin.nextep.extra.FLOATING_WINDOW_MODE"
+    const val FLOATING_WINDOW_MODE_VIRTUAL = "virtual"
+    const val FLOATING_WINDOW_MODE_NATIVE_FREEFORM = "native_freeform"
+    fun normalizeFloatingWindowMode(value: String?): String =
+        if (value == FLOATING_WINDOW_MODE_NATIVE_FREEFORM) value else FLOATING_WINDOW_MODE_VIRTUAL
     const val EXTRA_FLOATING_LOCK_GUARD_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_LOCK_GUARD_ENABLED"
     const val EXTRA_FLOATING_POPUP_BACK_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_POPUP_BACK_ENABLED"
     const val EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_SWIPE_COLLAPSE_ENABLED"
@@ -131,6 +137,7 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putBoolean(WorkspaceConfigContract.EXTRA_TEXT_BOLD, settings.textBold)
                 putBoolean(WorkspaceConfigContract.EXTRA_STATUS_BAR_GESTURE_ENABLED, settings.statusBarGestureEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, settings.floatingBubbleEnabled)
+                putString(WorkspaceConfigContract.EXTRA_FLOATING_WINDOW_MODE, settings.floatingWindowMode)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED,
                     settings.floatingLockGuardEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_POPUP_BACK_ENABLED, settings.floatingPopupBackEnabled)
@@ -279,6 +286,8 @@ object WorkspaceConfigClient {
             floatingBubbleEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_BUBBLE_ENABLED, false,
             ),
+            floatingWindowMode = WorkspaceConfigContract.normalizeFloatingWindowMode(
+                extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_WINDOW_MODE)),
             floatingLockGuardEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED, true,
             ),
