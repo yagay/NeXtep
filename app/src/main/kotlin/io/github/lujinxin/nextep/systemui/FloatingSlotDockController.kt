@@ -245,6 +245,10 @@ internal class FloatingSlotDockController(
             }
             coordinator?.quickParkForeground(task.taskId)
                 ?.onSuccess { index ->
+                    // Coordinator retains four physical slots and may choose
+                    // an otherwise hidden Ready slot. Make the occupied task
+                    // visible rather than leaving an inaccessible app.
+                    revealOccupiedSlot(index, "quick-add")
                     NeXtepLog.info("floating_quick_add",
                         "PARKED task=${task.taskId} slot=$index")
                 }?.onFailure { error ->
@@ -1039,6 +1043,11 @@ internal class FloatingSlotDockController(
             }
         }
         coordinator?.onTasksChanged()
+        // A task might be moved into a retained hidden VirtualDisplay by
+        // another trusted path. Never conceal an active application.
+        coordinator?.slotStates()?.forEachIndexed { index, state ->
+            if (state is SlotState.Occupied) revealOccupiedSlot(index, "reconciliation")
+        }
         updateRemoveBadges()
     }
 
@@ -1346,6 +1355,18 @@ internal class FloatingSlotDockController(
         NeXtepLog.info("floating_dock",
             "VISIBLE_SLOT_REMOVED index=$index visible=${visibleSlotIndices.joinToString()}")
         return true
+    }
+
+    private fun revealOccupiedSlot(index: Int, reason: String) {
+        if (index in visibleSlotIndices || index !in slots.indices) return
+        val updated = (visibleSlotIndices + index).sorted()
+        visibleSlotIndices.clear()
+        visibleSlotIndices.addAll(updated)
+        railOffsetPx = 0
+        buildToolbarControls()
+        reconfigure()
+        NeXtepLog.warn("floating_dock",
+            "SLOT_AUTO_REVEALED occupied=$index reason=$reason")
     }
 
     private fun restoreHiddenSlot() {
