@@ -192,6 +192,12 @@
     <string name="floating_service_stop">Turn off floating icon</string>
     <string name="floating_start_failed">Unable to start floating icon. Check overlay and background permissions.</string>
     <string name="floating_module_not_ready">Workspace unavailable: %1$s</string>
+    <string name="floating_interaction_mode_title">Floating interaction mode</string>
+    <string name="floating_interaction_mode_summary">Choose interactive virtual-display zoom or temporary native fullscreen. The original workspace is unchanged.</string>
+    <string name="floating_interaction_stable">Stable interactive (default)</string>
+    <string name="floating_interaction_stable_desc">The app stays in its virtual slot. Zoomed touches are forwarded to it; best for background and lockscreen playback. Some keyboard actions may not work.</string>
+    <string name="floating_interaction_native">Native fullscreen</string>
+    <string name="floating_interaction_native_desc">Temporarily move the same task to the main screen; Home, app switching, or locking returns it to its slot. The display change may recreate an Activity.</string>
     <string name="floating_dock_title">Floating windows</string>
     <string name="floating_dock_add">Choose app</string>
     <string name="floating_dock_close">×</string>
