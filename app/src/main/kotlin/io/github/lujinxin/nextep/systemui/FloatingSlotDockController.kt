@@ -374,8 +374,11 @@ internal class FloatingSlotDockController(
                 return
             }
             val states = coordinator?.slotStates().orEmpty()
-            val ready = states.any { it is SlotState.Ready }
-            val waiting = states.any { it is SlotState.Empty }
+            val pinnedIndex = pinnedSlotFor(packageName, userId)
+            val eligibleIndices = if (pinnedIndex != null) listOf(pinnedIndex)
+                else states.indices.filter { it !in pinnedSlots }
+            val ready = eligibleIndices.any { states.getOrNull(it) is SlotState.Ready }
+            val waiting = eligibleIndices.any { states.getOrNull(it) is SlotState.Empty }
             if (!ready && waiting && left > 0) {
                 handler.postDelayed({ attempt(left - 1) }, 100L)
                 return
@@ -385,7 +388,8 @@ internal class FloatingSlotDockController(
                 finish()
                 return
             }
-            coordinator?.autoParkTask(taskId, packageName, userId)
+            coordinator?.autoParkTask(taskId, packageName, userId,
+                preferredSlot = pinnedIndex ?: -1)
                 ?.onSuccess { index ->
                     revealOccupiedSlot(index, "auto-$reason")
                     NeXtepLog.info("auto_slot",
@@ -1582,7 +1586,8 @@ internal class FloatingSlotDockController(
             val state = coordinator?.slotStates()?.getOrNull(index)
             val occupied = state is SlotState.Occupied
             val label = "槽位 ${index + 1}" +
-                if (occupied) " · 正在运行应用（不可减少）" else " · 点击减少"
+                if (index in pinnedSlots) " · 已锁定（不可减少）"
+                else if (occupied) " · 正在运行应用（不可减少）" else " · 点击减少"
             list.addView(action(label, if (occupied) Color.LTGRAY else Color.WHITE) {
                 if (occupied) {
                     Toast.makeText(context, "先移走该槽位中的应用，再减少槽位", Toast.LENGTH_SHORT).show()
@@ -1593,7 +1598,8 @@ internal class FloatingSlotDockController(
 
     private fun hideSelectedSlot(index: Int): Boolean {
         if (!panelVisible || removalPending || stableZoom != null ||
-            index !in visibleSlotIndices || visibleSlotIndices.size <= 1) return false
+            index !in visibleSlotIndices || visibleSlotIndices.size <= 1 ||
+            index in pinnedSlots) return false
         val occupied = coordinator?.slotStates()?.getOrNull(index) is SlotState.Occupied
         val displayId = slots.getOrNull(index)?.displayId()
         val stillRunning = displayId != null && floatingTaskRepository.runningTasks()
@@ -1652,7 +1658,7 @@ internal class FloatingSlotDockController(
         if (stableZoom != null) return
         val states = coordinator?.slotStates().orEmpty()
         val empty = states.indices.firstOrNull {
-            it in visibleSlotIndices && states[it] is SlotState.Ready
+            it in visibleSlotIndices && it !in pinnedSlots && states[it] is SlotState.Ready
         } ?: -1
         if (empty < 0) {
             message(R.string.floating_dock_no_slot)
