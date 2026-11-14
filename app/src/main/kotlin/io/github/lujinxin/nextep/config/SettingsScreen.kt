@@ -198,9 +198,8 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
-                        "Independent virtual display (experimental)",
-                        "Try isolated focus and keyguard handling for all floating apps. " +
-                            "May not prevent screen-off pause; applies to new sessions only.",
+                        activity.getString(R.string.floating_independent_display_title),
+                        activity.getString(R.string.floating_independent_display_summary),
                         settings.floatingIndependentDisplayEnabled,
                         repository::setFloatingIndependentDisplayEnabled,
                     ), matchWidth())
