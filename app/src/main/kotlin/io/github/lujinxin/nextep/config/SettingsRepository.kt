@@ -118,7 +118,7 @@ class SettingsRepository(private val context: Context) {
         notifyTopContentChanged()
     }
 
-    /** System-server floating lock guard is opt-in and disabled by default. */
+    /** System-server floating lock guard is enabled by default; eligibility remains scoped to owned slots. */
     fun setFloatingLockGuardEnabled(enabled: Boolean) {
         if (preferences.edit().putBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, enabled).commit())
             notifyTopContentChanged()
