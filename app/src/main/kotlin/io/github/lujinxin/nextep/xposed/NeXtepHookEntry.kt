@@ -3,6 +3,7 @@ package io.github.lujinxin.nextep.xposed
 import android.util.Log
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.launcher.ColorOsLauncherHook
+import io.github.lujinxin.nextep.launcher.LauncherNavigationFoldHook
 import io.github.lujinxin.nextep.multiapp.OplusMultiAppHook
 import io.github.lujinxin.nextep.framework.TaskSurfaceCompat
 import io.github.lujinxin.nextep.safety.EmergencyDisable
@@ -52,6 +53,14 @@ class NeXtepHookEntry : XposedModule() {
 
         if (packageName == "io.github.lujinxin.nextep") {
             return
+        }
+
+        if (packageName == "com.android.launcher" &&
+            !EmergencyDisable.isRequested() &&
+            FeatureGate.LAUNCHER_TRANSFORM.defaultEnabled) {
+            HookGuard.run("floating_launcher_navigation") {
+                LauncherNavigationFoldHook.install(this, param.defaultClassLoader)
+            }
         }
 
         if (packageName == "com.oplus.multiapp") {
