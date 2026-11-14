@@ -184,6 +184,12 @@
     <string name="floating_service_stop">關閉懸浮圖示</string>
     <string name="floating_start_failed">無法啟動懸浮圖示，請檢查權限及背景執行限制。</string>
     <string name="floating_module_not_ready">無法展開工作台：%1$s</string>
+    <string name="floating_interaction_mode_title">小視窗互動模式</string>
+    <string name="floating_interaction_mode_summary">選擇放大後操作原虛擬顯示器，或暫時切換至原生全螢幕；不影響一般工作區。</string>
+    <string name="floating_interaction_stable">穩定互動（預設）</string>
+    <string name="floating_interaction_stable_desc">應用程式保留在原小視窗，放大後轉送觸控操作；適合背景與鎖定播放。某些輸入法可能不相容。</string>
+    <string name="floating_interaction_native">原生全螢幕</string>
+    <string name="floating_interaction_native_desc">暫時移到主螢幕操作，按首頁、切換應用或鎖定時返回原小視窗；可能重新建立頁面。</string>
     <string name="floating_dock_title">懸浮小視窗</string>
     <string name="floating_dock_add">選應用</string>
     <string name="floating_dock_close">×</string>
