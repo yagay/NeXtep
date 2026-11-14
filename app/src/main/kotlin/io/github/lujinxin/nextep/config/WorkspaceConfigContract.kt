@@ -35,6 +35,9 @@ data class WorkspaceTopConfig(
     val floatingSwipeCollapseEnabled: Boolean = true,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
     val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
+    val autoSlotOnBackground: Boolean = false,
+    val autoSlotOnLock: Boolean = false,
+    val autoSlotPackages: Set<String> = emptySet(),
     val slotBackgroundSwipeEnabled: Boolean = true,
     val autoMinimizeMainOnTopAppSwitch: Boolean = false,
     val navigationButtonsEnabled: Boolean = false,
@@ -74,6 +77,9 @@ object WorkspaceConfigContract {
     const val EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_SWIPE_COLLAPSE_ENABLED"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
     const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
+    const val EXTRA_AUTO_SLOT_BACKGROUND = "io.github.lujinxin.nextep.extra.AUTO_SLOT_BACKGROUND"
+    const val EXTRA_AUTO_SLOT_LOCK = "io.github.lujinxin.nextep.extra.AUTO_SLOT_LOCK"
+    const val EXTRA_AUTO_SLOT_PACKAGES = "io.github.lujinxin.nextep.extra.AUTO_SLOT_PACKAGES"
     const val DEFAULT_FLOATING_DOCK_ORIENTATION = "horizontal"
     const val DEFAULT_FLOATING_DOCK_SIZE_PERCENT = 100
     const val MIN_FLOATING_DOCK_SIZE_PERCENT = 60
@@ -152,6 +158,9 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED, settings.floatingSwipeCollapseEnabled)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
                 putInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT, settings.floatingDockSizePercent)
+                putBoolean(WorkspaceConfigContract.EXTRA_AUTO_SLOT_BACKGROUND, settings.autoSlotOnBackground)
+                putBoolean(WorkspaceConfigContract.EXTRA_AUTO_SLOT_LOCK, settings.autoSlotOnLock)
+                putStringArrayList(WorkspaceConfigContract.EXTRA_AUTO_SLOT_PACKAGES, ArrayList(settings.autoSlotPackages.sorted()))
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, settings.fourFingerGestureEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_BLOCK_GAMES, settings.fourFingerGestureBlockGames)
                 putStringArrayList(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_BLACKLIST,
@@ -312,6 +321,14 @@ object WorkspaceConfigClient {
                 extras.getInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT,
                     WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT),
             ),
+            autoSlotOnBackground = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_AUTO_SLOT_BACKGROUND, false),
+            autoSlotOnLock = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_AUTO_SLOT_LOCK, false),
+            autoSlotPackages = extras.getStringArrayList(
+                WorkspaceConfigContract.EXTRA_AUTO_SLOT_PACKAGES)
+                .orEmpty().filter { it.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) }
+                .toSet(),
             fourFingerGestureEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, true,
             ),
