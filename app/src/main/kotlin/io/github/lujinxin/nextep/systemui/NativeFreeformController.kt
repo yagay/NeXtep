@@ -70,8 +70,11 @@ internal class NativeFreeformController(context: Context) {
         }
         if (task.vendorWindowed || task.windowingMode == OPLUS_ZOOM_MODE ||
             task.windowingMode == FREEFORM_MODE) {
-            nativeTasks.add(task.taskId)
-            rememberVerified(task.taskId, pkg, task.userId)
+            // Do not silently add arbitrary vendor windows opened elsewhere
+            // to NeXtep's protected set. Only previously confirmed NeXtep
+            // registrations may be refreshed here.
+            if (task.taskId in nativeTasks)
+                rememberVerified(task.taskId, pkg, task.userId)
             NeXtepLog.info("native_oplus",
                 "ALREADY_WINDOWED task=${task.taskId} mode=${task.windowingMode} vendor=${task.vendorWindowed}")
             return true
