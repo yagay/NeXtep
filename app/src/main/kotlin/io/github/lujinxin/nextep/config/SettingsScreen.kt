@@ -173,6 +173,30 @@ object SettingsScreen {
                         },
                     ), matchWidth())
                     addView(settingDivider(activity))
+                    addView(settingSliderRow(
+                        activity,
+                        "悬浮图标大小 / Floating icon size",
+                        "调整独立悬浮按钮的直径，立即生效",
+                        settings.floatingBubbleSizeDp, 32, 88, 4,
+                        { "$it dp" },
+                        { value ->
+                            repository.setFloatingBubbleSizeDp(value)
+                            FloatingBubbleController.sync(activity)
+                        },
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSliderRow(
+                        activity,
+                        "悬浮图标贴边距离 / Edge spacing",
+                        "控制悬浮按钮吸附到屏幕左右边缘的间距",
+                        settings.floatingBubbleEdgeDp, 0, 40, 2,
+                        { "$it dp" },
+                        { value ->
+                            repository.setFloatingBubbleEdgeDp(value)
+                            FloatingBubbleController.sync(activity)
+                        },
+                    ), matchWidth())
+                    addView(settingDivider(activity))
                     val layoutButton = SettingsRowButton.create(activity).apply {
                         updateFloatingLayoutLabel(activity, this, repository.topBarSettings())
                         setOnClickListener { showFloatingLayoutDialog(activity, repository, this) }
