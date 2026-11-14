@@ -197,6 +197,17 @@ object SettingsScreen {
                         },
                     ), matchWidth())
                     addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        "贴边隐藏一半 / Half-hidden edge icon",
+                        "吸附后将图标的一半藏到屏幕左右边缘；开启时不使用贴边距离",
+                        settings.floatingBubbleHalfHidden,
+                        { enabled ->
+                            repository.setFloatingBubbleHalfHidden(enabled)
+                            FloatingBubbleController.sync(activity)
+                        },
+                    ), matchWidth())
+                    addView(settingDivider(activity))
                     val layoutButton = SettingsRowButton.create(activity).apply {
                         updateFloatingLayoutLabel(activity, this, repository.topBarSettings())
                         setOnClickListener { showFloatingLayoutDialog(activity, repository, this) }
