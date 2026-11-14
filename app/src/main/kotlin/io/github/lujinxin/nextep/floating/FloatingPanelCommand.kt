@@ -67,6 +67,22 @@ object FloatingPanelCommand {
         }
     }
 
+    /** Quick-add uses the same privileged ordered control channel as toggle. */
+    fun quickAdd(
+        context: Context, bubbleX: Int, bubbleY: Int, bubbleSize: Int,
+        callback: (Result) -> Unit,
+    ) {
+        val intent = anchorIntent(TriggerBroadcastContract.ACTION_QUICK_ADD_FLOATING_TASK,
+            bubbleX, bubbleY, bubbleSize)
+        val handler = Handler(Looper.getMainLooper())
+        context.sendOrderedBroadcast(intent, null, object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                callback(if (resultCode == TriggerBroadcastContract.RESULT_HANDLED)
+                    Result.Ready(false) else Result.Failed("No eligible foreground app or empty slot"))
+            }
+        }, handler, TriggerBroadcastContract.RESULT_NOT_READY, null, Bundle())
+    }
+
     /** Following a completed drag or rotation must not toggle the panel. */
     fun updateAnchor(context: Context, bubbleX: Int, bubbleY: Int, bubbleSize: Int) {
         val intent = anchorIntent(TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR,
