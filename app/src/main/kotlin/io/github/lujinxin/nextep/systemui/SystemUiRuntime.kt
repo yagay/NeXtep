@@ -127,7 +127,7 @@ object SystemUiRuntime {
             SystemServerWorkspaceBridge.publishBlockSystemDragShare(applicationContext,
                 queriedConfig.blockSystemDragShareEnabled)
             SystemServerWorkspaceBridge.publishIndependentSlotLockGuard(applicationContext,
-                queriedConfig.floatingLockGuardEnabled && queriedConfig.floatingBubbleEnabled)
+                queriedConfig.floatingLockGuardEnabled)
             AppLanguage.updateHostLanguage(queriedConfig.languageTag)
             workspaceConfigReady = true
             lifecycleHandler.post {
