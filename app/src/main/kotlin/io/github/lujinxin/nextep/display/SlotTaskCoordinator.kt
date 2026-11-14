@@ -93,8 +93,10 @@ class SlotTaskCoordinator(
             return Result.failure(IllegalStateException("Pinned task changed"))
         if (!active || suspended || transitionInProgress || recentSelectionPending)
             return Result.failure(IllegalStateException("Pinned slot busy"))
-        return runTransition("promote pinned task=$expectedTaskId slot=$slotIndex",
-            mainSlotIndex = slotIndex) {
+        // Immediate transaction: the caller collapses the dock ONLY after the
+        // real task move succeeds. Animated runTransition returns before its
+        // deferred operation executes, which would race with collapsing.
+        return runTransition("promote pinned task=$expectedTaskId slot=$slotIndex") {
             swapWithMain(slotIndex, occupied, exchangeCurrentMain = false)
         }
     }
