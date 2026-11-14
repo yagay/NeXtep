@@ -198,6 +198,7 @@
     <string name="floating_interaction_stable_desc">The app stays in its virtual slot. Zoomed touches are forwarded to it; best for background and lockscreen playback. Some keyboard actions may not work.</string>
     <string name="floating_interaction_native">Native fullscreen</string>
     <string name="floating_interaction_native_desc">Temporarily move the same task to the main screen; Home, app switching, or locking returns it to its slot. The display change may recreate an Activity.</string>
+    <string name="floating_dock_zoom_restore">Shrink to small window</string>
     <string name="floating_dock_title">Floating windows</string>
     <string name="floating_dock_add">Choose app</string>
     <string name="floating_dock_close">×</string>
