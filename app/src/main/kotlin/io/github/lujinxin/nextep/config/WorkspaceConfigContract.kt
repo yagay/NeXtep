@@ -79,12 +79,13 @@ object WorkspaceConfigContract {
         if (value == FLOATING_INTERACTION_NATIVE) FLOATING_INTERACTION_NATIVE else FLOATING_INTERACTION_STABLE
 
     /**
-     * A launcher-reused virtual-slot task is not always a takeover:
-     * Native mode intentionally permits it to stay on Display 0 while
-     * foreground. Stable mode, or a background reparent, stays pinned.
+     * A launcher-reused virtual-slot Task in native mode must be allowed to
+     * settle on Display 0 even if foreground-task queries lag the launcher
+     * transition. The foreground watchdog returns it after background/lock.
+     * Stable mode instead keeps strict virtual-display ownership.
      */
-    fun shouldReturnLauncherTaskImmediately(mode: String?, isForeground: Boolean): Boolean =
-        normalizeFloatingInteractionMode(mode) != FLOATING_INTERACTION_NATIVE || !isForeground
+    fun shouldReturnLauncherTaskImmediately(mode: String?): Boolean =
+        normalizeFloatingInteractionMode(mode) != FLOATING_INTERACTION_NATIVE
     const val DEFAULT_FLOATING_DOCK_ORIENTATION = "horizontal"
     const val DEFAULT_FLOATING_DOCK_SIZE_PERCENT = 100
     const val MIN_FLOATING_DOCK_SIZE_PERCENT = 60
