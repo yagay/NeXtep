@@ -29,6 +29,8 @@ data class WorkspaceTopConfig(
     val floatingBubbleEnabled: Boolean = false,
     val floatingWindowMode: String = WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL,
     val floatingLockGuardEnabled: Boolean = true,
+    val nativeLockGuardEnabled: Boolean = true,
+    val nativeFreezeProtectionEnabled: Boolean = false,
     val floatingPopupBackEnabled: Boolean = true,
     val floatingSwipeCollapseEnabled: Boolean = true,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
@@ -66,6 +68,8 @@ object WorkspaceConfigContract {
     fun normalizeFloatingWindowMode(value: String?): String =
         if (value == FLOATING_WINDOW_MODE_NATIVE_FREEFORM) value else FLOATING_WINDOW_MODE_VIRTUAL
     const val EXTRA_FLOATING_LOCK_GUARD_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_LOCK_GUARD_ENABLED"
+    const val EXTRA_NATIVE_LOCK_GUARD_ENABLED = "io.github.lujinxin.nextep.extra.NATIVE_LOCK_GUARD_ENABLED"
+    const val EXTRA_NATIVE_FREEZE_PROTECTION_ENABLED = "io.github.lujinxin.nextep.extra.NATIVE_FREEZE_PROTECTION_ENABLED"
     const val EXTRA_FLOATING_POPUP_BACK_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_POPUP_BACK_ENABLED"
     const val EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_SWIPE_COLLAPSE_ENABLED"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
@@ -140,6 +144,10 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_WINDOW_MODE, settings.floatingWindowMode)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED,
                     settings.floatingLockGuardEnabled)
+                putBoolean(WorkspaceConfigContract.EXTRA_NATIVE_LOCK_GUARD_ENABLED,
+                    settings.nativeLockGuardEnabled)
+                putBoolean(WorkspaceConfigContract.EXTRA_NATIVE_FREEZE_PROTECTION_ENABLED,
+                    settings.nativeFreezeProtectionEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_POPUP_BACK_ENABLED, settings.floatingPopupBackEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED, settings.floatingSwipeCollapseEnabled)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
@@ -291,6 +299,10 @@ object WorkspaceConfigClient {
             floatingLockGuardEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED, true,
             ),
+            nativeLockGuardEnabled = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_NATIVE_LOCK_GUARD_ENABLED, true),
+            nativeFreezeProtectionEnabled = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_NATIVE_FREEZE_PROTECTION_ENABLED, false),
             floatingPopupBackEnabled = extras.getBoolean(WorkspaceConfigContract.EXTRA_FLOATING_POPUP_BACK_ENABLED, true),
             floatingSwipeCollapseEnabled = extras.getBoolean(WorkspaceConfigContract.EXTRA_FLOATING_SWIPE_COLLAPSE_ENABLED, true),
             floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
