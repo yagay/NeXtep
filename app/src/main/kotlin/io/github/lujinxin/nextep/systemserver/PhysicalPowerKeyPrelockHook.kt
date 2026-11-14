@@ -13,7 +13,9 @@ import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 /**
  * Fast, passive OOS17 policy event BEFORE the usual keyguard/screen-off
  * callbacks. The user's framework services.jar confirms:
- * PhoneWindowManager.interceptPowerKeyDown(KeyEvent, boolean, boolean).
+ * PhoneWindowManager.interceptKeyBeforeQueueing(KeyEvent, int) and
+ * interceptPowerKeyDown(KeyEvent, boolean, boolean). Both pass-through;
+ * the first matching physical ACTION_DOWN sends one deduplicated signal.
  *
  * Never consumes the power event, blocks sleep, alters Activity state, or
  * calls task APIs under policy locks. SystemUI validates the exact pinned
@@ -27,11 +29,14 @@ internal object PhysicalPowerKeyPrelockHook {
     fun install(module: XposedModule, loader: ClassLoader) {
         val policy = loader.loadClass("com.android.server.policy.PhoneWindowManager")
         val methods = policy.declaredMethods.filter { method ->
-            method.name == "interceptPowerKeyDown" &&
+            (method.name == "interceptPowerKeyDown" &&
                 method.parameterCount == 3 &&
                 method.parameterTypes[0] == KeyEvent::class.java &&
                 method.parameterTypes[1] == Boolean::class.javaPrimitiveType &&
-                method.parameterTypes[2] == Boolean::class.javaPrimitiveType
+                method.parameterTypes[2] == Boolean::class.javaPrimitiveType) ||
+            (method.name == "interceptKeyBeforeQueueing" &&
+                method.parameterCount == 2 &&
+                method.parameterTypes[0] == KeyEvent::class.java)
         }
         if (methods.isEmpty()) {
             Log.w(TAG, "OOS17 early power-key method missing; SCREEN_OFF fallback retained")
@@ -53,7 +58,7 @@ internal object PhysicalPowerKeyPrelockHook {
                         return chain.proceed()
                     }
                 })
-                Log.i(TAG, "EARLY_POWER_DOWN_HOOK_INSTALLED")
+                Log.i(TAG, "EARLY_POWER_DOWN_HOOK_INSTALLED method=${method.name}")
             }.onFailure { Log.w(TAG, "EARLY_POWER_DOWN_INSTALL_FAILED", it) }
         }
     }
