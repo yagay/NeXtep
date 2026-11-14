@@ -19,6 +19,8 @@ internal class NativeFreeformController(context: Context) {
     private val taskRepository = TaskRepository(context)
     private val context = context.applicationContext
     private val tracked = LinkedHashSet<Int>()
+    private val oplusBridge = OplusNativeZoomBridge(context)
+    private val nativeTasks = LinkedHashSet<Int>()
     private val capacity = 4
 
     fun addForeground(): Boolean {
@@ -31,14 +33,31 @@ internal class NativeFreeformController(context: Context) {
             packageName == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
             packageName == TriggerBroadcastContract.MODULE_PACKAGE ||
             task.token == null) return false
-        if (task.windowingMode == FREEFORM_MODE) {
+        if (task.taskId in nativeTasks || task.windowingMode == FREEFORM_MODE) {
             tracked.add(task.taskId)
             NeXtepLog.info("native_freeform", "TRACK_EXISTING task=${task.taskId}")
             return true
         }
-        if (task.windowingMode != FULLSCREEN_MODE || tracked.size >= capacity) {
+        if (task.windowingMode != FULLSCREEN_MODE || tracked.size + nativeTasks.size >= capacity) {
             NeXtepLog.warn("native_freeform", "REFUSED task=${task.taskId} mode=${task.windowingMode} tracked=${tracked.size}")
             return false
+        }
+        // OxygenOS / ColorOS controls its own input, keyboard, task chrome
+        // and animations for ZoomWindow. Prefer that instead of generic AOSP
+        // Freeform. Vendor failure falls back to the existing WCT path.
+        when (val vendor = oplusBridge.start(task)) {
+            is OplusNativeZoomBridge.Result.Accepted -> {
+                nativeTasks.add(task.taskId)
+                NeXtepLog.info("native_oplus",
+                    "ZOOM_ACCEPTED task=${task.taskId} code=${vendor.code}")
+                return true
+            }
+            is OplusNativeZoomBridge.Result.Rejected ->
+                NeXtepLog.warn("native_oplus",
+                    "ZOOM_REJECTED task=${task.taskId}: ${vendor.reason}; trying freeform")
+            OplusNativeZoomBridge.Result.Unavailable ->
+                NeXtepLog.info("native_oplus",
+                    "ZOOM_UNAVAILABLE; using Android freeform")
         }
         val display = context.resources.displayMetrics
         val width = display.widthPixels.coerceAtLeast(320)
@@ -93,6 +112,7 @@ internal class NativeFreeformController(context: Context) {
         val tasks = taskRepository.runningTasks()
         tracked.removeAll { id -> tasks.none { it.taskId == id &&
             it.displayId == Display.DEFAULT_DISPLAY && it.windowingMode == FREEFORM_MODE } }
+        nativeTasks.removeAll { id -> tasks.none { it.taskId == id } }
     }
 
     private companion object {
