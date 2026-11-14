@@ -195,6 +195,8 @@
     <string name="floating_native_interaction_action">原生操作</string>
     <string name="floating_native_interaction_summary">临时切到手机主屏操作，按 Home、切换应用或锁屏后回到小窗。</string>
     <string name="floating_dock_zoom_restore">缩回小窗</string>
+    <string name="floating_lock_guard_title">锁屏保护浮动小窗</string>
+    <string name="floating_lock_guard_summary">实验功能：仅保护 NeXtep 浮动显示器中的任务，减少锁屏时 ColorOS 休眠和冻结导致的停播。需重启或重新加载 system_server Hook，异常时可关闭。</string>
     <string name="floating_dock_title">悬浮小窗</string>
     <string name="floating_dock_add">选应用</string>
     <string name="floating_dock_close">×</string>

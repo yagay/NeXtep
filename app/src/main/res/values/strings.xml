@@ -203,6 +203,8 @@
     <string name="floating_native_interaction_action">Native interaction</string>
     <string name="floating_native_interaction_summary">Temporarily open this app on the phone screen. Return to the floating slot after Home, switching apps, or locking.</string>
     <string name="floating_dock_zoom_restore">Shrink to small window</string>
+    <string name="floating_lock_guard_title">Protect floating playback on lockscreen</string>
+    <string name="floating_lock_guard_summary">Experimental. Protect only NeXtep floating-display tasks from ColorOS sleep/freezer callbacks while locked. Requires reboot or system_server hook reload. Disable if system stability is affected.</string>
     <string name="floating_dock_title">Floating windows</string>
     <string name="floating_dock_add">Choose app</string>
     <string name="floating_dock_close">×</string>
