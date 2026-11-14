@@ -24,6 +24,7 @@ class SettingsRepository(private val context: Context) {
         val playbackCompatAutoResume: Boolean,
         val playbackCompatLockAudio: Boolean,
         val playbackCompatPackages: Set<String>,
+        val floatingInteractionMode: String,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
         val slotBackgroundSwipeEnabled: Boolean,
@@ -64,6 +65,10 @@ class SettingsRepository(private val context: Context) {
         playbackCompatLockAudio = preferences.getBoolean(KEY_PLAYBACK_COMPAT_LOCK_AUDIO, false),
         playbackCompatPackages = preferences.getStringSet(KEY_PLAYBACK_COMPAT_PACKAGES, emptySet())
             .orEmpty().toSet(),
+        floatingInteractionMode = WorkspaceConfigContract.normalizeFloatingInteractionMode(
+            preferences.getString(KEY_FLOATING_INTERACTION_MODE,
+                WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE),
+        ),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
             preferences.getString(KEY_FLOATING_DOCK_ORIENTATION,
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION),
@@ -166,6 +171,17 @@ class SettingsRepository(private val context: Context) {
         if (editor.commit()) notifyTopContentChanged()
         else io.github.lujinxin.nextep.logging.NeXtepLog.warn(
             "playback_compat", "Could not persist selected-player preferences")
+    }
+
+    /** Live selection affects only the floating dock; ordinary workspace is unchanged. */
+    fun setFloatingInteractionMode(mode: String) {
+        val normalized = WorkspaceConfigContract.normalizeFloatingInteractionMode(mode)
+        if (preferences.edit().putString(KEY_FLOATING_INTERACTION_MODE, normalized).commit()) {
+            notifyTopContentChanged()
+        } else {
+            io.github.lujinxin.nextep.logging.NeXtepLog.warn(
+                "floating_mode", "Could not save floating interaction mode")
+        }
     }
 
     /** One canonical source for the app's settings and the injected SystemUI dock. */
@@ -290,6 +306,7 @@ class SettingsRepository(private val context: Context) {
         const val KEY_PLAYBACK_COMPAT_AUTO_RESUME = "playback_compat_auto_resume"
         const val KEY_PLAYBACK_COMPAT_LOCK_AUDIO = "playback_compat_lock_audio"
         const val KEY_PLAYBACK_COMPAT_PACKAGES = "playback_compat_packages"
+        const val KEY_FLOATING_INTERACTION_MODE = "floating_interaction_mode"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
         const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
         const val KEY_TOP_APPS = "top_apps"
