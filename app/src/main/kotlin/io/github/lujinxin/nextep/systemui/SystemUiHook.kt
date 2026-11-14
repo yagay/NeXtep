@@ -115,6 +115,7 @@ object SystemUiHook {
                     })
                 }
         }
+        installFloatingNavigationHooks(module, classLoader)
         SystemUiBrightnessMirrorHook.install(module, classLoader)
         HookGuard.run("systemui_framework_startup") {
             val method = Instrumentation::class.java.getDeclaredMethod(
@@ -179,5 +180,69 @@ object SystemUiHook {
                 "No startup candidate installed; device artifact analysis is required",
             )
         }
+    }
+
+    /**
+     * Listen only to real SystemUI navigation surfaces. No global touch
+     * interception, input pilfering, Activity lifecycle spoofing or polling.
+     * Missing OEM entry points are optional; keep every original callback.
+     */
+    private fun installFloatingNavigationHooks(module: XposedModule, loader: ClassLoader) {
+        fun installMethod(className: String, methodName: String,
+                          filter: (io.github.libxposed.api.XposedInterface.Chain) -> Boolean) {
+            val clazz = runCatching { loader.loadClass(className) }.getOrNull() ?: return
+            val methods = clazz.declaredMethods.filter { it.name == methodName }
+            methods.forEach { method ->
+                runCatching {
+                    method.isAccessible = true
+                    module.hook(method).intercept(object : io.github.libxposed.api.XposedInterface.Hooker {
+                        override fun intercept(chain: io.github.libxposed.api.XposedInterface.Chain): Any? {
+                            val observed = runCatching { filter(chain) }.getOrDefault(false)
+                            val result = chain.proceed()
+                            if (observed) {
+                                SystemUiRuntime.onNavigationCompleted(
+                                    "${clazz.simpleName}#${method.name}")
+                            }
+                            return result
+                        }
+                    })
+                    NeXtepLog.info("floating_nav",
+                        "NAV_HOOK_INSTALLED ${clazz.simpleName}#${method.name}")
+                }.onFailure {
+                    NeXtepLog.warn("floating_nav",
+                        "NAV_HOOK_UNAVAILABLE ${clazz.simpleName}#${method.name}", it)
+                }
+            }
+        }
+        // Physical three-button navigation and gesture navigation bar touch
+        // surfaces; touching the dock's own controls does not pass this path.
+        installMethod("com.android.systemui.navigationbar.NavigationBarView",
+            "dispatchTouchEvent") { chain ->
+            val event = chain.args.firstOrNull() as? MotionEvent
+            event?.actionMasked == MotionEvent.ACTION_UP
+        }
+        // On some ColorOS versions the button sends a key event through this
+        // path even if NavigationBarView does not override dispatchTouchEvent.
+        installMethod("com.android.systemui.navigationbar.buttons.KeyButtonView",
+            "sendEvent") { chain ->
+            val action = chain.args.firstOrNull() as? Int
+            val button = chain.thisObject
+            val code = button?.let {
+                runCatching {
+                    generateSequence(it.javaClass as Class<*>?) { c -> c.superclass }
+                        .mapNotNull { c -> c.declaredFields.firstOrNull { f -> f.name == "mCode" } }
+                        .firstOrNull()?.apply { isAccessible = true }?.getInt(it)
+                }.getOrNull()
+            }
+            action == android.view.KeyEvent.ACTION_UP &&
+                code in setOf(android.view.KeyEvent.KEYCODE_HOME,
+                    android.view.KeyEvent.KEYCODE_BACK,
+                    android.view.KeyEvent.KEYCODE_APP_SWITCH)
+        }
+        // Overview can be shown without a new foreground Task or ACTION_OUTSIDE.
+        installMethod("com.android.systemui.recents.OverviewProxyService",
+            "onOverviewShown") { true }
+        installMethod("com.android.systemui.navigationbar.gestural.EdgeBackGestureHandler",
+            "onBackInvoked") { true }
     }
 }
