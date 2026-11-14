@@ -437,7 +437,11 @@ internal class FloatingSlotDockController(
                         }
                 } else zoomStableCard(index, state)
             }
-            is SlotState.Ready, is SlotState.Failed -> coordinator?.onSlotClicked(index)
+            is SlotState.Ready, is SlotState.Failed -> {
+                if (index in pinnedSlots) {
+                    Toast.makeText(context, "该槽位已预留给锁定应用", Toast.LENGTH_SHORT).show()
+                } else coordinator?.onSlotClicked(index)
+            }
             SlotState.Empty -> coordinator?.onTasksChanged()
             else -> Unit
         }
