@@ -25,6 +25,7 @@ import android.widget.Toast
 import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.apps.LauncherAppRepository
 import io.github.lujinxin.nextep.floating.FloatingPanelStateController
+import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 import io.github.lujinxin.nextep.config.AppLanguage
 import io.github.lujinxin.nextep.display.SlotState
 import io.github.lujinxin.nextep.display.SlotTaskCoordinator
@@ -63,6 +64,19 @@ internal class FloatingSlotDockController(
     private var host: FrameLayout? = null
     private var panelVisible = false
     private val panelState = FloatingPanelStateController()
+    private fun setPanelExpanded(expanded: Boolean, reason: String) {
+        panelState.onVisibilityChanged(expanded)
+        runCatching {
+            context.sendBroadcast(
+                Intent(TriggerBroadcastContract.ACTION_FLOATING_PANEL_STATE_CHANGED)
+                    .setPackage(TriggerBroadcastContract.MODULE_PACKAGE)
+                    .putExtra(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ACTIVE, expanded),
+            )
+        }.onFailure {
+            NeXtepLog.warn("floating_dock", "ICON_STATE_SEND_FAILED reason=$reason", it)
+        }
+        NeXtepLog.info("floating_dock", "PANEL_STATE=${panelState.state} reason=$reason")
+    }
     private var popupBackEnabled = true
     private var swipeCollapseEnabled = true
     private var popupEverFocused = false
@@ -751,7 +765,7 @@ internal class FloatingSlotDockController(
             checkNotNull(manager).addView(root, wnd)
             host = root
             panelVisible = true
-            panelState.onVisibilityChanged(true)
+            setPanelExpanded(true, "create")
             popupEverFocused = root.hasWindowFocus()
             if (popupBackEnabled) root.requestFocus()
             syncPopupBackCallback(root)
@@ -821,7 +835,7 @@ internal class FloatingSlotDockController(
             // Keep the root itself VISIBLE and attached: setting GONE or
             // removeViewImmediate can destroy live TextureView surfaces.
             panelVisible = false
-            panelState.onVisibilityChanged(false)
+            setPanelExpanded(false, "collapse")
             pickerGeneration += 1
             picker?.visibility = View.GONE
             NeXtepLog.info("floating_dock",
@@ -911,6 +925,7 @@ internal class FloatingSlotDockController(
             else wnd.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             manager?.updateViewLayout(root, wnd)
             panelVisible = true
+            setPanelExpanded(true, "resume")
             popupEverFocused = root.hasWindowFocus()
             if (popupBackEnabled) root.requestFocus()
             syncPopupBackCallback(root)
@@ -1024,7 +1039,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun clear() {
-        panelState.onVisibilityChanged(false)
+        setPanelExpanded(false, "release")
         handler.removeCallbacks(outsideFold)
         outsideFoldPending = false
         dismissRemovalPrompt()
