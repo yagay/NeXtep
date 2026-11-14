@@ -33,7 +33,7 @@ class VirtualDisplayFactory(
                 try {
                     // Preview displays need no 120/144 Hz mode simply because
                     // the physical display is fast. The main display stays native.
-                    val config = VirtualDisplayConfig.Builder(if (floatingSlot) "NeXtep-floating-slot-$index" else "NeXtep-slot-$index",
+                    val config = VirtualDisplayConfig.Builder(FloatingSlotDisplayIdentity.displayName(index, floatingSlot),
                         geometry.width, geometry.height, geometry.densityDpi)
                         .setSurface(surface)
                         .setFlags(flags.value)
