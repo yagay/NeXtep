@@ -38,9 +38,10 @@ internal object NeXtepNativeWindowLifecycleGuard {
     @Volatile private var armUntil = 0L
     private val errorCount = AtomicInteger()
     private val prevented = AtomicInteger()
-    private val oemChecks = AtomicInteger()
-    private val oemAllowed = AtomicInteger()
-    private val oemRejected = AtomicInteger()
+    private val visibilityBlocked = AtomicInteger()
+    private val visibilityObserved = AtomicInteger()
+    private val lockCallbackEntered = AtomicInteger()
+    private val oemLockCallback = ThreadLocal.withInitial { false }
     private val observerStarted = AtomicBoolean()
     private val observerQueued = AtomicBoolean()
     private val handler = Handler(Looper.getMainLooper())
@@ -126,67 +127,61 @@ internal object NeXtepNativeWindowLifecycleGuard {
                 hook(module, method) { chain ->
                     requestObserver(chain.thisObject)
                     val bools = chain.args.filterIsInstance<Boolean>()
-                    if (method.name == "onScreenLockedChanged" && bools.any { it }) {
+                    val locking = when (method.name) {
+                        "onScreenLockedChanged" -> bools.any { it }
+                        "notifyKeyguardStateChanged" -> bools.size >= 2 && bools[1]
+                        else -> false
+                    }
+                    if (locking) {
                         armUntil = SystemClock.elapsedRealtime() + 3_000L
-                        status("OEM_LOCK_PREARM interactive=${!screenOff()} registered=${identities.size}")
+                        lockCallbackEntered.incrementAndGet()
+                        status("OEM_LOCK_PREARM source=${method.name} registered=${identities.size}")
                     }
                     if (method.name == "notifyKeyguardStateChanged" &&
                         bools.size >= 2 && !bools[1]) armUntil = 0L
-                    chain.proceed()
+                    // Exactly the vendor lock callback thread, not the full
+                    // period while the screen is non-interactive.
+                    val previous = oemLockCallback.get()
+                    if (locking) oemLockCallback.set(true)
+                    try { chain.proceed() }
+                    finally { oemLockCallback.set(previous) }
                 }
                 installed++
             }
         }.onFailure { Log.w(TAG, "OEM lock observation unavailable (lifecycle hooks remain)", it) }
 
-        // OxygenOS 17 checks this vendor-specific screen-off playback flag
-        // while deciding whether to keep an Activity visible. The historical
-        // guard only intercepted PAUSE/STOP/SLEEP, which was insufficient.
-        // Scope this override to the very same verified native Task+UID and
-        // only during the actual lock/screen-off transition.
-        for (name in listOf(
-            "com.android.server.wm.EnsureActivitiesVisibleHelperExtImpl",
-            "com.android.server.wm.OplusBackgroundTaskManagerService",
-        )) {
-            runCatching {
-                val clazz = loader.loadClass(name)
-                clazz.declaredMethods.filter { method ->
-                    method.name == "isScreenOffPlay" &&
-                        method.returnType == Boolean::class.javaPrimitiveType &&
-                        method.parameterCount == 1 &&
-                        method.parameterTypes[0].name == "com.android.server.wm.Task"
-                }.forEach { method ->
-                    hook(module, method) { chain ->
-                        val task = chain.args.firstOrNull()
-                        requestObserver(task)
-                        val id = task?.let(::taskIdFromTask) ?: -1
-                        // Only trace identities which our SystemUI explicitly
-                        // registered. The OEM checks thousands of other tasks.
-                        if (id > 0 && identities.containsKey(id)) {
-                            oemChecks.incrementAndGet()
-                            // The OEM may ask this BEFORE the display becomes
-                            // non-interactive. safeEligible still requires the
-                            // short OEM lock prearm or actual screen-off state,
-                            // and independently validates taskId, UID, display
-                            // and vendor window scenario.
-                            if (safeEligible(task)) {
-                                oemAllowed.incrementAndGet()
-                                prevented.incrementAndGet()
-                                status("NATIVE_OEM_SCREEN_OFF_PLAY task=$id source=${name.substringAfterLast('.')} " +
-                                    "interactive=${!screenOff()}")
-                                true
-                            } else {
-                                oemRejected.incrementAndGet()
-                                status("NATIVE_OEM_CHECK_NO_OVERRIDE task=$id " +
-                                    "interactive=${!screenOff()} prearmed=${SystemClock.elapsedRealtime() < armUntil}")
-                                chain.proceed()
-                            }
-                        } else chain.proceed()
-                    }
-                    installed++
-                }
-            }.onFailure {
-                Log.w(TAG, "Optional OEM screen-off-play hook unavailable: $name", it)
+        // YMiniGuard-style front-activity retention: ColorOS hides its
+        // native floating Activity inside the OEM keyguard callback, even
+        // when PAUSE/STOP/SLEEP have already been suppressed. Block only the
+        // *hide* call for a verified task in that same OEM callback thread.
+        for (method in activity.declaredMethods.filter {
+            (it.name == "setVisibility" && it.returnType == Void.TYPE &&
+                it.parameterCount >= 1 && it.parameterTypes.any { type ->
+                    type == Boolean::class.javaPrimitiveType ||
+                        type == Boolean::class.javaObjectType
+                }) ||
+            (it.name == "makeInvisible" && it.returnType == Void.TYPE)
+        }) {
+            hook(module, method) { chain ->
+                if (!oemLockCallback.get()) return@hook chain.proceed()
+                if (method.name == "setVisibility" &&
+                    chain.args.filterIsInstance<Boolean>().firstOrNull() != false)
+                    return@hook chain.proceed()
+                val owner = chain.thisObject
+                visibilityObserved.incrementAndGet()
+                // Check the source is an OEM lock-induced hide, then enforce
+                // the same exact taskId/UID/vendor scenario as other guards.
+                val fragment = call(owner, "getTaskFragment")
+                val sleeping = call(fragment, "shouldSleepActivities") == true ||
+                    call(field(owner, "mDisplayContent"), "isSleeping") == true
+                if ((sleeping || SystemClock.elapsedRealtime() < armUntil) &&
+                    safeEligible(owner)) {
+                    visibilityBlocked.incrementAndGet()
+                    status("NATIVE_LOCK_VISIBILITY_BLOCK task=${taskId(owner)} method=${method.name}")
+                    null
+                } else chain.proceed()
             }
+            installed++
         }
 
         installedHooks = installed
@@ -379,8 +374,8 @@ internal object NeXtepNativeWindowLifecycleGuard {
             runCatching {
                 Settings.Global.putString(ctx.contentResolver, STATUS_KEY,
                     "enabled=$enabled hooks=$installedHooks registered=${identities.size} " +
-                        "blocked=${prevented.get()} oemChecks=${oemChecks.get()} " +
-                        "oemAllowed=${oemAllowed.get()} oemRejected=${oemRejected.get()} " +
+                        "blocked=${prevented.get()} visibilityObserved=${visibilityObserved.get()} " +
+                        "visibilityBlocked=${visibilityBlocked.get()} lockCallbacks=${lockCallbackEntered.get()} " +
                         "errors=${errorCount.get()} " +
                         "autoDisabled=$autoDisabled freezer=false last=$lastEvent")
             }
