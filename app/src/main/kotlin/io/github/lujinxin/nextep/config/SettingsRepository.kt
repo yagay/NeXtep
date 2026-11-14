@@ -54,7 +54,7 @@ class SettingsRepository(private val context: Context) {
         textBold = preferences.getBoolean("top_text_bold", false),
         statusBarGestureEnabled = preferences.getBoolean("status_bar_gesture_enabled", true),
         floatingBubbleEnabled = preferences.getBoolean("floating_bubble_enabled", false),
-        floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, false),
+        floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, true),
         floatingPopupBackEnabled = preferences.getBoolean(KEY_FLOATING_POPUP_BACK_ENABLED, true),
         floatingSwipeCollapseEnabled = preferences.getBoolean(KEY_FLOATING_SWIPE_COLLAPSE_ENABLED, true),
         floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
@@ -118,7 +118,7 @@ class SettingsRepository(private val context: Context) {
         notifyTopContentChanged()
     }
 
-    /** System-server floating lock guard is opt-in and disabled by default. */
+    /** Default-on only with the floating bubble; the explicit OFF preference always wins. */
     fun setFloatingLockGuardEnabled(enabled: Boolean) {
         if (preferences.edit().putBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, enabled).commit())
             notifyTopContentChanged()
