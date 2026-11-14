@@ -20,7 +20,8 @@ internal object NeXtepDisplayPowerDiagnostics {
     private val recentlyLogged = ConcurrentHashMap<String, Long>()
 
     fun install(module: XposedModule, loader: ClassLoader) {
-        val service = loader.loadClass("com.android.server.display.DisplayManagerService")
+        // ColorOS 17 declares this entry point on the LocalService inner class.
+        val service = loader.loadClass("com.android.server.display.DisplayManagerService\$LocalService")
         val candidates = service.declaredMethods.filter { method ->
             method.name == "requestPowerState" &&
                 method.parameterCount == 3 &&
@@ -32,7 +33,7 @@ internal object NeXtepDisplayPowerDiagnostics {
                 it.name.contains("Power", ignoreCase = true) ||
                     it.name.contains("DisplayState", ignoreCase = true)
             }.take(16).joinToString { it.name + "/" + it.parameterCount }
-            Log.w(TAG, "No compatible requestPowerState hook on this OS; candidates=$available")
+            Log.w(TAG, "No compatible LocalService requestPowerState hook on this OS; candidates=$available")
             Log.w("NeXtep", "Display power tracing unsupported; no system state changed")
             return
         }
@@ -42,7 +43,8 @@ internal object NeXtepDisplayPowerDiagnostics {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
                     // Resolution failures must not block the real display-power request.
                     runCatching {
-                        val serviceInstance = chain.thisObject ?: return@runCatching
+                        val localService = chain.thisObject ?: return@runCatching
+                        val serviceInstance = getField(localService, "this\$0") ?: return@runCatching
                         val groupId = chain.args[0] as? Int ?: return@runCatching
                         val mapper = getField(serviceInstance, "mLogicalDisplayMapper")
                             ?: return@runCatching
