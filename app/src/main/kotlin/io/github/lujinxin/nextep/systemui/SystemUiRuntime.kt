@@ -21,6 +21,7 @@ import io.github.lujinxin.nextep.config.WorkspaceConfigClient
 import io.github.lujinxin.nextep.config.WorkspaceConfigContract
 import io.github.lujinxin.nextep.config.WorkspaceTopConfig
 import io.github.lujinxin.nextep.framework.TaskSurfaceCompat
+import io.github.lujinxin.nextep.task.TaskRepository
 import io.github.lujinxin.nextep.monitoring.WorkspaceEnergyContract
 import io.github.lujinxin.nextep.monitoring.WorkspaceEnergyDiagnostics
 import io.github.lujinxin.nextep.logging.NeXtepLog
@@ -67,9 +68,91 @@ object SystemUiRuntime {
             }
         }
     }
+
+    private lateinit var autoSlotTaskRepository: TaskRepository
+    private var observedForeground: TaskRepository.TaskSnapshot? = null
+    private var lastAutoParkTaskId = -1
+    private var lastAutoParkAt = 0L
+    private var autoSlotPending = false
+
+    private fun isAutoSlotAllowed(task: TaskRepository.TaskSnapshot?, onLock: Boolean): Boolean {
+        if (!workspaceConfigReady || !::floatingDock.isInitialized ||
+            !::workspaceController.isInitialized || workspaceController.isActive() ||
+            !workspaceConfig.floatingBubbleEnabled ||
+            workspaceConfig.floatingWindowMode != WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL ||
+            task?.userId == null || task.displayId != Display.DEFAULT_DISPLAY ||
+            task.windowingMode != 1 || task.vendorWindowed) return false
+        if (if (onLock) !workspaceConfig.autoSlotOnLock
+            else !workspaceConfig.autoSlotOnBackground) return false
+        val pkg = task.component.packageName
+        if (workspaceConfig.autoSlotPackages.isEmpty() ||
+            pkg !in workspaceConfig.autoSlotPackages ||
+            pkg == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
+            pkg == TriggerBroadcastContract.MODULE_PACKAGE ||
+            pkg == TriggerBroadcastContract.resolveHomePackage(applicationContext)) return false
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (task.taskId == lastAutoParkTaskId && now - lastAutoParkAt < 3_000L) return false
+        return true
+    }
+
+    private fun captureAutoSlotForeground(source: String, parkOnChange: Boolean) {
+        if (!::autoSlotTaskRepository.isInitialized) return
+        val next = autoSlotTaskRepository.foregroundTask()
+        val previous = observedForeground
+        observedForeground = next
+        if (!parkOnChange || autoSlotPending || previous?.userId == null ||
+            next == null || next.taskId == previous.taskId ||
+            !isAutoSlotAllowed(previous, onLock = false)) return
+        val taskId = previous.taskId
+        val pkg = previous.component.packageName
+        val userId = previous.userId
+        autoSlotPending = true
+        lastAutoParkTaskId = taskId
+        lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
+        lifecycleHandler.postDelayed({
+            try {
+                if (isScreenReady() && !isKeyguardLocked(applicationContext) &&
+                    workspaceConfig.autoSlotOnBackground &&
+                    autoSlotTaskRepository.foregroundTask()?.taskId != taskId) {
+                    floatingDock.autoParkCaptured(taskId, pkg, userId, "background")
+                }
+            } catch (error: Throwable) {
+                NeXtepLog.warn("auto_slot", "AUTO_BACKGROUND_EXCEPTION task=$taskId source=$source", error)
+            } finally {
+                autoSlotPending = false
+            }
+        }, 120L)
+    }
+
+    private fun autoParkForLock(): Boolean {
+        if (!::autoSlotTaskRepository.isInitialized) return false
+        val captured = observedForeground ?: autoSlotTaskRepository.foregroundTask()
+        if (!isAutoSlotAllowed(captured, onLock = true) || captured?.userId == null)
+            return false
+        // Do not create a fresh focusable SystemUI overlay after keyguard is
+        // displayed. Lock parking requires an already retained live session.
+        if (!floatingDock.hasSession()) {
+            NeXtepLog.info("auto_slot",
+                "LOCK_SKIPPED_NO_SESSION task=${captured.taskId}")
+            return false
+        }
+        lastAutoParkTaskId = captured.taskId
+        lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
+        val accepted = floatingDock.autoParkCaptured(
+            captured.taskId, captured.component.packageName,
+            captured.userId, "lock",
+        ) {
+            floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
+        }
+        NeXtepLog.info("auto_slot",
+            "LOCK_AUTO_PARK_REQUEST task=${captured.taskId} accepted=$accepted")
+        return accepted
+    }
+
     private val taskRefreshQueued = AtomicBoolean(false)
     private val taskRefresh = Runnable {
         taskRefreshQueued.set(false)
+        captureAutoSlotForeground("task-stack", parkOnChange = true)
         if (::windowController.isInitialized) windowController.onTasksChanged()
         if (::floatingDock.isInitialized) floatingDock.onTasksChanged()
     }
@@ -143,6 +226,8 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
+                if (workspaceConfig.autoSlotOnBackground || workspaceConfig.autoSlotOnLock)
+                    captureAutoSlotForeground("config-init", parkOnChange = false)
                 if (::nativeFreeform.isInitialized) nativeFreeform.configureNativeLockGuard(
                     workspaceConfig.nativeLockGuardEnabled &&
                     workspaceConfig.floatingWindowMode == WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM)
@@ -286,6 +371,7 @@ object SystemUiRuntime {
                 applicationContext, windowController::recordedLayoutProfile,
             )
             nativeFreeform = NativeFreeformController(applicationContext)
+            autoSlotTaskRepository = TaskRepository(applicationContext)
             workspaceController = WorkspaceController(
                 applicationContext = applicationContext,
                 windowController = windowController,
@@ -527,7 +613,7 @@ object SystemUiRuntime {
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 lifecycleHandler.removeCallbacks(hiddenFloatingResume)
                 TaskSurfaceCompat.finishWorkspaceExitAnimations()
-                if (::floatingDock.isInitialized)
+                if (::floatingDock.isInitialized && !autoParkForLock())
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
             }
             if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
