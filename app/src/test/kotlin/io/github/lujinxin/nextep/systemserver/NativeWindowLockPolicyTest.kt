@@ -18,16 +18,30 @@ class NativeWindowLockPolicyTest {
         physicallyOff: Boolean = true,
         lockPrearmed: Boolean = false,
         finishing: Boolean = false,
+        verifiedLockSession: Boolean = false,
     ) = NativeWindowLockPolicy.eligible(
         enabled, autoDisabled, expectedTaskId, actualTaskId,
         expectedUid, actualUid, displayId, windowMode, vendorScenario,
-        physicallyOff, lockPrearmed, finishing
+        physicallyOff, lockPrearmed, finishing, verifiedLockSession
     )
 
     @Test fun verifiedNativeTaskCanBeProtectedWhileScreenOff() {
         assertTrue(check())
         assertTrue(check(windowMode = 100, vendorScenario = 0))
         assertTrue(check(physicallyOff = false, lockPrearmed = true))
+    }
+
+    @Test fun verifiedNativeWindowRetainsProtectionAfterOemModeDemotion() {
+        assertTrue(check(windowMode = 1, vendorScenario = 0,
+            verifiedLockSession = true))
+        assertFalse(check(windowMode = 1, vendorScenario = 0,
+            verifiedLockSession = false))
+        assertFalse(check(windowMode = 1, vendorScenario = 0,
+            verifiedLockSession = true, actualUid = 20234))
+        assertFalse(check(windowMode = 1, vendorScenario = 0,
+            verifiedLockSession = true, actualTaskId = 26337))
+        assertFalse(check(windowMode = 1, vendorScenario = 0,
+            verifiedLockSession = true, physicallyOff = false))
     }
 
     @Test fun neverProtectUnrelatedTaskOrUid() {
