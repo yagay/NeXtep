@@ -81,6 +81,18 @@ object SystemUiRuntime {
         }
     }
 
+    private val privilegedNavigationFoldReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD_PRIVILEGED)
+                return
+            val source = intent.getStringExtra(
+                TriggerBroadcastContract.EXTRA_NAVIGATION_EVENT_SOURCE
+            )?.take(80) ?: return
+            NeXtepLog.info("floating_nav", "NAV_PRIVILEGED_RECEIVED source=$source")
+            onNavigationCompleted(source)
+        }
+    }
+
     private val navigationFoldReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD) return
@@ -311,6 +323,16 @@ object SystemUiRuntime {
                 navigationFoldReceiver,
                 IntentFilter(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD),
                 null,
+                Handler(Looper.getMainLooper()),
+                Context.RECEIVER_EXPORTED,
+            )
+            // system_server does not expose attribution through sentFromUid
+            // on every OEM build (the dump reported -1). A platform
+            // permission protects this separate route even in that case.
+            applicationContext.registerReceiver(
+                privilegedNavigationFoldReceiver,
+                IntentFilter(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD_PRIVILEGED),
+                "android.permission.STATUS_BAR_SERVICE",
                 Handler(Looper.getMainLooper()),
                 Context.RECEIVER_EXPORTED,
             )
