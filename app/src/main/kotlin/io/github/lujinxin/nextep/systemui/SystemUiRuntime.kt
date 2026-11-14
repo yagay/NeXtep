@@ -197,7 +197,7 @@ object SystemUiRuntime {
     }
     private val keyguardStateListener = KeyguardManager.KeyguardLockedStateListener {
         // Re-read current state: a queued callback can belong to an earlier wake.
-        if (::floatingDock.isInitialized && floatingDock.hasTemporaryFullscreen() &&
+        if (::floatingDock.isInitialized && floatingDock.hasSession() &&
             isKeyguardLocked(applicationContext)) {
             floatingDock.onPhysicalLockSignal("keyguard")
         }
@@ -208,7 +208,7 @@ object SystemUiRuntime {
         override fun onDisplayRemoved(displayId: Int) = Unit
         override fun onDisplayChanged(displayId: Int) {
             if (displayId == Display.DEFAULT_DISPLAY) {
-                if (::floatingDock.isInitialized && floatingDock.hasTemporaryFullscreen()) {
+                if (::floatingDock.isInitialized && floatingDock.hasSession()) {
                     val state = applicationContext.getSystemService(DisplayManager::class.java)
                         ?.getDisplay(Display.DEFAULT_DISPLAY)?.state
                     if (state != null && state != Display.STATE_ON) {
