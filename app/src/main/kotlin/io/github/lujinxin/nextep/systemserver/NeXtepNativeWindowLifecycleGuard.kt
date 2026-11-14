@@ -29,6 +29,10 @@ internal object NeXtepNativeWindowLifecycleGuard {
     private const val TAG = "NeXtepNativeLock"
     private const val MAX_REGISTRY_AGE_MS = 12 * 60 * 60 * 1000L
     private data class Identity(val uid: Int, val createdAt: Long)
+    private data class LockSession(val uid: Int, val startedAt: Long)
+    private val lockSessions = java.util.concurrent.ConcurrentHashMap<Int, LockSession>()
+    private val sessionsArmed = AtomicInteger()
+    private val sessionsRejected = AtomicInteger()
     @Volatile private var identities: Map<Int, Identity> = emptyMap()
     @Volatile private var enabled = false
     @Volatile private var context: Context? = null
@@ -145,7 +149,11 @@ internal object NeXtepNativeWindowLifecycleGuard {
                         status("OEM_LOCK_PREARM source=${method.name} registered=${identities.size}")
                     }
                     if (method.name == "notifyKeyguardStateChanged" &&
-                        bools.size >= 2 && !bools[1]) armUntil = 0L
+                        bools.size >= 2 && !bools[1]) {
+                        armUntil = 0L
+                        lockSessions.clear()
+                        status("NATIVE_LOCK_SESSIONS_CLEARED reason=unlock")
+                    }
                     // This firmware posts some lock work asynchronously and
                     // runs keyguard demotion through another method. A
                     // thread-local visibility filter would miss that work.
@@ -202,9 +210,15 @@ internal object NeXtepNativeWindowLifecycleGuard {
                 hook(module, method) { chain ->
                     val task = chain.args.firstOrNull()
                     val id = task?.let(::taskIdFromTask) ?: -1
-                    if (identities.containsKey(id)) {
+                    if (identities.containsKey(id) && task != null) {
                         demotionObserved.incrementAndGet()
-                        status("NATIVE_OEM_KEYGUARD_DEMOTION task=$id preservedSecurity=true")
+                        // This is the firmware's actual OEM demotion entry.
+                        // Snapshot native identity BEFORE the system changes
+                        // always-on-top/scenario flags; YMiniGuard keeps an
+                        // analogous OEM session during lock.
+                        latchBeforeDemotion(task)
+                        status("NATIVE_OEM_KEYGUARD_DEMOTION task=$id " +
+                            "sessionLatched=${lockSessions.containsKey(id)} preservedSecurity=true")
                     }
                     chain.proceed()
                 }
@@ -227,17 +241,73 @@ internal object NeXtepNativeWindowLifecycleGuard {
         })
     }
 
+    /**
+     * Only the OEM's keyguard demotion callback may create a temporary lock
+     * session. Never trust a stale package name: resolve a live ActivityRecord
+     * from this exact Task and compare its actual UID with the SystemUI
+     * registered pair BEFORE the original keyguard transaction proceeds.
+     */
+    private fun latchBeforeDemotion(task: Any) {
+        if (!enabled || autoDisabled) return
+        val id = taskIdFromTask(task)
+        val registration = identities[id] ?: return
+        runCatching {
+            val now = SystemClock.elapsedRealtime()
+            if (registration.createdAt > now ||
+                now - registration.createdAt > MAX_REGISTRY_AGE_MS) return
+            val activity = resolveActivity(task) ?: run {
+                sessionsRejected.incrementAndGet()
+                status("NATIVE_SESSION_NO_ACTIVITY task=$id")
+                return
+            }
+            val info = (field(activity, "info") ?: field(activity, "mInfo")) as? ActivityInfo
+                ?: return
+            val uid = info.applicationInfo?.uid ?: return
+            val display = call(task, "getDisplayContent") ?: return
+            if (call(display, "getDisplayId") != 0 ||
+                uid != registration.uid || uid < 10000 ||
+                finishing(activity)) {
+                sessionsRejected.incrementAndGet()
+                status("NATIVE_SESSION_IDENTITY_REJECTED task=$id")
+                return
+            }
+            val mode = call(task, "getWindowingMode") as? Int
+            val cfg = call(activity, "getConfiguration")
+                ?: field(activity, "mConfiguration")
+            val extra = field(cfg, "mOplusExtraConfiguration")
+            val scenario = (call(extra, "getScenario") ?: field(extra, "mScenario")) as? Int
+            // Registration alone is NOT sufficient: prove this task was
+            // still an OEM native window at keyguard demotion time.
+            if (mode != 100 && scenario != 1 && scenario != 2) {
+                sessionsRejected.incrementAndGet()
+                status("NATIVE_SESSION_NOT_FLEXIBLE task=$id mode=$mode scenario=$scenario")
+                return
+            }
+            lockSessions[id] = LockSession(uid, now)
+            sessionsArmed.incrementAndGet()
+            status("NATIVE_SESSION_LATCHED task=$id uid=$uid scenario=$scenario")
+        }.onFailure { error ->
+            val failures = errorCount.incrementAndGet()
+            if (failures >= 3) autoDisabled = true
+            status("NATIVE_SESSION_LATCH_ERROR task=$id errors=$failures")
+            Log.w(TAG, "OEM lock snapshot failed open", error)
+        }
+    }
+
+    private fun resolveActivity(owner: Any): Any? {
+        if (owner.javaClass.name == "com.android.server.wm.ActivityRecord") return owner
+        return field(owner, "mResumedActivity")
+            ?: call(owner, "topRunningActivity")
+            ?: call(owner, "getTopNonFinishingActivity")
+            ?: call(owner, "getTopMostActivity")
+    }
+
     private fun safeEligible(owner: Any?): Boolean {
         if (!enabled || autoDisabled || identities.isEmpty() || owner == null) return false
         val now = SystemClock.elapsedRealtime()
         if (!screenOff() && now >= armUntil) return false
         return try {
-            val activity = if (owner.javaClass.name ==
-                "com.android.server.wm.ActivityRecord") owner
-                else field(owner, "mResumedActivity")
-                    ?: call(owner, "topRunningActivity")
-                    ?: call(owner, "getTopNonFinishingActivity")
-                    ?: return false
+            val activity = resolveActivity(owner) ?: return false
             val task = call(activity, "getTask") ?: return false
             val id = taskId(activity)
             val registered = identities[id] ?: return false
@@ -260,6 +330,10 @@ internal object NeXtepNativeWindowLifecycleGuard {
             val scenario = (call(extra, "getScenario") ?: field(extra, "mScenario")) as? Int
             if (mode == null && scenario == null)
                 error("registered task=$id lacks OEM window mode and scenario")
+            val latched = lockSessions[id]?.let { session ->
+                session.uid == uid && session.startedAt <= now &&
+                    now - session.startedAt <= MAX_REGISTRY_AGE_MS
+            } == true
             NativeWindowLockPolicy.eligible(
                 enabled = enabled,
                 autoDisabled = autoDisabled,
@@ -273,6 +347,7 @@ internal object NeXtepNativeWindowLifecycleGuard {
                 physicallyOff = screenOff(),
                 lockPrearmed = now < armUntil,
                 finishing = finishing(activity),
+                verifiedLockSession = latched,
             )
         } catch (error: Throwable) {
             val errors = errorCount.incrementAndGet()
@@ -352,6 +427,9 @@ internal object NeXtepNativeWindowLifecycleGuard {
             }.take(4).toMap()
             identities = if (allow) records else emptyMap()
             enabled = allow
+            lockSessions.entries.removeIf { (id, session) ->
+                !allow || records[id]?.uid != session.uid
+            }
             status("NATIVE_POLICY enabled=$allow registered=${identities.size}")
         }.onFailure {
             identities = emptyMap()
@@ -408,6 +486,8 @@ internal object NeXtepNativeWindowLifecycleGuard {
                         "invisiblePauseBlocked=${invisiblePauseBlocked.get()} " +
                         "keyguardDemotions=${demotionObserved.get()} " +
                         "activityTransitions=${stateTransitions.get()} lockCallbacks=${lockCallbackEntered.get()} " +
+                        "lockSessions=${lockSessions.size} sessionsArmed=${sessionsArmed.get()} " +
+                        "sessionsRejected=${sessionsRejected.get()} " +
                         "errors=${errorCount.get()} " +
                         "autoDisabled=$autoDisabled freezer=false last=$lastEvent")
             }
