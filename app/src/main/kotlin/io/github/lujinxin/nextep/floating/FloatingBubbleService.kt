@@ -277,7 +277,8 @@ class FloatingBubbleService : Service() {
         val icon = ImageView(this).apply {
             setImageResource(R.drawable.ic_nextep_tile)
             setColorFilter(Color.WHITE)
-            setPadding(dp(11), dp(11), dp(11), dp(11))
+            val inset = (iconSizeDp * 0.21f).roundToInt().coerceAtLeast(6)
+            setPadding(dp(inset), dp(inset), dp(inset), dp(inset))
         }
         val view = FrameLayout(this).apply {
             contentDescription = getString(R.string.floating_bubble_open)
