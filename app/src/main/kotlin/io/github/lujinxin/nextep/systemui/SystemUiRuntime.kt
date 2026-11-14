@@ -38,7 +38,7 @@ object SystemUiRuntime {
     private val initialized = AtomicBoolean(false)
     private lateinit var applicationContext: Context
     private lateinit var windowController: NeXtepWindowController
-    private lateinit var floatingDock: FloatingSlotDockController
+    private lateinit var floatingDock: FloatingSlotDockControllerV2
     private lateinit var workspaceController: WorkspaceController
     private lateinit var fourFingerGestures: FourFingerGestureController
     private val lifecycleHandler = Handler(Looper.getMainLooper())
@@ -265,7 +265,7 @@ object SystemUiRuntime {
             )
             // Share the exact saved slot dimensions/rotation profile with the
             // optional horizontal dock, but never share task or window ownership.
-            floatingDock = FloatingSlotDockController(
+            floatingDock = FloatingSlotDockControllerV2(
                 applicationContext, windowController::recordedLayoutProfile,
             )
             workspaceController = WorkspaceController(
