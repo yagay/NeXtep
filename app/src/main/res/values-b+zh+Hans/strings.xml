@@ -268,4 +268,8 @@
     <string name="playback_compat_apps_count">已选 %1$d 个</string>
     <string name="playback_compat_lock_title">锁屏继续播放（实验性）</string>
     <string name="playback_compat_lock_summary">仅针对已经在 NeXtep 小窗中播放的选中应用，息屏后尝试一次媒体会话恢复。无后台服务的播放器可能无效；不会解锁屏幕，可能增加耗电。</string>
+    <string name="floating_popup_back_title">返回键与失焦时收起</string>
+    <string name="floating_popup_back_summary">展开悬浮弹窗时请求键盘焦点，以接收返回键并在失去焦点时收起。可能影响底层应用的输入焦点；可随时关闭。</string>
+    <string name="floating_swipe_collapse_title">下滑收起悬浮窗口</string>
+    <string name="floating_swipe_collapse_summary">在悬浮窗口的空白位置向下滑动收起，不中断四个窗口的任务。</string>
 </resources>
