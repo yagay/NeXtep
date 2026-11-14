@@ -38,6 +38,9 @@ internal object NeXtepNativeWindowLifecycleGuard {
     @Volatile private var armUntil = 0L
     private val errorCount = AtomicInteger()
     private val prevented = AtomicInteger()
+    private val oemChecks = AtomicInteger()
+    private val oemAllowed = AtomicInteger()
+    private val oemRejected = AtomicInteger()
     private val observerStarted = AtomicBoolean()
     private val observerQueued = AtomicBoolean()
     private val handler = Handler(Looper.getMainLooper())
@@ -125,7 +128,7 @@ internal object NeXtepNativeWindowLifecycleGuard {
                     val bools = chain.args.filterIsInstance<Boolean>()
                     if (method.name == "onScreenLockedChanged" && bools.any { it }) {
                         armUntil = SystemClock.elapsedRealtime() + 3_000L
-                        status("OEM_LOCK_PREARM")
+                        status("OEM_LOCK_PREARM interactive=${!screenOff()} registered=${identities.size}")
                     }
                     if (method.name == "notifyKeyguardStateChanged" &&
                         bools.size >= 2 && !bools[1]) armUntil = 0L
@@ -155,10 +158,28 @@ internal object NeXtepNativeWindowLifecycleGuard {
                     hook(module, method) { chain ->
                         val task = chain.args.firstOrNull()
                         requestObserver(task)
-                        if (screenOff() && safeEligible(task)) {
-                            prevented.incrementAndGet()
-                            status("NATIVE_OEM_SCREEN_OFF_PLAY task=${task?.let(::taskIdFromTask)} source=${name.substringAfterLast('.')}")
-                            true
+                        val id = task?.let(::taskIdFromTask) ?: -1
+                        // Only trace identities which our SystemUI explicitly
+                        // registered. The OEM checks thousands of other tasks.
+                        if (id > 0 && identities.containsKey(id)) {
+                            oemChecks.incrementAndGet()
+                            // The OEM may ask this BEFORE the display becomes
+                            // non-interactive. safeEligible still requires the
+                            // short OEM lock prearm or actual screen-off state,
+                            // and independently validates taskId, UID, display
+                            // and vendor window scenario.
+                            if (safeEligible(task)) {
+                                oemAllowed.incrementAndGet()
+                                prevented.incrementAndGet()
+                                status("NATIVE_OEM_SCREEN_OFF_PLAY task=$id source=${name.substringAfterLast('.')} " +
+                                    "interactive=${!screenOff()}")
+                                true
+                            } else {
+                                oemRejected.incrementAndGet()
+                                status("NATIVE_OEM_CHECK_NO_OVERRIDE task=$id " +
+                                    "interactive=${!screenOff()} prearmed=${SystemClock.elapsedRealtime() < armUntil}")
+                                chain.proceed()
+                            }
                         } else chain.proceed()
                     }
                     installed++
@@ -358,7 +379,9 @@ internal object NeXtepNativeWindowLifecycleGuard {
             runCatching {
                 Settings.Global.putString(ctx.contentResolver, STATUS_KEY,
                     "enabled=$enabled hooks=$installedHooks registered=${identities.size} " +
-                        "blocked=${prevented.get()} errors=${errorCount.get()} " +
+                        "blocked=${prevented.get()} oemChecks=${oemChecks.get()} " +
+                        "oemAllowed=${oemAllowed.get()} oemRejected=${oemRejected.get()} " +
+                        "errors=${errorCount.get()} " +
                         "autoDisabled=$autoDisabled freezer=false last=$lastEvent")
             }
         }
