@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -63,6 +64,8 @@ internal class FloatingSlotDockController(
     private var zoomedCard: ZoomedCard? = null
     private val floatingTaskRepository = TaskRepository(context)
     private var zoomActions: FrameLayout? = null
+    private val virtualInput = FloatingVirtualDisplayInput(context)
+    private var zoomTouchActive = false
     private val removeBadges = mutableMapOf<Int, TextView>()
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
@@ -165,6 +168,42 @@ internal class FloatingSlotDockController(
     }
 
     /**
+     * The visual surface is still a TextureView, but this is not a passive
+     * preview: each physical pointer gesture is dispatched to the running
+     * Activity on the original virtual display. This retains the App's
+     * Task ID, display-scoped foreground state, and lockscreen audio policy.
+     */
+    private fun forwardZoomedTouch(index: Int, event: MotionEvent) {
+        val zoom = zoomedCard ?: return
+        if (zoom.index != index || suspendedForLock || removalPending || !panelVisible) return
+        val slot = slots.getOrNull(index) ?: return
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                zoomTouchActive = floatingTaskRepository.findTask(zoom.taskId)?.displayId ==
+                    zoom.displayId && slot.displayId() == zoom.displayId
+                if (!zoomTouchActive) {
+                    NeXtepLog.warn("floating_input",
+                        "Refused input for missing/reparented task=${zoom.taskId} display=${zoom.displayId}")
+                    return
+                }
+            }
+            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_POINTER_DOWN,
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> if (!zoomTouchActive) return
+            else -> return
+        }
+        val geometry = slot.geometry() ?: return
+        val accepted = virtualInput.sendTouch(
+            event, slot.view.textureView, geometry, zoom.displayId,
+        )
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && !accepted) {
+            zoomTouchActive = false
+        }
+        if (event.actionMasked == MotionEvent.ACTION_UP ||
+            event.actionMasked == MotionEvent.ACTION_CANCEL) zoomTouchActive = false
+    }
+
+    /**
      * Full physical-screen PREVIEW of the same VirtualDisplay. Keep the
      * original TextureView attached to the same grid and its Surface connected.
      * The app's Task/Activity/displayId never changes during zoom.
@@ -236,6 +275,12 @@ internal class FloatingSlotDockController(
             }
             control("↙", str(R.string.floating_dock_zoom_restore),
                 Gravity.TOP or Gravity.LEFT) { restoreCompactCards() }
+            control("←", "Back in floating app",
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL) {
+                if (!virtualInput.sendBack(zoom.displayId)) {
+                    NeXtepLog.warn("floating_input", "Virtual Back rejected display=${zoom.displayId}")
+                }
+            }
             control("×", str(R.string.floating_dock_remove_app),
                 Gravity.TOP or Gravity.RIGHT) { requestRemoveApp(zoom.index) }
             root.addView(controls, FrameLayout.LayoutParams(-1, -1))
@@ -254,6 +299,7 @@ internal class FloatingSlotDockController(
         return runCatching {
             zoomActions?.let { root.removeView(it) }
             zoomActions = null
+            zoomTouchActive = false
             zoomedCard = null
             toolbar?.visibility = View.VISIBLE
             val window = root.layoutParams as WindowManager.LayoutParams
@@ -584,6 +630,14 @@ internal class FloatingSlotDockController(
             newSlots.forEachIndexed { index, slot ->
                 slot.view.setOnClickListener { onFloatingCardTapped(index) }
                 slot.view.setOnLongClickListener { true } // No ordinary task exchange in floating mode.
+                // Only this floating dock forwards touches. The ordinary
+                // workspace's TaskSwitcherView listener remains unchanged.
+                slot.view.setOnTouchListener { _, event ->
+                    if (zoomedCard?.index == index) {
+                        forwardZoomedTouch(index, event)
+                        true
+                    } else false
+                }
             }
             installRemoveBadges()
             playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
