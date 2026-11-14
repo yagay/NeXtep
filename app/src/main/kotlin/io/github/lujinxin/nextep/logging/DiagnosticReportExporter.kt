@@ -103,6 +103,7 @@ object DiagnosticReportExporter {
                     appendLine("Status-bar gesture: ${settings.statusBarGestureEnabled}")
                     appendLine("Four-finger gesture: ${settings.fourFingerGestureEnabled}")
                     appendLine("Floating bubble: ${settings.floatingBubbleEnabled}")
+                    appendLine("Floating interaction mode: ${settings.floatingInteractionMode}")
                     appendLine("Floating Pad mode requested: ${settings.floatingPadModeEnabled}")
                     appendLine("Independent display experimental mode: ${settings.floatingIndependentDisplayEnabled}")
                     appendLine("System server lock policy: " + runCatching {
