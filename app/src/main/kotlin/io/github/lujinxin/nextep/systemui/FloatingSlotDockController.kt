@@ -420,7 +420,7 @@ internal class FloatingSlotDockController(
     private fun updateRemoveBadges() {
         val states = coordinator?.slotStates().orEmpty()
         removeBadges.forEach { (index, badge) ->
-            badge.visibility = if (zoomedCard == null && panelVisible &&
+            badge.visibility = if (fullscreenTask == null && panelVisible &&
                 states.getOrNull(index) is SlotState.Occupied) View.VISIBLE else View.GONE
         }
     }
@@ -475,7 +475,6 @@ internal class FloatingSlotDockController(
                 NeXtepLog.warn("floating_remove", "Ignored stale remove request task=${state.taskId}")
                 return@action
             }
-            if (zoomedCard?.taskId == state.taskId) restoreCompactCards()
             ActivityTaskManagerCompat.removeTask(state.taskId).onSuccess {
                 NeXtepLog.info("floating_remove",
                     "REMOVED_CONFIRMED task=${state.taskId} slot=$index display=${state.displayId}")
@@ -679,14 +678,7 @@ internal class FloatingSlotDockController(
             newSlots.forEachIndexed { index, slot ->
                 slot.view.setOnClickListener { onFloatingCardTapped(index) }
                 slot.view.setOnLongClickListener { true } // No ordinary task exchange in floating mode.
-                // Only this floating dock forwards touches. The ordinary
-                // workspace's TaskSwitcherView listener remains unchanged.
-                slot.view.setOnTouchListener { _, event ->
-                    if (zoomedCard?.index == index) {
-                        forwardZoomedTouch(index, event)
-                        true
-                    } else false
-                }
+
             }
             installRemoveBadges()
             playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
@@ -719,7 +711,7 @@ internal class FloatingSlotDockController(
         dismissRemovalPrompt()
         // Return to the compact presentation before hiding the overlay,
         // keeping every task on exactly the same virtual display.
-        if (zoomedCard != null && !restoreCompactCards()) return false
+        if (fullscreenTask != null && !returnFullscreenToSlot("dock hide")) return false
         if (!panelVisible) return true
         return runCatching {
             val wnd = root.layoutParams as WindowManager.LayoutParams
@@ -747,6 +739,10 @@ internal class FloatingSlotDockController(
     /** Lock hides task previews and disconnects their output, not their tasks. */
     fun hideForLock() {
         if (!hasSession()) return
+        if (fullscreenTask != null && !returnFullscreenToSlot("SCREEN_OFF")) {
+            NeXtepLog.warn("floating_pinned",
+                "SCREEN_OFF_RETURN_PENDING; retaining original virtual display for retry")
+        }
         if (!collapse(lockEvent = true)) {
             NeXtepLog.warn("floating_dock", "Failed to hide window at lock")
         }
@@ -794,6 +790,7 @@ internal class FloatingSlotDockController(
      */
     fun resumeHiddenSessionAfterUnlock(): Boolean {
         if (!hasSession() || !suspendedForLock) return true
+        if (fullscreenTask != null && !returnFullscreenToSlot("unlock retry")) return false
         return runCatching {
             coordinator?.setSuspended(false)
             suspendedForLock = false
@@ -811,6 +808,7 @@ internal class FloatingSlotDockController(
 
     /** Re-expand the SAME session; do not create another VD or restart apps. */
     private fun showRetainedSession(): Boolean {
+        if (fullscreenTask != null) return false
         val root = host ?: return false
         if (!root.isAttachedToWindow) {
             lastError = "Retained floating surface was detached by WindowManager"
@@ -856,7 +854,7 @@ internal class FloatingSlotDockController(
     fun destroySession(): Boolean {
         if (!hasSession()) return true
         dismissRemovalPrompt()
-        if (zoomedCard != null && !restoreCompactCards()) return false
+        if (fullscreenTask != null && !returnFullscreenToSlot("session shutdown")) return false
         lastError = null
         return runCatching {
             releaseIndependentWakeLock()
@@ -876,12 +874,7 @@ internal class FloatingSlotDockController(
 
     fun onTasksChanged() {
         if (!hasSession()) return
-        val zoom = zoomedCard
-        if (zoom != null &&
-            floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
-            NeXtepLog.warn("floating_zoom", "Zoomed task exited or was moved externally; restoring preview")
-            restoreCompactCards()
-        }
+        onTaskForegroundChanged()
         coordinator?.onTasksChanged()
         updateRemoveBadges()
         handler.removeCallbacks(playbackSlotRefresh)
@@ -891,12 +884,7 @@ internal class FloatingSlotDockController(
     /** Reflow cells on rotation; keep the original displays and their task ownership alive. */
     fun reconfigure() {
         val root = host ?: return
-        if (zoomedCard != null) {
-            runCatching { applyZoomedLayout() }.onFailure {
-                NeXtepLog.warn("floating_zoom", "Reflow of zoomed preview failed", it)
-            }
-            return
-        }
+        if (fullscreenTask != null) return // Retain its source geometry until returned.
         runCatching {
             val recorded = recordedLayoutProfile(true)
             profile = recorded
@@ -944,8 +932,9 @@ internal class FloatingSlotDockController(
 
     private fun clear() {
         dismissRemovalPrompt()
-        zoomActions = null
-        zoomedCard = null
+        handler.removeCallbacks(fullscreenWatchdog)
+        fullscreenTask = null
+        movingFullscreenTask = false
         removeBadges.clear()
         pickerGeneration += 1
         coordinator = null
@@ -1126,6 +1115,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun showPicker() {
+        if (fullscreenTask != null || movingFullscreenTask) return
         val states = coordinator?.slotStates().orEmpty()
         val empty = states.indexOfFirst { it is SlotState.Ready }
         if (empty < 0) {
