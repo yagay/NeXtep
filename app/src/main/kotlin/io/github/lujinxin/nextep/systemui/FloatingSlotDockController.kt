@@ -14,6 +14,7 @@ import android.view.MotionEvent
 import android.view.Display
 import android.view.Gravity
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -1010,14 +1011,32 @@ internal class FloatingSlotDockController(
                 // Within the rectangular WindowManager host, blank gaps are
                 // not meaningful controls; a completed blank-area tap folds
                 // the dock without stealing touches from slot/buttons.
+                val tapSlop = ViewConfiguration.get(context).scaledTouchSlop
+                var blankDownX = 0f
+                var blankDownY = 0f
+                var blankTapMoved = false
                 setOnTouchListener { _, event ->
                     when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> true
-                        MotionEvent.ACTION_UP -> {
-                            foldForOutsideTap(null)
+                        MotionEvent.ACTION_DOWN -> {
+                            blankDownX = event.x
+                            blankDownY = event.y
+                            blankTapMoved = false
                             true
                         }
-                        MotionEvent.ACTION_CANCEL -> true
+                        MotionEvent.ACTION_MOVE -> {
+                            if (kotlin.math.abs(event.x - blankDownX) > tapSlop ||
+                                kotlin.math.abs(event.y - blankDownY) > tapSlop
+                            ) blankTapMoved = true
+                            true
+                        }
+                        MotionEvent.ACTION_UP -> {
+                            if (!blankTapMoved) foldForOutsideTap(null)
+                            true
+                        }
+                        MotionEvent.ACTION_CANCEL -> {
+                            blankTapMoved = true
+                            true
+                        }
                         else -> false
                     }
                 }
