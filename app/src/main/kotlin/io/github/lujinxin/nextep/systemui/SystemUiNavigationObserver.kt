@@ -30,7 +30,7 @@ internal object SystemUiNavigationObserver {
         }
 
         var installed = 0
-        fun observe(name: String, predicate: (Array<out Any?>) -> Boolean = { true }) {
+        fun observe(name: String, predicate: (List<Any?>) -> Boolean = { true }) {
             val methods = proxy.declaredMethods.filter { it.name == name }
             if (methods.isEmpty()) {
                 Log.i(TAG, "METHOD_MISSING $name")
