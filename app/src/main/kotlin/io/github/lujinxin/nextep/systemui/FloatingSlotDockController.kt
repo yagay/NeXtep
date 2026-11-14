@@ -528,6 +528,9 @@ internal class FloatingSlotDockController(
      */
     fun collapse(lockEvent: Boolean = false): Boolean {
         val root = host ?: return true
+        // A deliberate hide must put the pinned app back first. Screen lock
+        // uses a separate privacy path; do not move tasks while keyguard starts.
+        if (!lockEvent && promotedSlot != null && !restorePromotedTask()) return false
         if (!panelVisible) return true
         return runCatching {
             val wnd = root.layoutParams as WindowManager.LayoutParams
@@ -603,7 +606,10 @@ internal class FloatingSlotDockController(
     fun resumeHiddenSessionAfterUnlock(): Boolean {
         if (!hasSession() || !suspendedForLock) return true
         return runCatching {
-            coordinator?.setSuspended(false)
+            // A promoted app remains on Display 0 until the user taps the
+            // same floating card/icon to shrink it. Do not allow suspended
+            // reconciliation to consume its intentionally empty slot.
+            if (promotedSlot == null) coordinator?.setSuspended(false)
             suspendedForLock = false
             releaseIndependentWakeLock()
             playbackCompat.onScreenUnlocked()
@@ -629,7 +635,7 @@ internal class FloatingSlotDockController(
         }
         return runCatching {
             if (suspendedForLock) {
-                coordinator?.setSuspended(false)
+                if (promotedSlot == null) coordinator?.setSuspended(false)
                 suspendedForLock = false
             }
             pickerGeneration += 1
@@ -663,6 +669,8 @@ internal class FloatingSlotDockController(
     fun destroySession(): Boolean {
         if (!hasSession()) return true
         lastError = null
+        // Never release the source VD while its pinned task lives on Display 0.
+        if (promotedSlot != null && !restorePromotedTask()) return false
         return runCatching {
             releaseIndependentWakeLock()
             coordinator?.deactivate()
@@ -735,6 +743,9 @@ internal class FloatingSlotDockController(
     }
 
     private fun clear() {
+        clearRestoreHint()
+        promotedSlot = null
+        promotionBusy = false
         pickerGeneration += 1
         coordinator = null
         slots = emptyList()
@@ -913,6 +924,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun showPicker() {
+        if (promotedSlot != null || promotionBusy) return
         val states = coordinator?.slotStates().orEmpty()
         val empty = states.indexOfFirst { it is SlotState.Ready }
         if (empty < 0) {
