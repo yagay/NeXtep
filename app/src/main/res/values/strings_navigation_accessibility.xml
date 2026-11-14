@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nextep_accessibility_label">NeXtep navigation detection</string>
+    <string name="nextep_accessibility_description">Optional detection of Home and Recents window changes to collapse floating windows without closing running apps. Does not read screen content.</string>
+    <string name="nextep_accessibility_navigation_title">Accessibility navigation fallback</string>
+    <string name="nextep_accessibility_navigation_summary">Observe Home and Recents window transitions as an optional fallback to system hooks. Requires enabling the NeXtep accessibility service.</string>
+    <string name="nextep_accessibility_open_settings">Open accessibility settings</string>
+    <string name="nextep_accessibility_permission_summary">Select NeXtep navigation detection in Android accessibility settings and allow the service.</string>
+</resources>
