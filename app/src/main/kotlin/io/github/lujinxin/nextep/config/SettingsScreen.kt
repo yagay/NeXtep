@@ -302,8 +302,8 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
-                        "原生小窗锁屏保活 / Native window lock guard",
-                        "仅针对 NeXtep 已确认的原生 Task（taskId + UID），熄屏时保护非结束性生命周期；独立于虚拟四槽位保活。",
+                        "原生小窗锁屏保活（暂时停用）",
+                        "当前固件的实验性 system_server Hook 已为稳定性暂时停用；保留此偏好供后续修复使用，当前开关不激活拦截。原生小窗启动不受影响。",
                         settings.nativeLockGuardEnabled,
                         repository::setNativeLockGuardEnabled,
                     ), matchWidth())
