@@ -11,9 +11,11 @@ import kotlin.math.roundToInt
 internal object FloatingDockRailLayout {
     enum class Orientation { HORIZONTAL, VERTICAL }
 
-    const val MIN_SCALE_PERCENT = 60
-    const val MAX_SCALE_PERCENT = 140
-    const val SCALE_STEP_PERCENT = 10
+    // Expanded dock can be resized continuously using the toolbar drag handle.
+    // Canvas resolution remains unchanged; only the clipped TextureView rail scales.
+    const val MIN_SCALE_PERCENT = 50
+    const val MAX_SCALE_PERCENT = 200
+    const val SCALE_STEP_PERCENT = 1
 
     data class Cell(val x: Int, val y: Int, val width: Int, val height: Int)
     data class Plan(
@@ -52,12 +54,12 @@ internal object FloatingDockRailLayout {
         val button = dp(30)
         val controlGap = dp(4)
         // Expanded toolbar: navigation, app picker, slot count − / +,
-        // and collapse. Vertical uses three compact rows of two.
+        // drag-resize and collapse. Vertical uses four compact rows of two.
         val header = if (orientation == Orientation.VERTICAL)
-            button * 3 + dp(16) else button + dp(8)
+            button * 4 + dp(20) else button + dp(8)
         val toolbarWidth = if (orientation == Orientation.VERTICAL)
             button * 2 + controlGap + pad * 2
-        else button * 6 + controlGap * 5 + pad * 2
+        else button * 7 + controlGap * 6 + pad * 2
         val percent = normalizedScale(scalePercent)
         // A single proportional factor locks the source aspect ratio. Integer
         // pixels can vary by at most a rounding pixel, never a freeform resize.
