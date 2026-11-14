@@ -65,7 +65,7 @@ internal class FloatingNativeTaskSession(
             true
         }.getOrElse { error ->
             NeXtepLog.warn("floating_native_v2", "ENTER_REQUEST_FAILED task=${pin.taskId}", error)
-            requestReturn("enter-failure")
+            returnToSlot("enter-failure")
             false
         }
     }
@@ -100,7 +100,7 @@ internal class FloatingNativeTaskSession(
                     onEntered()
                 }.onFailure {
                     NeXtepLog.warn("floating_native_v2", "ENTER_FINALIZE_FAILED", it)
-                    requestReturn("enter-finalize-failure")
+                    returnToSlot("enter-finalize-failure")
                 }
             }
             return
@@ -119,7 +119,7 @@ internal class FloatingNativeTaskSession(
                 pin.backgroundAt = SystemClock.uptimeMillis()
                 schedule(pin, 500L)
             } else if (SystemClock.uptimeMillis() - pin.backgroundAt >= 350L) {
-                requestReturn("physical-task-background")
+                returnToSlot("physical-task-background")
             }
         }
     }
@@ -195,7 +195,7 @@ internal class FloatingNativeTaskSession(
                 if (pin.phase == Phase.ENTERING &&
                     SystemClock.uptimeMillis() - pin.startedAt > 1800L) {
                     NeXtepLog.warn("floating_native_v2", "ENTER_TIMED_OUT; returning original Task")
-                    requestReturn("enter-timeout")
+                    returnToSlot("enter-timeout")
                 } else if (pin.phase == Phase.RETURNING && pin.attempts < 3 &&
                     tasks.findTask(pin.taskId)?.displayId != pin.sourceDisplay) {
                     // Bounded retries only. The task remains reserved after failures.
@@ -214,7 +214,7 @@ internal class FloatingNativeTaskSession(
 
     fun shutdown(): Boolean {
         if (lease != null) {
-            requestReturn("shutdown")
+            returnToSlot("shutdown")
             return false
         }
         clearChecks()
