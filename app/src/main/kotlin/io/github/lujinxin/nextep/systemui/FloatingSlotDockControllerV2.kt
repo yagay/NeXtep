@@ -63,6 +63,7 @@ internal class FloatingSlotDockControllerV2(
     private var toolbar: LinearLayout? = null
     private var picker: FrameLayout? = null
     private var confirmation: FrameLayout? = null
+    private val removeBadges = mutableMapOf<Int, TextView>()
     private var slots = emptyList<VirtualDisplaySlot>()
     private var coordinator: SlotTaskCoordinator? = null
     private var profile: WorkspaceLayoutProfile? = null
@@ -87,7 +88,7 @@ internal class FloatingSlotDockControllerV2(
 
     private val native = FloatingNativeTaskSession(context,
         slotAt = { slots.getOrNull(it) },
-        onSuspended = { suspend -> coordinator?.setSuspended(suspend) },
+        onSuspended = { suspend -> coordinator?.setSuspended(suspend || locked) },
         onEntered = {
             host.hide("native-fullscreen")
             player.onVisibilityChanged(false, packages())
@@ -109,6 +110,7 @@ internal class FloatingSlotDockControllerV2(
     fun shrinkStableZoom(): Boolean {
         if (zoomIndex == null) return true
         zoomIndex = null
+        rebuildToolbar()
         reconfigure()
         NeXtepLog.info("floating_v2", "STABLE_ZOOM_EXIT")
         return true
@@ -258,6 +260,21 @@ internal class FloatingSlotDockControllerV2(
         }
         slots = displays
         independentInSession = independentRequested
+        for (index in displays.indices) {
+            val slot = displays[index]
+            val badge = TextView(context).apply {
+                text = "×"
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = shape(Color.argb(235, 40, 47, 57))
+                visibility = View.GONE
+                elevation = dp(6).toFloat()
+                setOnClickListener { confirmRemove(index) }
+            }
+            slot.view.addView(badge, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.TOP or Gravity.RIGHT))
+            removeBadges[index] = badge
+        }
         val bar = LinearLayout(context).apply { gravity = Gravity.CENTER }
         toolbar = bar
         screen.addView(bar, FrameLayout.LayoutParams(bounds.width,
@@ -366,6 +383,46 @@ internal class FloatingSlotDockControllerV2(
     private fun updateStates() {
         if (!hasSession()) return
         player.onSlotPackagesChanged(packages())
+        coordinator?.slotStates()?.forEachIndexed { index, state ->
+            removeBadges[index]?.visibility =
+                if (state is SlotState.Occupied && zoomIndex == null && !native.active)
+                    View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun confirmRemove(index: Int) {
+        val task = coordinator?.slotStates()?.getOrNull(index) as? SlotState.Occupied ?: return
+        if (native.active || locked || confirmation != null) return
+        val screen = root ?: return
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            background = shape(Color.argb(250, 22, 31, 44))
+            elevation = dp(20).toFloat()
+        }
+        content.addView(item("Remove app from slot ${index + 1}?") {},
+            LinearLayout.LayoutParams(-1, dp(40)))
+        val buttons = LinearLayout(context)
+        buttons.addView(item("Cancel") { dismissConfirmation() },
+            LinearLayout.LayoutParams(0, dp(36), 1f))
+        buttons.addView(item("Remove") {
+            dismissConfirmation()
+            val current = coordinator?.slotStates()?.getOrNull(index) as? SlotState.Occupied
+            if (current?.taskId != task.taskId || current.displayId != task.displayId) {
+                NeXtepLog.warn("floating_v2", "REMOVE_STALE task=${task.taskId}")
+                return@item
+            }
+            ActivityTaskManagerCompat.removeTask(task.taskId).onFailure {
+                failure("REMOVE_FAILED", it)
+            }
+            handler.postDelayed({ coordinator?.onTasksChanged(); updateStates() }, 400L)
+        }, LinearLayout.LayoutParams(0, dp(36), 1f))
+        content.addView(buttons)
+        val overlay = FrameLayout(context)
+        overlay.addView(content, FrameLayout.LayoutParams(-1, dp(100), Gravity.CENTER))
+        screen.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        confirmation = overlay
     }
 
     private fun onOutside(event: MotionEvent) {
@@ -387,7 +444,9 @@ internal class FloatingSlotDockControllerV2(
                     }
                 } else {
                     zoomIndex = index
+                    rebuildToolbar()
                     applyLayout()
+                    updateStates()
                     NeXtepLog.info("floating_v2", "STABLE_ZOOM_ENTER slot=$index")
                 }
             }
@@ -408,7 +467,22 @@ internal class FloatingSlotDockControllerV2(
             background = shape(Color.argb(220, 29, 43, 56))
             setOnClickListener { action() }
         }
-        val actions = listOf(
+        val actions = if (zoomIndex != null) listOf(
+            button("↙") { shrinkStableZoom() },
+            button("←") {
+                val zoom = zoomIndex ?: return@button
+                slots.getOrNull(zoom)?.displayId()?.let { virtualInput.sendBack(it) }
+            },
+            button("⤢") {
+                val zoom = zoomIndex ?: return@button
+                val state = coordinator?.slotStates()?.getOrNull(zoom) as? SlotState.Occupied
+                if (state != null) {
+                    shrinkStableZoom()
+                    native.enter(zoom, state)
+                }
+            },
+            button("×") { collapse() },
+        ) else listOf(
             button("‹") { step(-1) },
             button("›") { step(1) },
             button("＋") { showPicker() },
@@ -503,6 +577,7 @@ internal class FloatingSlotDockControllerV2(
             else 0f
         }
         screen.requestLayout()
+        updateStates()
     }
 
     fun reconfigure() {
@@ -594,6 +669,7 @@ internal class FloatingSlotDockControllerV2(
             host.release()
             runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
             slots = emptyList()
+            removeBadges.clear()
             coordinator = null
             root = null
             viewport = null
