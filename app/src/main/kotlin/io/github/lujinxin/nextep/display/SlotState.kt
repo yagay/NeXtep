@@ -2,7 +2,8 @@ package io.github.lujinxin.nextep.display
 
 import android.content.ComponentName
 
-const val WORKSPACE_SLOT_COUNT = 3
+/** Initial Panes-compatible four-slot rail; configurable slot counts will be wired separately. */
+const val WORKSPACE_SLOT_COUNT = 4
 
 sealed interface SlotState {
     data object Empty : SlotState
