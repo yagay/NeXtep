@@ -82,6 +82,8 @@ internal class FloatingSlotDockController(
         // must return immediately, unlike an explicit native fullscreen tap.
         val externalLauncher: Boolean = false,
         var absentSince: Long = 0L,
+        var lastReturnAttemptAt: Long = 0L,
+        var failedReturnAttempts: Int = 0,
     )
     private var fullscreenTask: TemporarilyFullscreen? = null
     private var movingFullscreenTask = false
@@ -650,6 +652,13 @@ internal class FloatingSlotDockController(
     fun returnFullscreenToSlot(reason: String): Boolean {
         val pin = fullscreenTask ?: return true
         if (movingFullscreenTask) return false
+        if (pin.externalLauncher) {
+            val now = SystemClock.uptimeMillis()
+            val backoff = (650L + pin.failedReturnAttempts * 250L).coerceAtMost(2_500L)
+            if (pin.lastReturnAttemptAt != 0L &&
+                now - pin.lastReturnAttemptAt < backoff) return false
+            pin.lastReturnAttemptAt = now
+        }
         movingFullscreenTask = true
         return try {
             restorePinnedTaskNow(pin, reason)
@@ -662,6 +671,7 @@ internal class FloatingSlotDockController(
             }
             true
         } catch (error: Throwable) {
+            if (pin.externalLauncher) pin.failedReturnAttempts++
             lastError = "Unable to return fullscreen app to its floating slot: ${error.message}"
             lastErrorTrace = android.util.Log.getStackTraceString(error).take(6_000)
             NeXtepLog.warn("floating_pinned",
@@ -677,9 +687,20 @@ internal class FloatingSlotDockController(
         check(fullscreenTask === pin) { "Promoted slot ownership changed" }
         val current = floatingTaskRepository.findTask(pin.taskId)
         if (current == null) {
+            if (pin.externalLauncher) {
+                val now = SystemClock.uptimeMillis()
+                if (pin.absentSince == 0L) pin.absentSince = now
+                // A task can vanish briefly from RunningTasks during an OEM
+                // display transition. Never discard pinned ownership on a
+                // single null snapshot; retain it for a short recovery window.
+                if (now - pin.absentSince < 3_000L) {
+                    error("Pinned Task ${pin.taskId} temporarily unavailable; retrying")
+                }
+            }
             clearTemporaryFullscreen()
             return
         }
+        pin.absentSince = 0L
         check(slots.getOrNull(pin.index)?.displayId() == pin.displayId) {
             "Original VirtualDisplay ${pin.displayId} was removed"
         }
@@ -1088,8 +1109,17 @@ internal class FloatingSlotDockController(
         dismissRemovalPrompt()
         // Return to the compact presentation before hiding the overlay,
         // keeping every task on exactly the same virtual display.
-        if (fullscreenTask != null && !returnFullscreenToSlot("dock hide")) return false
-        if (stableZoom != null && !restoreStableCompact()) return false
+        if (fullscreenTask != null && !returnFullscreenToSlot("dock hide")) {
+            if (!lockEvent) return false
+            // Screen lock has higher priority than a failed task move:
+            // hide previews even while the original slot remains reserved.
+            NeXtepLog.warn("floating_pinned",
+                "LOCK_HIDE_WITH_PENDING_RETURN task=${fullscreenTask?.taskId}")
+        }
+        if (stableZoom != null && !restoreStableCompact()) {
+            if (!lockEvent) return false
+            NeXtepLog.warn("floating_stable", "Lock hides preview despite deferred zoom shrink")
+        }
         if (!panelVisible) return true
         return runCatching {
             val wnd = root.layoutParams as WindowManager.LayoutParams
