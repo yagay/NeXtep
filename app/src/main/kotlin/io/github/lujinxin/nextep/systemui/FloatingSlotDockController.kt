@@ -106,6 +106,26 @@ internal class FloatingSlotDockController(
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
     private var outsideFoldPending = false
+    // System navigation (Home / Recents / app switching) does not reliably
+    // deliver ACTION_OUTSIDE to a NOT_TOUCH_MODAL overlay. Track the actual
+    // foreground task on display 0 while the dock is expanded instead.
+    private var expandedMainTaskId: Int? = null
+    private val foregroundFold = Runnable {
+        if (!panelVisible || suspendedForLock || removalPending ||
+            fullscreenTask != null || movingFullscreenTask || host == null) return@Runnable
+        val original = expandedMainTaskId ?: return@Runnable
+        val current = floatingTaskRepository.foregroundTask() ?: return@Runnable
+        if (current.displayId != Display.DEFAULT_DISPLAY || current.taskId == original) return@Runnable
+        NeXtepLog.info("floating_dock",
+            "MAIN_TASK_CHANGED_FOLD from=$original to=${current.taskId}; retaining live slots")
+        collapse()
+    }
+
+    private fun observeExpandedMainTask() {
+        expandedMainTaskId = floatingTaskRepository.foregroundTask()
+            ?.takeIf { it.displayId == Display.DEFAULT_DISPLAY }?.taskId
+        handler.removeCallbacks(foregroundFold)
+    }
     private val outsideFold = Runnable {
         outsideFoldPending = false
         // Only a genuinely open floating dock may auto-fold. Never interfere
@@ -755,9 +775,19 @@ internal class FloatingSlotDockController(
 
     /** Called on Home, other-app selection or any Shell task-front change. */
     fun onTaskForegroundChanged() {
-        val pin = fullscreenTask ?: return
-        if (!movingFullscreenTask && !suspendedForLock) {
-            checkTemporaryFullscreen(pin, "task callback")
+        val pin = fullscreenTask
+        if (pin != null) {
+            if (!movingFullscreenTask && !suspendedForLock) {
+                checkTemporaryFullscreen(pin, "task callback")
+            }
+            return
+        }
+        if (panelVisible && !suspendedForLock && !removalPending &&
+            expandedMainTaskId != null) {
+            // Recheck after task transitions settle; a transient Home snapshot
+            // during a native task exchange must not fold the dock.
+            handler.removeCallbacks(foregroundFold)
+            handler.postDelayed(foregroundFold, 300L)
         }
     }
 
@@ -1218,6 +1248,7 @@ internal class FloatingSlotDockController(
             checkNotNull(manager).addView(root, wnd)
             host = root
             panelVisible = true
+            observeExpandedMainTask()
             suspendedForLock = false
             coordinator = SlotTaskCoordinator(
                 context = context,
@@ -1272,6 +1303,8 @@ internal class FloatingSlotDockController(
         dismissRemovalPrompt()
         // An already queued outside tap must not fold a later reopened dock.
         handler.removeCallbacks(outsideFold)
+        handler.removeCallbacks(foregroundFold)
+        expandedMainTaskId = null
         outsideFoldPending = false
         // Return to the compact presentation before hiding the overlay,
         // keeping every task on exactly the same virtual display.
@@ -1406,6 +1439,7 @@ internal class FloatingSlotDockController(
             wnd.flags = wnd.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
             manager?.updateViewLayout(root, wnd)
             panelVisible = true
+            observeExpandedMainTask()
             playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
             handler.removeCallbacks(playbackSlotRefresh)
             handler.postDelayed(playbackSlotRefresh, 1_000L)
