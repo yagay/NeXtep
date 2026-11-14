@@ -276,4 +276,8 @@
     <string name="playback_compat_apps_count">%1$d selected</string>
     <string name="playback_compat_lock_title">Continue playing after screen lock (experimental)</string>
     <string name="playback_compat_lock_summary">For selected players already playing in a NeXtep floating window, attempt one MediaSession recovery when the screen turns off. May not work for players without a background service. Does not unlock the display; may use extra battery.</string>
+    <string name="floating_popup_back_title">Back key and focus-loss dismissal</string>
+    <string name="floating_popup_back_summary">Make the expanded popup focusable to handle Back and dismiss when focus moves away. May affect input focus in other apps; can be disabled.</string>
+    <string name="floating_swipe_collapse_title">Swipe down to collapse</string>
+    <string name="floating_swipe_collapse_summary">Swipe down on empty popup space to hide the four windows without ending their tasks.</string>
 </resources>
