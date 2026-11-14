@@ -70,6 +70,32 @@ internal class FloatingNativeTaskSession(
         }
     }
 
+    /**
+     * A launcher or Recents selection can move an already-owned task to the
+     * physical display without asking NeXtep. Reserve that exact task and
+     * return it to its source slot in STABLE mode; NATIVE may keep it on 0.
+     */
+    fun adoptExternal(index: Int, state: SlotState.Occupied, allowNative: Boolean): Boolean {
+        if (lease != null || slotAt(index)?.displayId() != state.displayId) return false
+        val current = tasks.findTask(state.taskId)
+            ?.takeIf { it.displayId == Display.DEFAULT_DISPLAY } ?: return false
+        val pin = Lease(index, state.taskId, state.displayId, current.resizeMode,
+            SystemClock.uptimeMillis(), Phase.ACTIVE)
+        lease = pin
+        generation++
+        clearChecks()
+        onSuspended(true)
+        NeXtepLog.info("floating_native_v2",
+            "EXTERNAL_ADOPT task=${pin.taskId} from=${pin.sourceDisplay}" +
+                " nativeAllowed=$allowNative")
+        if (allowNative) {
+            onEntered()
+        } else {
+            returnToSlot("external-stable")
+        }
+        return true
+    }
+
     fun returnToSlot(reason: String): Boolean {
         val pin = lease ?: return true
         if (pin.phase == Phase.RETURNING) return true
