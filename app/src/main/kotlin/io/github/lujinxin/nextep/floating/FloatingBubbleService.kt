@@ -118,9 +118,18 @@ class FloatingBubbleService : Service() {
             NotificationChannel(CHANNEL_ID, getString(R.string.floating_service_title),
                 NotificationManager.IMPORTANCE_LOW),
         )
+        // A notification can be tapped while Settings is alive but another
+        // Activity is on top. SINGLE_TOP alone only reuses a TOP instance,
+        // so it previously created a second MainActivity ("app restarted").
+        // CLEAR_TOP + SINGLE_TOP routes back to that existing instance.
         val configure = PendingIntent.getActivity(
             this, 1, Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                .setAction(ACTION_OPEN_SETTINGS)
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                ),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val stop = PendingIntent.getService(
@@ -356,6 +365,7 @@ class FloatingBubbleService : Service() {
         const val CHANNEL_ID = "nextep_floating_workspace"
         const val NOTIFICATION_ID = 41015
         const val ACTION_STOP = "io.github.lujinxin.nextep.action.STOP_FLOATING_BUBBLE"
+        const val ACTION_OPEN_SETTINGS = "io.github.lujinxin.nextep.action.OPEN_FLOATING_SETTINGS"
         const val KEY_SIDE = "side"
         const val KEY_Y = "vertical"
     }
