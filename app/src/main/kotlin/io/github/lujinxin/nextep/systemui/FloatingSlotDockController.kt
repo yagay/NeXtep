@@ -286,7 +286,7 @@ internal class FloatingSlotDockController(
         }
         val existed = hasSession()
         val expanded = isExpanded()
-        if (!existed && !expand()) {
+        if (!existed && !prepareHiddenAutoSession()) {
             NeXtepLog.warn("auto_slot",
                 "NO_SESSION task=$taskId reason=$reason error=$lastError")
             after?.invoke()
