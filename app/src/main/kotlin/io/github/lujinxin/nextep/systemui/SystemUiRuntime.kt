@@ -187,6 +187,34 @@ object SystemUiRuntime {
         return accepted
     }
 
+    // Privileged physical power-key event from system_server. Captures the
+    // already-fullscreen pinned Task before OOS17 keyguard sleep callbacks.
+    private val physicalPowerPrelockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != TriggerBroadcastContract.ACTION_POWER_KEY_PRELOCK ||
+                !initialized.get() || !workspaceConfigReady ||
+                !::floatingDock.isInitialized ||
+                !::autoSlotTaskRepository.isInitialized) return
+            val sentAt = intent.getLongExtra(
+                TriggerBroadcastContract.EXTRA_POWER_KEY_ELAPSED, -1L)
+            val ageMs = android.os.SystemClock.elapsedRealtime() - sentAt
+            if (sentAt < 0L || ageMs !in 0L..800L) {
+                NeXtepLog.warn("auto_slot", "EARLY_PRELOCK_STALE ageMs=$ageMs")
+                return
+            }
+            if (!isScreenReady() || isKeyguardLocked(applicationContext)) return
+            val current = autoSlotTaskRepository.foregroundTask()
+            val userId = current?.userId
+            if (current != null && userId != null &&
+                floatingDock.pinnedSlotFor(current.component.packageName, userId) != null)
+                observedForeground = current
+            val accepted = autoParkForLock()
+            NeXtepLog.info("auto_slot",
+                "EARLY_POWER_PRELOCK ageMs=$ageMs accepted=$accepted " +
+                    "task=${current?.taskId ?: -1} display=${current?.displayId ?: -1}")
+        }
+    }
+
     private val taskRefreshQueued = AtomicBoolean(false)
     private val taskRefresh = Runnable {
         taskRefreshQueued.set(false)
@@ -503,6 +531,19 @@ object SystemUiRuntime {
                 )
             }.onFailure { error ->
                 NeXtepLog.warn("systemui_runtime", "Lifecycle receiver unavailable", error)
+            }
+            // Only system_server / holders of DEVICE_POWER may deliver
+            // this event. Fail-open if the OS rejects the receiver.
+            runCatching {
+                applicationContext.registerReceiver(
+                    physicalPowerPrelockReceiver,
+                    IntentFilter(TriggerBroadcastContract.ACTION_POWER_KEY_PRELOCK),
+                    android.Manifest.permission.DEVICE_POWER,
+                    lifecycleHandler,
+                    Context.RECEIVER_EXPORTED,
+                )
+            }.onFailure {
+                NeXtepLog.warn("auto_slot", "EARLY_PRELOCK_RECEIVER_UNAVAILABLE", it)
             }
             observeLockAndDisplayState()
             runCatching {
