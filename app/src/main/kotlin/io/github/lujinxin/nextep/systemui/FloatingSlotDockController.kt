@@ -400,7 +400,15 @@ internal class FloatingSlotDockController(
                 }
             finish()
         }
-        handler.post { attempt(if (reason == "lock") 3 else 12) }
+        // Prelock is a race against Activity pause. The virtual displays
+        // are already prewarmed; do not add another main-loop turn when a
+        // reserved slot is Ready. Keep retries asynchronous for cold slots.
+        if (reason == "lock" && Looper.myLooper() == Looper.getMainLooper() &&
+            coordinator?.slotStates().orEmpty().any { it is SlotState.Ready }) {
+            attempt(0)
+        } else {
+            handler.post { attempt(if (reason == "lock") 3 else 12) }
+        }
         return true
     }
 
