@@ -63,7 +63,7 @@ internal class NativeFreeformController(context: Context) {
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 val actual = taskRepository.findTask(task.taskId)
                 if (actual?.windowingMode != FREEFORM_MODE ||
-                    actual.displayId != Display.DEFAULT_DISPLAY) {
+                    actual?.displayId != Display.DEFAULT_DISPLAY) {
                     tracked.remove(task.taskId)
                     NeXtepLog.warn("native_freeform",
                         "OS_DID_NOT_ENTER_FREEFORM task=${task.taskId} mode=${actual?.windowingMode}")
