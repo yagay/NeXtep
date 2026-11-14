@@ -627,9 +627,11 @@ internal class FloatingSlotDockController(
             slots.getOrNull(index)?.displayId() != occupied.displayId) return false
         val current = floatingTaskRepository.findTask(occupied.taskId) ?: return false
         if (current.displayId != Display.DEFAULT_DISPLAY) return false
+        // During launcher transitions the foreground snapshot can lag the
+        // actual Display 0 migration by a few frames. Never treat that lag as
+        // a reason to immediately steal the app back in native mode.
         val nativeForeground = !WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
             interactionMode,
-            floatingTaskRepository.foregroundTask()?.taskId == occupied.taskId,
         )
         val pin = TemporarilyFullscreen(
             index, occupied.taskId, occupied.displayId,
