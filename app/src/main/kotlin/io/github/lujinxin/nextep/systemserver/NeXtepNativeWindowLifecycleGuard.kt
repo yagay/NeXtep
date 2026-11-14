@@ -287,10 +287,12 @@ internal object NeXtepNativeWindowLifecycleGuard {
             val maxBounds = call(wc, "getMaxBounds") as? android.graphics.Rect
             val reducedBounds = bounds != null && maxBounds != null &&
                 !bounds.isEmpty && !maxBounds.isEmpty && bounds != maxBounds
-            if (mode != 100 && scenario != 1 && scenario != 2 && !reducedBounds) {
+            val inOemList = inOplusFloatingList(task, id)
+            if (mode != 100 && scenario != 1 && scenario != 2 &&
+                !reducedBounds && !inOemList) {
                 sessionsRejected.incrementAndGet()
                 status("NATIVE_SESSION_NOT_FLEXIBLE task=$id mode=$mode " +
-                    "scenario=$scenario geometry=$reducedBounds")
+                    "scenario=$scenario geometry=$reducedBounds floatingList=$inOemList")
                 return
             }
             lockSessions[id] = LockSession(uid, now)
@@ -303,6 +305,26 @@ internal object NeXtepNativeWindowLifecycleGuard {
             Log.w(TAG, "OEM lock snapshot failed open", error)
         }
     }
+
+    /**
+     * Source: actual Oplus Services classes3.dex and YMiniGuard's
+     * OplusFlexibleWindowController. The OEM's own floating-list is a
+     * secondary indicator when OxygenOS reports windowingMode=1.
+     */
+    private fun inOplusFloatingList(task: Any, id: Int): Boolean =
+        runCatching {
+            val clazz = Class.forName(
+                "com.android.server.wm.FloatHandleController",
+                false, task.javaClass.classLoader)
+            val instance = clazz.getDeclaredMethod("getInstance").apply {
+                isAccessible = true
+            }.invoke(null) ?: return@runCatching false
+            val method = clazz.getDeclaredMethod(
+                "isInFloatingList", Int::class.javaPrimitiveType).apply {
+                isAccessible = true
+            }
+            method.invoke(instance, id) == true
+        }.getOrDefault(false)
 
     private fun resolveActivity(owner: Any): Any? {
         if (owner.javaClass.name == "com.android.server.wm.ActivityRecord") return owner
