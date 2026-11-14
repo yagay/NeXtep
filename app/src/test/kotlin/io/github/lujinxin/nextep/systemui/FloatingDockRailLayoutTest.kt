@@ -94,7 +94,9 @@ class FloatingDockRailLayoutTest {
         )
         assertTrue(plan.panelWidth < 250)
         assertTrue(plan.panelWidth >= plan.cells[0].width)
-        assertTrue(plan.panelHeight < 1300)
+        // Four compact toolbar rows now include the live resize handle.
+        // A bounded toolbar is expected, not the former three-row height.
+        assertTrue(plan.panelHeight < 1400)
         assertEquals(4, plan.cells.size)
     }
 
