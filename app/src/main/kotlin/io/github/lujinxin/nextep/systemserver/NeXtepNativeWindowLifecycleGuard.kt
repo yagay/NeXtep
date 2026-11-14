@@ -135,6 +135,39 @@ internal object NeXtepNativeWindowLifecycleGuard {
             }
         }.onFailure { Log.w(TAG, "OEM lock observation unavailable (lifecycle hooks remain)", it) }
 
+        // OxygenOS 17 checks this vendor-specific screen-off playback flag
+        // while deciding whether to keep an Activity visible. The historical
+        // guard only intercepted PAUSE/STOP/SLEEP, which was insufficient.
+        // Scope this override to the very same verified native Task+UID and
+        // only during the actual lock/screen-off transition.
+        for (name in listOf(
+            "com.android.server.wm.EnsureActivitiesVisibleHelperExtImpl",
+            "com.android.server.wm.OplusBackgroundTaskManagerService",
+        )) {
+            runCatching {
+                val clazz = loader.loadClass(name)
+                clazz.declaredMethods.filter { method ->
+                    method.name == "isScreenOffPlay" &&
+                        method.returnType == Boolean::class.javaPrimitiveType &&
+                        method.parameterCount == 1 &&
+                        method.parameterTypes[0].name == "com.android.server.wm.Task"
+                }.forEach { method ->
+                    hook(module, method) { chain ->
+                        val task = chain.args.firstOrNull()
+                        requestObserver(task)
+                        if (safeEligible(task)) {
+                            prevented.incrementAndGet()
+                            status("NATIVE_OEM_SCREEN_OFF_PLAY task=${task?.let(::taskIdFromTask)} source=${name.substringAfterLast('.')}")
+                            true
+                        } else chain.proceed()
+                    }
+                    installed++
+                }
+            }.onFailure {
+                Log.w(TAG, "Optional OEM screen-off-play hook unavailable: $name", it)
+            }
+        }
+
         installedHooks = installed
         requestObserver(null)
         status("NATIVE_GUARD_INSTALLED hooks=$installed (freeze hooks disabled)")
@@ -210,6 +243,10 @@ internal object NeXtepNativeWindowLifecycleGuard {
     private fun finishing(owner: Any?): Boolean =
         field(owner, "finishing") == true ||
             field(field(owner, "mResumedActivity"), "finishing") == true
+
+    private fun taskIdFromTask(task: Any): Int =
+        (call(task, "getTaskId") as? Int)
+            ?: (field(task, "mTaskId") as? Int) ?: -1
 
     private fun taskId(owner: Any): Int {
         val task = call(owner, "getTask") ?: return -1
