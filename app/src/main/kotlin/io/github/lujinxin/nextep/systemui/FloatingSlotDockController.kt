@@ -134,6 +134,295 @@ internal class FloatingSlotDockController(
     fun isCardZoomed(): Boolean = zoomedCard != null
     fun shrinkZoomedCard(): Boolean = restoreCompactCards()
 
+
+    /** Floating-only click behavior: magnify the existing live TextureView, never move its Task. */
+    private fun onFloatingCardTapped(index: Int) {
+        if (!panelVisible || suspendedForLock || removalPending) return
+        if (zoomedCard != null) {
+            restoreCompactCards()
+            return
+        }
+        when (val state = coordinator?.slotStates()?.getOrNull(index)) {
+            is SlotState.Occupied -> {
+                val actualDisplay = floatingTaskRepository.findTask(state.taskId)?.displayId
+                if (actualDisplay != state.displayId ||
+                    slots.getOrNull(index)?.displayId() != state.displayId) {
+                    NeXtepLog.warn("floating_zoom",
+                        "Refused zoom stale task=${state.taskId} expectedDisplay=${state.displayId} " +
+                            "actualDisplay=$actualDisplay")
+                    coordinator?.onTasksChanged()
+                    return
+                }
+                zoomedCard = ZoomedCard(index, state.taskId, state.displayId)
+                runCatching { applyZoomedLayout() }.onFailure { error ->
+                    NeXtepLog.warn("floating_zoom", "Visual zoom failed; restoring compact dock", error)
+                    restoreCompactCards()
+                }
+            }
+            is SlotState.Ready, SlotState.Empty -> showPicker()
+            else -> Unit
+        }
+    }
+
+    /**
+     * Full physical-screen PREVIEW of the same VirtualDisplay. Keep the
+     * original TextureView attached to the same grid and its Surface connected.
+     * The app's Task/Activity/displayId never changes during zoom.
+     */
+    private fun applyZoomedLayout() {
+        val zoom = zoomedCard ?: return
+        val root = host ?: return
+        val currentDisplay = slots.getOrNull(zoom.index)?.displayId()
+        if (currentDisplay != zoom.displayId) {
+            NeXtepLog.warn("floating_zoom", "Zoom source display was removed; restoring")
+            restoreCompactCards()
+            return
+        }
+        val bounds = manager?.maximumWindowMetrics?.bounds
+            ?: Rect(0, 0, context.resources.displayMetrics.widthPixels,
+                context.resources.displayMetrics.heightPixels)
+        val safe = FloatingDockSafeArea.measure(context, manager)
+        val width = (bounds.width() - safe.left - safe.right).coerceAtLeast(dp(140))
+        val height = (bounds.height() - safe.top - safe.bottom).coerceAtLeast(dp(180))
+        val window = root.layoutParams as WindowManager.LayoutParams
+        window.width = width
+        window.height = height
+        window.x = safe.left
+        window.y = safe.top
+        picker?.visibility = View.GONE
+        toolbar?.visibility = View.GONE
+        railViewport?.layoutParams = FrameLayout.LayoutParams(width, height, Gravity.TOP)
+        grid?.layoutParams = FrameLayout.LayoutParams(width, height, Gravity.TOP)
+        grid?.animate()?.cancel()
+        grid?.translationX = 0f
+        grid?.translationY = 0f
+
+        slots.forEachIndexed { i, slot ->
+            // Never detach, replace or release any sibling TextureView.
+            val lp = if (i == zoom.index) {
+                FrameLayout.LayoutParams(width, height, Gravity.TOP or Gravity.LEFT)
+            } else {
+                val cell = panel?.cells?.getOrNull(i)
+                FrameLayout.LayoutParams(cell?.width ?: dp(32), cell?.height ?: dp(32),
+                    Gravity.TOP or Gravity.LEFT).apply { leftMargin = width + dp(16) }
+            }
+            slot.view.layoutParams = lp
+        }
+        removeBadges.values.forEach { it.visibility = View.GONE }
+        if (zoomActions == null) {
+            val controls = FrameLayout(context).apply {
+                isClickable = false
+                clipChildren = false
+            }
+            fun control(symbol: String, description: String, gravity: Int, onTap: () -> Unit) {
+                val button = TextView(context).apply {
+                    text = symbol
+                    textSize = 15f
+                    setTextColor(Color.WHITE)
+                    this.gravity = Gravity.CENTER
+                    contentDescription = description
+                    isClickable = true
+                    background = rounded(Color.argb(218, 23, 39, 51), dp(11))
+                    elevation = dp(6).toFloat()
+                    setOnClickListener { onTap() }
+                }
+                controls.addView(button,
+                    FrameLayout.LayoutParams(dp(27), dp(27), gravity).apply {
+                        topMargin = dp(6)
+                        if (gravity and Gravity.RIGHT == Gravity.RIGHT ||
+                            gravity and Gravity.END == Gravity.END) rightMargin = dp(6)
+                        else leftMargin = dp(6)
+                    })
+            }
+            control("↙", str(R.string.floating_dock_zoom_restore),
+                Gravity.TOP or Gravity.LEFT) { restoreCompactCards() }
+            control("×", str(R.string.floating_dock_remove_app),
+                Gravity.TOP or Gravity.RIGHT) { requestRemoveApp(zoom.index) }
+            root.addView(controls, FrameLayout.LayoutParams(-1, -1))
+            zoomActions = controls
+        }
+        manager?.updateViewLayout(root, window)
+        NeXtepLog.info("floating_zoom",
+            "ZOOM_DISPLAY_ONLY task=${zoom.taskId} slot=${zoom.index} " +
+                "displayId=${zoom.displayId} bounds=${width}x$height; task remained on virtual display")
+    }
+
+    private fun restoreCompactCards(): Boolean {
+        val zoom = zoomedCard ?: return true
+        val root = host ?: return false
+        val compact = panel ?: return false
+        return runCatching {
+            zoomActions?.let { root.removeView(it) }
+            zoomActions = null
+            zoomedCard = null
+            toolbar?.visibility = View.VISIBLE
+            val window = root.layoutParams as WindowManager.LayoutParams
+            window.width = compact.width
+            window.height = compact.height
+            window.x = compact.x
+            window.y = compact.y
+            railViewport?.layoutParams = FrameLayout.LayoutParams(
+                compact.width, compact.height - compact.header, Gravity.TOP,
+            ).apply { topMargin = compact.header }
+            grid?.layoutParams = FrameLayout.LayoutParams(compact.railWidth, compact.railHeight)
+            slots.forEachIndexed { i, slot ->
+                val cell = compact.cells[i]
+                slot.view.layoutParams = FrameLayout.LayoutParams(
+                    cell.width, cell.height, Gravity.TOP or Gravity.LEFT,
+                ).apply {
+                    leftMargin = cell.x
+                    topMargin = cell.y
+                }
+            }
+            applyRailOffset()
+            positionRemoveBadges(compact)
+            manager?.updateViewLayout(root, window)
+            updateRemoveBadges()
+            NeXtepLog.info("floating_zoom",
+                "SHRINK_DISPLAY_ONLY task=${zoom.taskId} displayId=${zoom.displayId}; same task retained")
+            true
+        }.getOrElse { error ->
+            NeXtepLog.warn("floating_zoom", "Failed to restore compact preview", error)
+            false
+        }
+    }
+
+    private fun installRemoveBadges() {
+        val frame = grid ?: return
+        removeBadges.clear()
+        for (index in slots.indices) {
+            val badge = TextView(context).apply {
+                text = "×"
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                contentDescription = str(R.string.floating_dock_remove_app)
+                background = rounded(Color.argb(226, 35, 45, 54), dp(8))
+                elevation = dp(7).toFloat()
+                isClickable = true
+                visibility = View.GONE
+                setOnClickListener { requestRemoveApp(index) }
+            }
+            removeBadges[index] = badge
+            frame.addView(badge)
+        }
+        panel?.let(::positionRemoveBadges)
+        updateRemoveBadges()
+    }
+
+    private fun positionRemoveBadges(compact: Panel) {
+        for ((index, badge) in removeBadges) {
+            val cell = compact.cells.getOrNull(index) ?: continue
+            badge.layoutParams = FrameLayout.LayoutParams(
+                dp(19), dp(19), Gravity.TOP or Gravity.LEFT,
+            ).apply {
+                leftMargin = cell.x + cell.width - dp(21)
+                topMargin = cell.y + dp(2)
+            }
+        }
+    }
+
+    private fun updateRemoveBadges() {
+        val states = coordinator?.slotStates().orEmpty()
+        removeBadges.forEach { (index, badge) ->
+            badge.visibility = if (zoomedCard == null && panelVisible &&
+                states.getOrNull(index) is SlotState.Occupied) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun dismissRemovalPrompt() {
+        val view = removalPrompt ?: return
+        removalPrompt = null
+        removalPending = false
+        runCatching { manager?.removeViewImmediate(view) }.onFailure {
+            NeXtepLog.warn("floating_remove", "Unable to dismiss confirmation", it)
+        }
+    }
+
+    private fun requestRemoveApp(index: Int) {
+        if (!panelVisible || suspendedForLock || removalPending) return
+        val state = coordinator?.slotStates()?.getOrNull(index) as? SlotState.Occupied ?: return
+        if (floatingTaskRepository.findTask(state.taskId)?.displayId != state.displayId) return
+        val type = SystemUiWindowTypeResolver.resolve() ?: return
+        val bounds = manager?.maximumWindowMetrics?.bounds
+            ?: Rect(0, 0, context.resources.displayMetrics.widthPixels,
+                context.resources.displayMetrics.heightPixels)
+        val insets = FloatingDockSafeArea.measure(context, manager)
+        val width = minOf(dp(284), bounds.width() - insets.left - insets.right - dp(16))
+            .coerceAtLeast(dp(180))
+        val height = dp(148)
+        val x = ((bounds.width() - width) / 2).coerceIn(
+            insets.left, (bounds.width() - insets.right - width).coerceAtLeast(insets.left))
+        val y = ((bounds.height() - height) / 2).coerceIn(
+            insets.top, (bounds.height() - insets.bottom - height).coerceAtLeast(insets.top))
+        val frame = FrameLayout(context).apply {
+            background = rounded(Color.argb(251, 21, 33, 45), dp(14))
+            elevation = dp(10).toFloat()
+        }
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(10))
+        }
+        content.addView(TextView(context).apply {
+            text = str(R.string.floating_dock_remove_question)
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        val buttons = LinearLayout(context).apply { gravity = Gravity.END }
+        val cancel = action(str(R.string.floating_dock_remove_cancel)) { dismissRemovalPrompt() }
+        val confirm = action(str(R.string.floating_dock_remove_confirm)) {
+            dismissRemovalPrompt()
+            // The user confirmed removing THIS task, never uninstalling its package.
+            val current = coordinator?.slotStates()?.getOrNull(index) as? SlotState.Occupied
+            if (current?.taskId != state.taskId || current.displayId != state.displayId ||
+                floatingTaskRepository.findTask(state.taskId)?.displayId != state.displayId) {
+                NeXtepLog.warn("floating_remove", "Ignored stale remove request task=${state.taskId}")
+                return@action
+            }
+            if (zoomedCard?.taskId == state.taskId) restoreCompactCards()
+            ActivityTaskManagerCompat.removeTask(state.taskId).onSuccess {
+                NeXtepLog.info("floating_remove",
+                    "REMOVED_CONFIRMED task=${state.taskId} slot=$index display=${state.displayId}")
+                coordinator?.onTasksChanged()
+                handler.postDelayed({
+                    coordinator?.onTasksChanged()
+                    updateRemoveBadges()
+                }, 400L)
+            }.onFailure { error ->
+                NeXtepLog.warn("floating_remove", "Unable to remove slot task", error)
+                message(R.string.floating_dock_remove_failed)
+            }
+        }
+        buttons.addView(cancel, LinearLayout.LayoutParams(0, dp(38), 1f))
+        buttons.addView(confirm, LinearLayout.LayoutParams(0, dp(38), 1f))
+        content.addView(buttons, LinearLayout.LayoutParams(-1, dp(38)))
+        frame.addView(content, FrameLayout.LayoutParams(-1, -1))
+        val params = WindowManager.LayoutParams(
+            width, height, type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            this.x = x
+            this.y = y
+            title = "NeXtepFloatingRemoveConfirmation"
+            setFitInsetsTypes(0)
+        }
+        runCatching {
+            checkNotNull(manager).addView(frame, params)
+            removalPrompt = frame
+            removalPending = true
+            NeXtepLog.info("floating_remove",
+                "REMOVE_CONFIRM_SHOWN task=${state.taskId} slot=$index")
+        }.onFailure { error ->
+            NeXtepLog.warn("floating_remove", "Removal confirmation unavailable", error)
+            message(R.string.floating_dock_remove_failed)
+        }
+    }
+
     /** Reflow without releasing any VirtualDisplay or moving the running tasks. */
     fun applyLayoutSettings(orientationValue: String, scalePercent: Int) {
         val nextOrientation = if (orientationValue == "vertical")
