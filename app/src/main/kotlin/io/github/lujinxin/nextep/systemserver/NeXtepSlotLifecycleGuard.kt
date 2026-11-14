@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo
 import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import io.github.libxposed.api.XposedInterface
@@ -327,7 +328,8 @@ internal object NeXtepSlotLifecycleGuard {
                     "display=${identity.displayId} name=${identity.name} " +
                     "type=${identity.type} ownerUid=${identity.ownerUid} " +
                     "ownerPackage=${identity.ownerPackage} " +
-                    "matched=${identity.matched} policy=$enabled",
+                    "matched=${identity.matched} policy=$enabled " +
+                    "matchReason=${when { identity.displayId <= 0 -> "display-id"; !identity.name.matches(Regex("NeXtep-floating-slot-[0-3]")) -> "display-name"; identity.type != 5 -> "display-type"; identity.ownerUid != 1000 && identity.ownerPackage != "com.android.systemui" -> "display-owner"; else -> "ok" }}",
             )
             if (identity.matched) recordStatus("matched:$source:$id")
         }
@@ -396,11 +398,18 @@ internal object NeXtepSlotLifecycleGuard {
         return false
     }
 
+    /** A lock pre-arm is only a short transition bridge. Once the physical
+     * display is non-interactive, an eligible live slot remains protected for
+     * the whole lock session, not just PREARM_WINDOW_MS. */
+    private fun physicalScreenOff(): Boolean =
+        context?.getSystemService(PowerManager::class.java)?.isInteractive == false
+
     private fun shouldGuard(owner: Any, explicitSleep: Boolean = false): Boolean {
         queueObserver(owner)
         return enabled && !disabledByErrors && isNeXtepSlot(owner) &&
             !isFinishing(owner) &&
-            (explicitSleep || displaySleeping(owner) || isPrearmed(owner))
+            (physicalScreenOff() || displaySleeping(owner) ||
+                (explicitSleep && isPrearmed(owner)) || isPrearmed(owner))
     }
 
     private fun liveProtectedUid(uid: Int): Boolean {
@@ -415,7 +424,7 @@ internal object NeXtepSlotLifecycleGuard {
                 continue
             }
             if (recordUid(record) == uid &&
-                (displaySleeping(record) || isPrearmed(record))) return true
+                (physicalScreenOff() || displaySleeping(record) || isPrearmed(record))) return true
         }
         return false
     }
@@ -516,7 +525,7 @@ internal object NeXtepSlotLifecycleGuard {
                 val snapshot = "enabled=$enabled hooks=$installedCount " +
                     "tracked=${trackedTasks.size} armed=${prearmedTasks.size} " +
                     "errors=${failureCount.get()} disabledByErrors=$disabledByErrors " +
-                    "last=$lastEvent counters=$counts"
+                    "screenOff=${physicalScreenOff()} last=$lastEvent counters=$counts"
                 Settings.Global.putString(ctx.contentResolver, STATUS_KEY, snapshot)
             } catch (error: Throwable) {
                 Log.w(TAG, "SLOT_STATUS_WRITE_FAILED", error)
