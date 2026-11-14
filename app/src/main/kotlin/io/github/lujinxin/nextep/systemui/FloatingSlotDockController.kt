@@ -93,15 +93,28 @@ internal class FloatingSlotDockController(
     private var fullscreenTask: TemporarilyFullscreen? = null
     private var movingFullscreenTask = false
     private val floatingTaskRepository = TaskRepository(context)
+    // ShellTaskOrganizer callbacks are the primary signal. A low-frequency
+    // watchdog is a fail-open recovery path for OEM callbacks that get lost.
     private val fullscreenWatchdog = object : Runnable {
         override fun run() {
             val pinned = fullscreenTask ?: return
             if (!movingFullscreenTask && !suspendedForLock) {
-                checkTemporaryFullscreen(pinned, "watchdog")
+                checkTemporaryFullscreen(pinned, "fallback")
             }
-            if (fullscreenTask != null) handler.postDelayed(this, 360L)
+            if (fullscreenTask === pinned) {
+                handler.postDelayed(this, FULLSCREEN_FALLBACK_MS)
+            }
         }
     }
+
+    private fun scheduleFullscreenReview(delayMs: Long, source: String) {
+        if (fullscreenTask == null) return
+        handler.removeCallbacks(fullscreenWatchdog)
+        handler.postDelayed(fullscreenWatchdog, delayMs)
+        NeXtepLog.debug("floating_pinned", "REVIEW_ARMED source=$source delayMs=$delayMs")
+    }
+
+    private val fullScreenFallbackDescription = "shell-callback-first"
     private val removeBadges = mutableMapOf<Int, TextView>()
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
@@ -566,8 +579,7 @@ internal class FloatingSlotDockController(
                 SystemClock.uptimeMillis(),
             )
             hideRetainedDockForFullscreen()
-            handler.removeCallbacks(fullscreenWatchdog)
-            handler.postDelayed(fullscreenWatchdog, 700L)
+            scheduleFullscreenReview(900L, "promoted-settle")
             NeXtepLog.info("floating_pinned",
                 "FULLSCREEN_ENTER task=${task.taskId} slot=$index " +
                     "originalDisplay=${state.displayId} currentDisplay=0; main task not swapped")
@@ -584,7 +596,7 @@ internal class FloatingSlotDockController(
                     .onFailure { rollbackError ->
                         NeXtepLog.warn("floating_pinned",
                             "Rollback still pending; retained virtual display", rollbackError)
-                        handler.postDelayed(fullscreenWatchdog, 500L)
+                        scheduleFullscreenReview(500L, "enter-rollback")
                     }
             } else {
                 coordinator?.setSuspended(false)
@@ -607,7 +619,11 @@ internal class FloatingSlotDockController(
             // because of a single missing snapshot.
             val now = SystemClock.uptimeMillis()
             if (pin.absentSince == 0L) pin.absentSince = now
-            if (now - pin.absentSince < 2_000L) return
+            if (now - pin.absentSince < 2_000L) {
+                scheduleFullscreenReview((2_000L - (now - pin.absentSince)).coerceAtLeast(250L),
+                    "missing-task")
+                return
+            }
             NeXtepLog.warn("floating_pinned",
                 "TASK_EXITED source=$source task=${pin.taskId}; no task observed for 2s")
             clearTemporaryFullscreen()
@@ -639,7 +655,10 @@ internal class FloatingSlotDockController(
             return
         }
         val now = SystemClock.uptimeMillis()
-        if (now - pin.beganAt < 800L) return
+        if (now - pin.beganAt < 800L) {
+            scheduleFullscreenReview(800L - (now - pin.beganAt), "promotion-grace")
+            return
+        }
         val foreground = floatingTaskRepository.foregroundTask() ?: return
         if (foreground.taskId == pin.taskId) {
             pin.backgroundSince = 0L
@@ -650,9 +669,14 @@ internal class FloatingSlotDockController(
         // consecutive snapshots before reparenting this Task back to its VD.
         if (pin.backgroundSince == 0L) {
             pin.backgroundSince = now
+            scheduleFullscreenReview(420L, "foreground-transition-confirmation")
             return
         }
-        if (now - pin.backgroundSince < 420L) return
+        if (now - pin.backgroundSince < 420L) {
+            scheduleFullscreenReview(420L - (now - pin.backgroundSince),
+                "foreground-transition-confirmation")
+            return
+        }
         NeXtepLog.info("floating_pinned",
             "AUTO_RETURN reason=$source task=${pin.taskId} foreground=${foreground.taskId} " +
                 "backgroundMs=${now - pin.backgroundSince}")
@@ -722,7 +746,6 @@ internal class FloatingSlotDockController(
             stickyReturn = !nativeForeground,
         )
         fullscreenTask = pin
-        handler.removeCallbacks(fullscreenWatchdog)
         if (nativeForeground) {
             // This is an explicit tap on a launcher or Recents icon while
             // NATIVE mode is selected. Keep the original virtual display
@@ -741,7 +764,7 @@ internal class FloatingSlotDockController(
                 "NATIVE_LAUNCH_ALLOWED source=$source slot=$index " +
                     "task=${occupied.taskId} virtualDisplay=${occupied.displayId} " +
                     "mainDisplay=0; return on Home/app switch/lock")
-            handler.postDelayed(fullscreenWatchdog, 750L)
+            scheduleFullscreenReview(900L, "launcher-native-settle")
         } else {
             // Stable interaction mode (or a task reparented while not the
             // physical foreground) keeps the app fixed to its slot. Do not
@@ -754,7 +777,7 @@ internal class FloatingSlotDockController(
                     returnFullscreenToSlot("sticky:launcher")
                 }
             }
-            handler.postDelayed(fullscreenWatchdog, 400L)
+            scheduleFullscreenReview(500L, "launcher-sticky-settle")
         }
         return true
     }
@@ -836,6 +859,7 @@ internal class FloatingSlotDockController(
             NeXtepLog.warn("floating_pinned",
                 "AUTO_RETURN_FAILED task=${pin.taskId} reason=$reason; will retry without releasing slot",
                 error)
+            scheduleFullscreenReview(1_000L, "restore-failed")
             false
         } finally {
             movingFullscreenTask = false
@@ -1494,6 +1518,10 @@ internal class FloatingSlotDockController(
         if (!hasSession()) return
         captureLauncherPromotion("task callback")
         onTaskForegroundChanged()
+        // A real Shell Task event supersedes the next watchdog observation.
+        // The observer above checks only the currently pinned fullscreen Task.
+        if (fullscreenTask != null) scheduleFullscreenReview(
+            FULLSCREEN_FALLBACK_MS, "shell-task-event")
         stableZoom?.let { zoom ->
             if (slots.getOrNull(zoom.index)?.displayId() != zoom.displayId ||
                 floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
@@ -1851,5 +1879,9 @@ internal class FloatingSlotDockController(
     }
 
     private fun str(id: Int) = AppLanguage.string(context, id)
+    private companion object {
+        private const val FULLSCREEN_FALLBACK_MS = 2_500L
+    }
+
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).roundToInt()
 }
