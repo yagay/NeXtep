@@ -627,9 +627,10 @@ internal class FloatingSlotDockController(
             slots.getOrNull(index)?.displayId() != occupied.displayId) return false
         val current = floatingTaskRepository.findTask(occupied.taskId) ?: return false
         if (current.displayId != Display.DEFAULT_DISPLAY) return false
-        val nativeForeground = interactionMode ==
-            WorkspaceConfigContract.FLOATING_INTERACTION_NATIVE &&
-            floatingTaskRepository.foregroundTask()?.taskId == occupied.taskId
+        val nativeForeground = !WorkspaceConfigContract.shouldReturnLauncherTaskImmediately(
+            interactionMode,
+            floatingTaskRepository.foregroundTask()?.taskId == occupied.taskId,
+        )
         val pin = TemporarilyFullscreen(
             index, occupied.taskId, occupied.displayId,
             current.resizeMode, SystemClock.uptimeMillis(),
