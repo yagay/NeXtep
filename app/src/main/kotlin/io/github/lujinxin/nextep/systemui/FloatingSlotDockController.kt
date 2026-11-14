@@ -110,21 +110,38 @@ internal class FloatingSlotDockController(
     // deliver ACTION_OUTSIDE to a NOT_TOUCH_MODAL overlay. Track the actual
     // foreground task on display 0 while the dock is expanded instead.
     private var expandedMainTaskId: Int? = null
-    private val foregroundFold = Runnable {
-        if (!panelVisible || suspendedForLock || removalPending ||
-            fullscreenTask != null || movingFullscreenTask || host == null) return@Runnable
-        val original = expandedMainTaskId ?: return@Runnable
-        val current = floatingTaskRepository.foregroundTask() ?: return@Runnable
-        if (current.displayId != Display.DEFAULT_DISPLAY || current.taskId == original) return@Runnable
-        NeXtepLog.info("floating_dock",
-            "MAIN_TASK_CHANGED_FOLD from=$original to=${current.taskId}; retaining live slots")
-        collapse()
+    // ShellTaskOrganizer does not consistently emit an onTaskInfoChanged
+    // callback for Home or Overview on ColorOS 17. Poll only while visible.
+    private val foregroundFold = object : Runnable {
+        override fun run() {
+            if (!panelVisible || suspendedForLock || host == null) return
+            if (!removalPending && fullscreenTask == null && !movingFullscreenTask) {
+                val current = floatingTaskRepository.foregroundTask()
+                    ?.takeIf { it.displayId == Display.DEFAULT_DISPLAY }
+                val original = expandedMainTaskId
+                if (original == null && current != null) {
+                    expandedMainTaskId = current.taskId
+                    NeXtepLog.info("floating_dock",
+                        "FOREGROUND_WATCH_BASELINE task=${current.taskId}")
+                } else if (original != null && current != null &&
+                    original != current.taskId) {
+                    NeXtepLog.info("floating_dock",
+                        "MAIN_TASK_CHANGED_FOLD from=$original to=${current.taskId}; retaining live slots")
+                    collapse()
+                    return
+                }
+            }
+            handler.postDelayed(this, 350L)
+        }
     }
 
     private fun observeExpandedMainTask() {
         expandedMainTaskId = floatingTaskRepository.foregroundTask()
             ?.takeIf { it.displayId == Display.DEFAULT_DISPLAY }?.taskId
+        NeXtepLog.info("floating_dock",
+            "FOREGROUND_WATCH_START task=${expandedMainTaskId ?: "unavailable"}")
         handler.removeCallbacks(foregroundFold)
+        handler.postDelayed(foregroundFold, 350L)
     }
     private val outsideFold = Runnable {
         outsideFoldPending = false
@@ -782,12 +799,12 @@ internal class FloatingSlotDockController(
             }
             return
         }
+        // Fast-path: task callbacks can accelerate the same check, while the
+        // expanded-only poll covers transitions with no callback at all.
         if (panelVisible && !suspendedForLock && !removalPending &&
             expandedMainTaskId != null) {
-            // Recheck after task transitions settle; a transient Home snapshot
-            // during a native task exchange must not fold the dock.
             handler.removeCallbacks(foregroundFold)
-            handler.postDelayed(foregroundFold, 300L)
+            handler.postDelayed(foregroundFold, 150L)
         }
     }
 
