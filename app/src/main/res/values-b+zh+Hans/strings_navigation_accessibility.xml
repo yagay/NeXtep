@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nextep_accessibility_label">NeXtep 导航检测</string>
+    <string name="nextep_accessibility_description">可选检测 Home 和最近任务窗口切换，仅折叠悬浮小窗而不关闭其中的应用，不读取屏幕内容。</string>
+    <string name="nextep_accessibility_navigation_title">无障碍导航辅助检测</string>
+    <string name="nextep_accessibility_navigation_summary">通过无障碍窗口变化辅助识别 Home 和最近任务，与系统 Hook 配合使用。需在系统中启用 NeXtep 无障碍服务。</string>
+    <string name="nextep_accessibility_open_settings">打开无障碍设置</string>
+    <string name="nextep_accessibility_permission_summary">在系统无障碍设置中选择 NeXtep 导航检测，并允许启用。</string>
+</resources>
