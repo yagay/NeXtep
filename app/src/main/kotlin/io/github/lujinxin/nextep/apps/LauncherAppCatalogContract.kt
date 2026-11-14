@@ -22,6 +22,15 @@ object LauncherAppCatalogContract {
     private val registered = AtomicBoolean(false)
 
     fun register(context: Context) {
+        // OOS17 system-process events reported repeated SystemUI kills after
+        // this ordered cross-user query broadcast. A goAsync() receiver may
+        // outlive the OEM broadcast execution budget. Until replaced by an
+        // out-of-process paged provider, do not register it in SystemUI.
+        // Normal/current-user app listing continues through the repository.
+        NeXtepLog.warn("app_catalog",
+            "PROFILE_APPS_SYSTEMUI_RECEIVER_DISABLED: protecting SystemUI stability")
+        return
+        @Suppress("UNREACHABLE_CODE")
         if (!registered.compareAndSet(false, true)) return
         runCatching {
             context.registerReceiver(object : BroadcastReceiver() {
@@ -59,6 +68,10 @@ object LauncherAppCatalogContract {
     }
 
     fun query(context: Context, callback: (List<LauncherAppRepository.AppEntry>?) -> Unit) {
+        // No broadcast is sent while its unsafe receiver is disabled.
+        callback(null)
+        return
+        @Suppress("UNREACHABLE_CODE")
         val handler = Handler(Looper.getMainLooper())
         var finished = false
         val timeout = Runnable {
