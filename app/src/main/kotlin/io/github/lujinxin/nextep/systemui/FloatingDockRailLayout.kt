@@ -51,11 +51,13 @@ internal object FloatingDockRailLayout {
         val gap = dp(6)
         val button = dp(30)
         val controlGap = dp(4)
+        // Expanded toolbar: navigation, app picker, slot count − / +,
+        // and collapse. Vertical uses three compact rows of two.
         val header = if (orientation == Orientation.VERTICAL)
-            button * 2 + dp(12) else button + dp(8)
+            button * 3 + dp(16) else button + dp(8)
         val toolbarWidth = if (orientation == Orientation.VERTICAL)
             button * 2 + controlGap + pad * 2
-        else button * 4 + controlGap * 3 + pad * 2
+        else button * 6 + controlGap * 5 + pad * 2
         val percent = normalizedScale(scalePercent)
         // A single proportional factor locks the source aspect ratio. Integer
         // pixels can vary by at most a rounding pixel, never a freeform resize.
