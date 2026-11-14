@@ -43,14 +43,15 @@ internal class FloatingPlaybackCompatController(context: Context) {
         val lockAudio: Boolean, val packages: Set<String>,
         val autoFloatingSlots: Boolean,
     ) {
-        fun active(): Boolean = enabled || autoFloatingSlots
+        fun active(): Boolean =
+            FloatingSlotPlaybackScope.enabled(enabled, autoFloatingSlots)
         fun autoResumeEnabled(): Boolean =
             (enabled && autoResume) || autoFloatingSlots
         fun lockAudioEnabled(): Boolean =
             (enabled && lockAudio) || autoFloatingSlots
         fun includes(name: String, joinedSlots: Set<String>): Boolean =
-            (enabled && name in packages) ||
-                (autoFloatingSlots && name in joinedSlots)
+            FloatingSlotPlaybackScope.isEligible(
+                name, enabled, packages, autoFloatingSlots, joinedSlots)
     }
     @Volatile private var config = Config(false, false, false, emptySet(), false)
     @Volatile private var slotPackages: Set<String> = emptySet()
