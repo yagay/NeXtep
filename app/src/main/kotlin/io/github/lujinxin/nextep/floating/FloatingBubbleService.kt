@@ -59,6 +59,8 @@ class FloatingBubbleService : Service() {
         val position = layout ?: return
         position.width = size
         position.height = size
+        val inset = dp((iconSizeDp * 0.21f).roundToInt().coerceAtLeast(6))
+        (bubble?.getChildAt(0) as? ImageView)?.setPadding(inset, inset, inset, inset)
         val safe = bubbleSafeRect()
         val side = prefs.getInt(KEY_SIDE, 1).coerceIn(0, 1)
         position.x = if (side == 0) safe.left else (safe.right - size).coerceAtLeast(safe.left)
