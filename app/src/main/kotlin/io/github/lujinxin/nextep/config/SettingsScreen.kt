@@ -302,8 +302,8 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
-                        "原生小窗锁屏保活（暂时停用）",
-                        "当前固件的实验性 system_server Hook 已为稳定性暂时停用；保留此偏好供后续修复使用，当前开关不激活拦截。原生小窗启动不受影响。",
+                        "原生小窗锁屏前台保护（实验性）",
+                        "锁屏前对已登记的原生 Task 进行 UID 与 Oplus 小窗状态验证，锁屏期间保存任务级保活会话，防止 OEM 降级后失去保护。只保护原生小窗，不干预系统安全锁屏；目前仍属实验性功能。",
                         settings.nativeLockGuardEnabled,
                         repository::setNativeLockGuardEnabled,
                     ), matchWidth())
