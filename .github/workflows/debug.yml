@@ -2,6 +2,9 @@ name: Debug build and tests
 
 on:
   pull_request:
+  push:
+    branches:
+      - feature/floating-lockscreen-audio
   workflow_dispatch:
 
 permissions:
