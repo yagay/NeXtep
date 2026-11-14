@@ -76,6 +76,14 @@ object SystemUiRuntime {
     fun onTasksChanged() {
         if (taskRefreshQueued.compareAndSet(false, true)) lifecycleHandler.post(taskRefresh)
     }
+    /** Entry for scoped navigation hooks. Always execute dock changes on UI thread. */
+    fun onNavigationCompleted(source: String) {
+        if (!initialized.get()) return
+        lifecycleHandler.post {
+            if (::floatingDock.isInitialized) floatingDock.onSystemNavigation(source)
+        }
+    }
+
     private val configReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == WorkspaceConfigContract.ACTION_CHANGED) refreshWorkspaceConfig()
