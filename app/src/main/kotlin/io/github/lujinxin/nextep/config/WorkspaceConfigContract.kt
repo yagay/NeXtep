@@ -33,6 +33,7 @@ data class WorkspaceTopConfig(
     val playbackCompatAutoResume: Boolean = false,
     val playbackCompatLockAudio: Boolean = false,
     val playbackCompatPackages: Set<String> = emptySet(),
+    val floatingInteractionMode: String = WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE,
     val floatingDockOrientation: String = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_ORIENTATION,
     val floatingDockSizePercent: Int = WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT,
     val slotBackgroundSwipeEnabled: Boolean = true,
@@ -68,8 +69,14 @@ object WorkspaceConfigContract {
     const val EXTRA_PLAYBACK_COMPAT_AUTO_RESUME = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_AUTO_RESUME"
     const val EXTRA_PLAYBACK_COMPAT_LOCK_AUDIO = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_LOCK_AUDIO"
     const val EXTRA_PLAYBACK_COMPAT_PACKAGES = "io.github.lujinxin.nextep.extra.PLAYBACK_COMPAT_PACKAGES"
+    const val EXTRA_FLOATING_INTERACTION_MODE = "io.github.lujinxin.nextep.extra.FLOATING_INTERACTION_MODE"
     const val EXTRA_FLOATING_DOCK_ORIENTATION = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_ORIENTATION"
     const val EXTRA_FLOATING_DOCK_SIZE_PERCENT = "io.github.lujinxin.nextep.extra.FLOATING_DOCK_SIZE_PERCENT"
+    const val FLOATING_INTERACTION_STABLE = "stable"
+    const val FLOATING_INTERACTION_NATIVE = "native"
+    const val DEFAULT_FLOATING_INTERACTION_MODE = FLOATING_INTERACTION_STABLE
+    fun normalizeFloatingInteractionMode(value: String?): String =
+        if (value == FLOATING_INTERACTION_NATIVE) FLOATING_INTERACTION_NATIVE else FLOATING_INTERACTION_STABLE
     const val DEFAULT_FLOATING_DOCK_ORIENTATION = "horizontal"
     const val DEFAULT_FLOATING_DOCK_SIZE_PERCENT = 100
     const val MIN_FLOATING_DOCK_SIZE_PERCENT = 60
@@ -149,6 +156,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                     settings.playbackCompatLockAudio)
                 putStringArrayList(WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
                     ArrayList(settings.playbackCompatPackages.sorted()))
+                putString(WorkspaceConfigContract.EXTRA_FLOATING_INTERACTION_MODE,
+                    settings.floatingInteractionMode)
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION, settings.floatingDockOrientation)
                 putInt(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_SIZE_PERCENT, settings.floatingDockSizePercent)
                 putBoolean(WorkspaceConfigContract.EXTRA_FOUR_FINGER_GESTURE_ENABLED, settings.fourFingerGestureEnabled)
@@ -312,6 +321,9 @@ object WorkspaceConfigClient {
                 WorkspaceConfigContract.EXTRA_PLAYBACK_COMPAT_PACKAGES,
             ).orEmpty().filter { it.matches(Regex("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+")) }
                 .take(60).toSet(),
+            floatingInteractionMode = WorkspaceConfigContract.normalizeFloatingInteractionMode(
+                extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_INTERACTION_MODE),
+            ),
             floatingDockOrientation = WorkspaceConfigContract.normalizeFloatingDockOrientation(
                 extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_DOCK_ORIENTATION),
             ),
