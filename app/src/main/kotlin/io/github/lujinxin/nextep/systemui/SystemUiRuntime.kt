@@ -106,6 +106,7 @@ object SystemUiRuntime {
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
                 if (::floatingDock.isInitialized) {
+                    floatingDock.applyInteractionMode(workspaceConfig.floatingInteractionMode)
                     floatingDock.applyLayoutSettings(
                         workspaceConfig.floatingDockOrientation,
                         workspaceConfig.floatingDockSizePercent,
@@ -650,8 +651,9 @@ object SystemUiRuntime {
                     "anchor=${bubbleAnchorFrom(intent)}")
             val handled = when {
                 !ready -> false
-                // The bubble returns the real fullscreen app to its
-                // reserved NeXtep virtual slot. Do not exchange with main.
+                // Stable zoom only changes the view; native mode actually
+                // returns the same Task to its reserved virtual display.
+                floatingDock.isStableZoomed() -> floatingDock.shrinkStableZoom()
                 floatingDock.hasTemporaryFullscreen() -> floatingDock.returnTemporaryFullscreen()
                 floatingDock.isExpanded() ->
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
