@@ -3,6 +3,7 @@ package io.github.lujinxin.nextep.systemui
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -24,8 +25,10 @@ import io.github.lujinxin.nextep.display.SlotState
 import io.github.lujinxin.nextep.display.SlotTaskCoordinator
 import io.github.lujinxin.nextep.display.VirtualDisplaySlot
 import io.github.lujinxin.nextep.display.WORKSPACE_SLOT_COUNT
+import io.github.lujinxin.nextep.framework.ActivityTaskManagerCompat
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.task.MainTaskPresentationCoordinator
+import io.github.lujinxin.nextep.task.TaskRepository
 import io.github.lujinxin.nextep.workspace.SidebarSide
 import io.github.lujinxin.nextep.workspace.WorkspaceLayoutProfile
 import kotlin.math.roundToInt
@@ -55,6 +58,14 @@ internal class FloatingSlotDockController(
     private var host: FrameLayout? = null
     private var panelVisible = false
     private var suspendedForLock = false
+    // Floating mode ONLY: visual zoom never migrates the underlying Task or VD.
+    private data class ZoomedCard(val index: Int, val taskId: Int, val displayId: Int)
+    private var zoomedCard: ZoomedCard? = null
+    private val floatingTaskRepository = TaskRepository(context)
+    private var zoomActions: FrameLayout? = null
+    private val removeBadges = mutableMapOf<Int, TextView>()
+    private var removalPrompt: FrameLayout? = null
+    private var removalPending = false
     private var picker: FrameLayout? = null
     private var pickerList: LinearLayout? = null
     private var grid: FrameLayout? = null
@@ -92,6 +103,7 @@ internal class FloatingSlotDockController(
     private val playbackCompat = FloatingPlaybackCompatController(context)
     private val playbackSlotRefresh = Runnable {
         playbackCompat.onSlotPackagesChanged(currentPlayerPackages())
+        updateRemoveBadges()
     }
     private fun currentPlayerPackages(): Set<String> =
         coordinator?.slotStates().orEmpty().mapNotNull { state ->
@@ -119,6 +131,8 @@ internal class FloatingSlotDockController(
 
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
+    fun isCardZoomed(): Boolean = zoomedCard != null
+    fun shrinkZoomedCard(): Boolean = restoreCompactCards()
 
     /** Reflow without releasing any VirtualDisplay or moving the running tasks. */
     fun applyLayoutSettings(orientationValue: String, scalePercent: Int) {
@@ -212,7 +226,9 @@ internal class FloatingSlotDockController(
                     padMultiTaskMode = padModeForSession,
                 ).apply {
                     setLayoutProfile(recorded)
-                    view.setBackgroundSwipeEnabled(true)
+                    // In floating mode a card is fixed in its original slot.
+                    // Dismissal uses the tiny confirmed remove icon instead.
+                    view.setBackgroundSwipeEnabled(false)
                     view.setBackgroundSwipeSide(SidebarSide.RIGHT)
                     view.background = rounded(Color.argb(230, 8, 16, 22), dp(10))
                     frames.addView(view)
@@ -276,6 +292,11 @@ internal class FloatingSlotDockController(
                 returnAfterSharing = { false },
             )
             checkNotNull(coordinator).activate()
+            newSlots.forEachIndexed { index, slot ->
+                slot.view.setOnClickListener { onFloatingCardTapped(index) }
+                slot.view.setOnLongClickListener { true } // No ordinary task exchange in floating mode.
+            }
+            installRemoveBadges()
             playbackCompat.onVisibilityChanged(true, currentPlayerPackages())
             handler.removeCallbacks(playbackSlotRefresh)
             handler.postDelayed(playbackSlotRefresh, 1_000L)
