@@ -529,6 +529,25 @@ class SlotTaskCoordinator(
             }
     }
 
+    /** Directly park a specific foreground Task without the slot's click/swap UI. */
+    fun quickParkForeground(taskId: Int): Result<Int> {
+        ensureMainThread()
+        if (!active || suspended || transitionInProgress || recentSelectionPending)
+            return Result.failure(IllegalStateException("Floating slots are busy"))
+        val index = slotRecords.indexOfFirst { record ->
+            record.state is SlotState.Ready && record.pendingComponent == null &&
+                record.retainedTaskId == null && record.migrationRecoveryTask == null
+        }
+        if (index < 0) return Result.failure(IllegalStateException("No free floating slot"))
+        val ready = slotRecords[index].state as SlotState.Ready
+        val current = taskRepository.foregroundTask()
+        if (current?.taskId != taskId || !isExchangeableMainTask(current))
+            return Result.failure(IllegalStateException("Foreground app changed or cannot be moved"))
+        return runTransition("quick park foreground task=$taskId slot=$index") {
+            parkMainTaskInSlot(index, ready, current)
+        }.map { index }
+    }
+
     fun slotStates(): List<SlotState> = slotRecords.map { it.state }
 
     override fun onDisplayReady(slotIndex: Int, displayId: Int) {
