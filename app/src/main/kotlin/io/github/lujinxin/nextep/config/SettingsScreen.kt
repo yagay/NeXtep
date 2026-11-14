@@ -224,6 +224,14 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
+                        activity.getString(R.string.floating_auto_playback_title),
+                        activity.getString(R.string.floating_auto_playback_summary),
+                        settings.floatingAutoProtectPlayback,
+                        repository::setFloatingAutoProtectPlayback,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
                         activity.getString(R.string.playback_compat_enabled_title),
                         activity.getString(R.string.playback_compat_enabled_summary),
                         settings.playbackCompatEnabled,
