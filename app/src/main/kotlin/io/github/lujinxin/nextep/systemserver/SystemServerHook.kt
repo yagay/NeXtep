@@ -29,6 +29,7 @@ object SystemServerHook {
         }
         HookGuard.run("workspace_ime_target") { WorkspaceImeTargetHook.install(module, classLoader) }
         HookGuard.run("workspace_navigation") { WorkspaceNavigationBarHook.install(module, classLoader) }
+        HookGuard.run("floating_navigation_events") { SystemNavigationFoldHook.install(module, classLoader) }
         HookGuard.run("slot_native_layout") { WorkspaceSlotNativeLayoutHook.install(module, classLoader) }
         HookGuard.run("four_finger_gesture") { FourFingerGestureHook.install(module, classLoader) }
         HookGuard.run("system_drag_share") { SystemDragShareHook.install(module, classLoader) }
