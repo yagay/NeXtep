@@ -254,8 +254,10 @@ internal class FloatingSlotDockController(
     fun isStableZoomed(): Boolean = stableZoom != null
     fun shrinkStableZoom(): Boolean = restoreStableCompact()
     /**
-     * A card tap must open the actual Activity as a normal fullscreen task on
-     * Display 0, not enlarge its virtual-display TextureView.
+     * Match main branch: keep the occupied Activity in its original
+     * VirtualDisplay and enlarge only its live presentation. Do not migrate
+     * the task to Display 0 just for tapping a floating card: OEM task
+     * windowing mode APIs can fail after the move and cause a visible flash.
      */
     private fun onFloatingCardTapped(index: Int) {
         if (!panelVisible || suspendedForLock || removalPending) return
@@ -264,57 +266,10 @@ internal class FloatingSlotDockController(
             return
         }
         when (val state = coordinator?.slotStates()?.getOrNull(index)) {
-            is SlotState.Occupied -> promoteFloatingCardToFullscreen(index, state)
+            is SlotState.Occupied -> zoomStableCard(index, state)
             is SlotState.Ready, is SlotState.Failed -> coordinator?.onSlotClicked(index)
             SlotState.Empty -> coordinator?.onTasksChanged()
             else -> Unit
-        }
-    }
-
-    private fun promoteFloatingCardToFullscreen(index: Int, state: SlotState.Occupied): Boolean {
-        val current = floatingTaskRepository.findTask(state.taskId)
-        if (current?.displayId != state.displayId ||
-            slots.getOrNull(index)?.displayId() != state.displayId) {
-            NeXtepLog.warn("floating_fullscreen",
-                "PROMOTE_REFUSED stale task=${state.taskId} display=${state.displayId}")
-            coordinator?.onTasksChanged()
-            return false
-        }
-        var moved = false
-        return runCatching {
-            ActivityTaskManagerCompat.moveTaskToDisplay(
-                state.taskId, android.view.Display.DEFAULT_DISPLAY).getOrThrow()
-            moved = true
-            val mode = ActivityTaskManagerCompat.resolveWindowingMode(
-                "WINDOWING_MODE_FULLSCREEN") ?: 1
-            ActivityTaskManagerCompat.setTaskWindowingMode(state.taskId, mode).getOrThrow()
-            // Clear virtual-display size constraints so Android computes the
-            // native screen bounds, including proper status/navigation insets.
-            ActivityTaskManagerCompat.resizeTask(state.taskId, Rect()).getOrThrow()
-            floatingTaskRepository.bringTaskToFront(state.taskId).getOrThrow()
-            check(floatingTaskRepository.findTask(state.taskId)?.displayId ==
-                android.view.Display.DEFAULT_DISPLAY) {
-                "Promoted task did not reach physical display"
-            }
-            NeXtepLog.info("floating_fullscreen",
-                "PROMOTE_OK task=${state.taskId} from=${state.displayId} to=0 mode=$mode")
-            collapse()
-            coordinator?.onTasksChanged()
-            true
-        }.getOrElse { error ->
-            NeXtepLog.warn("floating_fullscreen",
-                "PROMOTE_FAILED task=${state.taskId}; attempting rollback", error)
-            if (moved) {
-                runCatching {
-                    ActivityTaskManagerCompat.moveTaskToDisplay(
-                        state.taskId, state.displayId).getOrThrow()
-                }.onFailure { rollbackError ->
-                    NeXtepLog.warn("floating_fullscreen",
-                        "PROMOTE_ROLLBACK_FAILED task=${state.taskId}", rollbackError)
-                }
-            }
-            coordinator?.onTasksChanged()
-            false
         }
     }
 
