@@ -190,6 +190,22 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
+                        activity.getString(R.string.floating_popup_back_title),
+                        activity.getString(R.string.floating_popup_back_summary),
+                        settings.floatingPopupBackEnabled,
+                        repository::setFloatingPopupBackEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.floating_swipe_collapse_title),
+                        activity.getString(R.string.floating_swipe_collapse_summary),
+                        settings.floatingSwipeCollapseEnabled,
+                        repository::setFloatingSwipeCollapseEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
                         activity.getString(R.string.floating_lock_guard_title),
                         activity.getString(R.string.floating_lock_guard_summary),
                         settings.floatingLockGuardEnabled,
