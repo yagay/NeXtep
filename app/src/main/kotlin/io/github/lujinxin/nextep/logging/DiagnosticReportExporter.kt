@@ -104,6 +104,8 @@ object DiagnosticReportExporter {
                     appendLine("Four-finger gesture: ${settings.fourFingerGestureEnabled}")
                     appendLine("Floating bubble: ${settings.floatingBubbleEnabled}")
                     appendLine("Floating lock guard enabled: ${settings.floatingLockGuardEnabled}")
+                    appendLine("Effective floating lock policy: " +
+                        (settings.floatingBubbleEnabled && settings.floatingLockGuardEnabled))
                     appendLine("System server lock policy: " + runCatching {
                         android.provider.Settings.Global.getInt(context.contentResolver,
                             "nextep_slot_independent_lock_guard_v1", -1).toString()
@@ -112,7 +114,7 @@ object DiagnosticReportExporter {
                         android.provider.Settings.Global.getString(context.contentResolver,
                             "nextep_slot_guard_diagnostics_v1") ?: "not published"
                     }.getOrDefault("unavailable"))
-                    appendLine("App-process playback Hook is diagnostic-only and requires manual LSPosed scope")
+                    appendLine("Lock playback mode: System Server lifecycle guard only (no MediaSession or player-app Hook)")
                     appendLine("Background swipe: ${settings.slotBackgroundSwipeEnabled}")
                     appendLine("Block system drag/share: ${settings.blockSystemDragShareEnabled}")
                     appendLine("Return after sharing: ${settings.returnAfterSharingEnabled}")
