@@ -24,6 +24,7 @@ import android.widget.TextView
 import android.widget.Toast
 import io.github.lujinxin.nextep.R
 import io.github.lujinxin.nextep.apps.LauncherAppRepository
+import io.github.lujinxin.nextep.floating.FloatingPanelStateController
 import io.github.lujinxin.nextep.config.AppLanguage
 import io.github.lujinxin.nextep.display.SlotState
 import io.github.lujinxin.nextep.display.SlotTaskCoordinator
@@ -61,6 +62,7 @@ internal class FloatingSlotDockController(
     private val handler = Handler(Looper.getMainLooper())
     private var host: FrameLayout? = null
     private var panelVisible = false
+    private val panelState = FloatingPanelStateController()
     private var popupBackEnabled = true
     private var swipeCollapseEnabled = true
     private var popupEverFocused = false
@@ -180,6 +182,13 @@ internal class FloatingSlotDockController(
 
     /** Visible and interactive, as opposed to a retained hidden live session. */
     fun isExpanded(): Boolean = host != null && panelVisible
+
+    /** No toggle or click: a completed navigation event only collapses EXPANDED. */
+    fun onNavigationEvent(source: String) {
+        if (!panelState.shouldCollapseForNavigation() || !isExpanded()) return
+        NeXtepLog.info("floating_dock", "NAV_STATE_COLLAPSE source=$source")
+        collapse()
+    }
 
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
@@ -742,6 +751,7 @@ internal class FloatingSlotDockController(
             checkNotNull(manager).addView(root, wnd)
             host = root
             panelVisible = true
+            panelState.onVisibilityChanged(true)
             popupEverFocused = root.hasWindowFocus()
             if (popupBackEnabled) root.requestFocus()
             syncPopupBackCallback(root)
@@ -811,6 +821,7 @@ internal class FloatingSlotDockController(
             // Keep the root itself VISIBLE and attached: setting GONE or
             // removeViewImmediate can destroy live TextureView surfaces.
             panelVisible = false
+            panelState.onVisibilityChanged(false)
             pickerGeneration += 1
             picker?.visibility = View.GONE
             NeXtepLog.info("floating_dock",
@@ -1013,6 +1024,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun clear() {
+        panelState.onVisibilityChanged(false)
         handler.removeCallbacks(outsideFold)
         outsideFoldPending = false
         dismissRemovalPrompt()
