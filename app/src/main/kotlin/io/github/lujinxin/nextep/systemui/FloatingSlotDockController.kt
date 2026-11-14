@@ -116,6 +116,7 @@ internal class FloatingSlotDockController(
     private val removeBadges = mutableMapOf<Int, TextView>()
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
+    private var autoParkPending = false
     private var outsideFoldPending = false
     private val outsideFold = Runnable {
         outsideFoldPending = false
@@ -278,7 +279,7 @@ internal class FloatingSlotDockController(
         after: (() -> Unit)? = null,
     ): Boolean {
         if (taskId <= 0 || userId < 0 || suspendedForLock || removalPending ||
-            stableZoom != null) {
+            stableZoom != null || autoParkPending) {
             NeXtepLog.info("auto_slot", "REJECT_BUSY reason=$reason task=$taskId")
             after?.invoke()
             return false
@@ -291,7 +292,9 @@ internal class FloatingSlotDockController(
             after?.invoke()
             return false
         }
+        autoParkPending = true
         fun finish() {
+            autoParkPending = false
             if (!expanded && hasSession()) collapse()
             after?.invoke()
         }
@@ -711,7 +714,16 @@ internal class FloatingSlotDockController(
         if (hasSession()) reconfigure()
     }
 
-    fun expand(anchor: FloatingDockPlacement.Anchor? = null): Boolean {
+    fun prepareHiddenAutoSession(): Boolean {
+        if (hasSession()) return true
+        if (suspendedForLock) return false
+        return expand(startHidden = true)
+    }
+
+    fun expand(
+        anchor: FloatingDockPlacement.Anchor? = null,
+        startHidden: Boolean = false,
+    ): Boolean {
         if (hasSession()) {
             if (anchor != null) bubbleAnchor = anchor
             return showRetainedSession()
@@ -890,7 +902,9 @@ internal class FloatingSlotDockController(
             })
             val wnd = WindowManager.LayoutParams(
                 layout.width, layout.height, type,
-                (if (popupBackEnabled) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or
+                (if (popupBackEnabled && !startHidden) 0
+                    else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or
+                    (if (startHidden) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0) or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
@@ -901,6 +915,7 @@ internal class FloatingSlotDockController(
                 x = layout.x
                 y = layout.y
                 title = "NeXtepFloatingSlotDock"
+                if (startHidden) alpha = 0f
                 // We own a precisely clamped OS safe rectangle even though
                 // the WindowManager layer can physically cover system bars.
                 setFitInsetsTypes(0)
@@ -909,10 +924,10 @@ internal class FloatingSlotDockController(
             }
             checkNotNull(manager).addView(root, wnd)
             host = root
-            panelVisible = true
-            setPanelExpanded(true, "create")
+            panelVisible = !startHidden
+            setPanelExpanded(!startHidden, if (startHidden) "auto-prepared" else "create")
             popupEverFocused = root.hasWindowFocus()
-            if (popupBackEnabled) root.requestFocus()
+            if (popupBackEnabled && !startHidden) root.requestFocus()
             syncPopupBackCallback(root)
             suspendedForLock = false
             coordinator = SlotTaskCoordinator(
