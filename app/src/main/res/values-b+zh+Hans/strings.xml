@@ -184,6 +184,12 @@
     <string name="floating_service_stop">关闭悬浮图标</string>
     <string name="floating_start_failed">悬浮图标启动失败，请检查悬浮窗权限和后台运行限制。</string>
     <string name="floating_module_not_ready">无法展开工作台：%1$s</string>
+    <string name="floating_interaction_mode_title">小窗交互模式</string>
+    <string name="floating_interaction_mode_summary">选择放大时直接操作原虚拟显示器，或临时切到原生全屏。不影响普通工作台。</string>
+    <string name="floating_interaction_stable">稳定交互（默认）</string>
+    <string name="floating_interaction_stable_desc">应用固定在原小窗，放大后通过触摸转发操作；最适合后台与锁屏播放。某些系统输入法可能不兼容。</string>
+    <string name="floating_interaction_native">原生全屏</string>
+    <string name="floating_interaction_native_desc">临时切到主屏真实操作，按 Home、切应用或锁屏时自动回到原小窗；切换显示器可能重建页面。</string>
     <string name="floating_dock_title">悬浮小窗</string>
     <string name="floating_dock_add">选应用</string>
     <string name="floating_dock_close">×</string>
