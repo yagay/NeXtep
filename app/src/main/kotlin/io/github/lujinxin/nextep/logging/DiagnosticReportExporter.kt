@@ -28,7 +28,7 @@ import java.util.zip.ZipOutputStream
 /**
  * User-initiated SAF ZIP export. Never requests blanket logcat permissions.
  * App and SystemUI snapshots are bounded and scoped to NeXtep; an optional
- * root-only logcat capture is limited to NeXtep diagnostic tags.
+ * root-only logcat capture is limited to NeXtep diagnostic tags, including the system_server lifecycle guard.
  */
 object DiagnosticReportExporter {
     fun suggestedName(): String =
@@ -164,7 +164,7 @@ object DiagnosticReportExporter {
         // Root is optional, but report precisely why this capture did not
         // work. Long first-run KernelSU prompts must not be mistaken for
         // successful collection of an empty buffer.
-        val process = ProcessBuilder("su", "-c", "logcat -d -t 4000 -s NeXtep:* NeXtepDisplayPower:*")
+        val process = ProcessBuilder("su", "-c", "logcat -d -t 5000 -s NeXtep:* NeXtepDisplayPower:* NeXtepSlotGuard:*")
             .redirectErrorStream(true).start()
         val content = StringBuilder()
         val reader = Thread({
@@ -191,7 +191,7 @@ object DiagnosticReportExporter {
             process.exitValue() != 0 ->
                 "Root logcat command failed (exit=${process.exitValue()}): ${output.take(500)}"
             output.isBlank() -> "Root logcat completed but returned no NeXtep diagnostic lines"
-            else -> "Root logcat captured (NeXtep and NeXtepDisplayPower tags)"
+            else -> "Root logcat captured (NeXtep, NeXtepDisplayPower, NeXtepSlotGuard tags)"
         }
         RootCapture(if (completed && process.exitValue() == 0 && output.isNotBlank()) output else null,
             status)
