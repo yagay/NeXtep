@@ -88,6 +88,7 @@ internal class FloatingSlotDockController(
         var absentSince: Long = 0L,
         var lastReturnAttemptAt: Long = 0L,
         var failedReturnAttempts: Int = 0,
+        var backgroundSince: Long = 0L,
     )
     private var fullscreenTask: TemporarilyFullscreen? = null
     private var movingFullscreenTask = false
@@ -569,11 +570,24 @@ internal class FloatingSlotDockController(
             returnFullscreenToSlot("sticky:$source")
             return
         }
-        if (SystemClock.uptimeMillis() - pin.beganAt < 800L) return
+        val now = SystemClock.uptimeMillis()
+        if (now - pin.beganAt < 800L) return
         val foreground = floatingTaskRepository.foregroundTask() ?: return
-        if (foreground.taskId == pin.taskId) return
+        if (foreground.taskId == pin.taskId) {
+            pin.backgroundSince = 0L
+            return
+        }
+        // ColorOS may briefly report Home as foreground while the launcher
+        // is completing a real Activity transition. Verify background across
+        // consecutive snapshots before reparenting this Task back to its VD.
+        if (pin.backgroundSince == 0L) {
+            pin.backgroundSince = now
+            return
+        }
+        if (now - pin.backgroundSince < 420L) return
         NeXtepLog.info("floating_pinned",
-            "AUTO_RETURN reason=$source task=${pin.taskId} foreground=${foreground.taskId}")
+            "AUTO_RETURN reason=$source task=${pin.taskId} foreground=${foreground.taskId} " +
+                "backgroundMs=${now - pin.backgroundSince}")
         returnFullscreenToSlot("background:$source")
     }
 
