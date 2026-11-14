@@ -162,6 +162,13 @@ internal class FloatingSlotDockController(
     private var sizePercent = 100
     private var coordinator: SlotTaskCoordinator? = null
     private var slots: List<VirtualDisplaySlot> = emptyList()
+    // A subset of the four EXISTING live virtual displays is presented in
+    // the dock. Never detach, destroy or reindex the underlying Task owners.
+    private val visibleSlotIndices = linkedSetOf(0, 1, 2, 3)
+    private fun cellFor(slotIndex: Int, layout: Panel): FloatingDockRailLayout.Cell? =
+        visibleSlotIndices.indexOf(slotIndex).takeIf { it >= 0 }
+            ?.let { layout.cells.getOrNull(it) }
+
     private var profile: WorkspaceLayoutProfile? = null
     private var panel: Panel? = null
     private var bubbleAnchor: FloatingDockPlacement.Anchor? = null
@@ -359,7 +366,7 @@ internal class FloatingSlotDockController(
                 FrameLayout.LayoutParams(width, height, Gravity.TOP or Gravity.LEFT)
             } else {
                 // Keep sibling TextureViews attached and their surfaces live.
-                val cell = panel?.cells?.getOrNull(i)
+                val cell = panel?.let { cellFor(i, it) }
                 FrameLayout.LayoutParams(cell?.width ?: dp(32), cell?.height ?: dp(32),
                     Gravity.TOP or Gravity.LEFT).apply { leftMargin = width + dp(12) }
             }
@@ -434,12 +441,15 @@ internal class FloatingSlotDockController(
             ).apply { topMargin = compact.header }
             grid?.layoutParams = FrameLayout.LayoutParams(compact.railWidth, compact.railHeight)
             slots.forEachIndexed { i, slot ->
-                val cell = compact.cells[i]
+                val cell = cellFor(i, compact)
+                val previous = slot.view.layoutParams
                 slot.view.layoutParams = FrameLayout.LayoutParams(
-                    cell.width, cell.height, Gravity.TOP or Gravity.LEFT,
+                    cell?.width ?: previous?.width?.coerceAtLeast(1) ?: dp(100),
+                    cell?.height ?: previous?.height?.coerceAtLeast(1) ?: dp(160),
+                    Gravity.TOP or Gravity.LEFT,
                 ).apply {
-                    leftMargin = cell.x
-                    topMargin = cell.y
+                    leftMargin = cell?.x ?: compact.railWidth + dp(20)
+                    topMargin = cell?.y ?: dp(4)
                 }
             }
             applyRailOffset()
@@ -481,7 +491,11 @@ internal class FloatingSlotDockController(
 
     private fun positionRemoveBadges(compact: Panel) {
         for ((index, badge) in removeBadges) {
-            val cell = compact.cells.getOrNull(index) ?: continue
+            val cell = cellFor(index, compact)
+            if (cell == null) {
+                badge.visibility = View.GONE
+                continue
+            }
             badge.layoutParams = FrameLayout.LayoutParams(
                 dp(19), dp(19), Gravity.TOP or Gravity.LEFT,
             ).apply {
@@ -494,7 +508,8 @@ internal class FloatingSlotDockController(
     private fun updateRemoveBadges() {
         val states = coordinator?.slotStates().orEmpty()
         removeBadges.forEach { (index, badge) ->
-            badge.visibility = if (stableZoom == null && panelVisible &&
+            badge.visibility = if (index in visibleSlotIndices &&
+                stableZoom == null && panelVisible &&
                 states.getOrNull(index) is SlotState.Occupied) View.VISIBLE else View.GONE
         }
     }
@@ -1112,6 +1127,8 @@ internal class FloatingSlotDockController(
         host = null
         panelVisible = false
         suspendedForLock = false
+        visibleSlotIndices.clear()
+        visibleSlotIndices.addAll(0 until WORKSPACE_SLOT_COUNT)
     }
 
     private fun calculatePanel(width: Int, height: Int, recorded: WorkspaceLayoutProfile): Panel {
@@ -1119,7 +1136,9 @@ internal class FloatingSlotDockController(
         // the extra floating presentation changes arrangement, not size.
         val plan = FloatingDockRailLayout.calculate(
             width, height, context.resources.displayMetrics.density,
-            recorded.slots.map { it.width to it.height },
+            visibleSlotIndices.map { index ->
+                recorded.slots[index].let { it.width to it.height }
+            },
             orientation, sizePercent,
         )
         val position = FloatingDockPlacement.calculate(
@@ -1134,12 +1153,17 @@ internal class FloatingSlotDockController(
 
     private fun layoutCells(sizes: Panel) {
         slots.forEachIndexed { index, slot ->
-            val cell = sizes.cells[index]
+            val cell = cellFor(index, sizes)
+            val old = slot.view.layoutParams
             slot.view.layoutParams = FrameLayout.LayoutParams(
-                cell.width, cell.height, Gravity.TOP or Gravity.LEFT,
+                cell?.width ?: old?.width?.coerceAtLeast(1) ?: dp(100),
+                cell?.height ?: old?.height?.coerceAtLeast(1) ?: dp(160),
+                Gravity.TOP or Gravity.LEFT,
             ).apply {
-                leftMargin = cell.x
-                topMargin = cell.y
+                // Hidden slots are clipped outside the rail viewport while
+                // TextureViews remain attached and their VD surfaces alive.
+                leftMargin = cell?.x ?: sizes.railWidth + dp(20)
+                topMargin = cell?.y ?: dp(4)
             }
         }
         positionRemoveBadges(sizes)
@@ -1175,6 +1199,8 @@ internal class FloatingSlotDockController(
             stepRail(forward = true)
         }
         val add = tiny("＋", str(R.string.floating_dock_add)) { showPicker() }
+        val less = tiny("−", "减少槽位 / Select slot to hide") { showSlotRemovalPicker() }
+        val more = tiny("+", "增加槽位 / Restore a hidden slot") { restoreHiddenSlot() }
         val close = tiny("×", "Hide floating windows") {
             closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
         }
@@ -1192,9 +1218,12 @@ internal class FloatingSlotDockController(
                 }
             target.addView(row(checkNotNull(previousControl), checkNotNull(nextControl)),
                 LinearLayout.LayoutParams(-2, button).apply { bottomMargin = separation })
-            target.addView(row(add, close), LinearLayout.LayoutParams(-2, button))
+            target.addView(row(add, close), LinearLayout.LayoutParams(-2, button).apply {
+                bottomMargin = separation
+            })
+            target.addView(row(less, more), LinearLayout.LayoutParams(-2, button))
         } else {
-            listOf(checkNotNull(previousControl), checkNotNull(nextControl), add, close)
+            listOf(checkNotNull(previousControl), checkNotNull(nextControl), add, less, more, close)
                 .forEachIndexed { index, buttonView ->
                     target.addView(buttonView,
                         LinearLayout.LayoutParams(button, button).apply {
@@ -1268,6 +1297,76 @@ internal class FloatingSlotDockController(
         manager?.updateViewLayout(root, wnd)
     }
 
+    /**
+     * Reduce by choosing ANY visible slot rather than always the last one.
+     * Occupied slots cannot be hidden: a hidden app must never become an
+     * inaccessible task in one of the retained virtual displays.
+     */
+    private fun showSlotRemovalPicker() {
+        if (!panelVisible || suspendedForLock || stableZoom != null) return
+        if (visibleSlotIndices.size <= 1) {
+            Toast.makeText(context, "至少保留一个槽位", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val pick = picker ?: return
+        val list = pickerList ?: return
+        pickerGeneration += 1
+        pick.visibility = View.VISIBLE
+        placeExpandedPicker()
+        list.removeAllViews()
+        list.addView(action("← 返回小窗", Color.WHITE) { hidePicker() })
+        for (index in visibleSlotIndices.toList()) {
+            val state = coordinator?.slotStates()?.getOrNull(index)
+            val occupied = state is SlotState.Occupied
+            val label = "槽位 ${index + 1}" +
+                if (occupied) " · 正在运行应用（不可减少）" else " · 点击减少"
+            list.addView(action(label, if (occupied) Color.LTGRAY else Color.WHITE) {
+                if (occupied) {
+                    Toast.makeText(context, "先移走该槽位中的应用，再减少槽位", Toast.LENGTH_SHORT).show()
+                } else if (hideSelectedSlot(index)) hidePicker()
+            }, LinearLayout.LayoutParams(-1, dp(48)))
+        }
+    }
+
+    private fun hideSelectedSlot(index: Int): Boolean {
+        if (!panelVisible || removalPending || stableZoom != null ||
+            index !in visibleSlotIndices || visibleSlotIndices.size <= 1) return false
+        val occupied = coordinator?.slotStates()?.getOrNull(index) is SlotState.Occupied
+        val displayId = slots.getOrNull(index)?.displayId()
+        val stillRunning = displayId != null && floatingTaskRepository.runningTasks()
+            .any { it.displayId == displayId }
+        if (occupied || stillRunning) {
+            Toast.makeText(context, "该槽位仍有应用，不能隐藏", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        visibleSlotIndices.remove(index)
+        railOffsetPx = 0
+        buildToolbarControls()
+        reconfigure()
+        NeXtepLog.info("floating_dock",
+            "VISIBLE_SLOT_REMOVED index=$index visible=${visibleSlotIndices.joinToString()}")
+        return true
+    }
+
+    private fun restoreHiddenSlot() {
+        if (!panelVisible || suspendedForLock || stableZoom != null) return
+        val index = (0 until WORKSPACE_SLOT_COUNT).firstOrNull {
+            it !in visibleSlotIndices
+        } ?: run {
+            Toast.makeText(context, "已显示全部四个槽位", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Keep displayed order aligned with stable physical slot indices.
+        val all = (visibleSlotIndices + index).sorted()
+        visibleSlotIndices.clear()
+        visibleSlotIndices.addAll(all)
+        railOffsetPx = 0
+        buildToolbarControls()
+        reconfigure()
+        NeXtepLog.info("floating_dock",
+            "VISIBLE_SLOT_RESTORED index=$index visible=${visibleSlotIndices.joinToString()}")
+    }
+
     private fun hidePicker() {
         pickerGeneration += 1
         picker?.visibility = View.GONE
@@ -1277,7 +1376,9 @@ internal class FloatingSlotDockController(
     private fun showPicker() {
         if (stableZoom != null) return
         val states = coordinator?.slotStates().orEmpty()
-        val empty = states.indexOfFirst { it is SlotState.Ready }
+        val empty = states.indices.firstOrNull {
+            it in visibleSlotIndices && states[it] is SlotState.Ready
+        } ?: -1
         if (empty < 0) {
             message(R.string.floating_dock_no_slot)
             return
