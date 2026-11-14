@@ -155,7 +155,7 @@ internal object NeXtepNativeWindowLifecycleGuard {
                     hook(module, method) { chain ->
                         val task = chain.args.firstOrNull()
                         requestObserver(task)
-                        if (safeEligible(task)) {
+                        if (screenOff() && safeEligible(task)) {
                             prevented.incrementAndGet()
                             status("NATIVE_OEM_SCREEN_OFF_PLAY task=${task?.let(::taskIdFromTask)} source=${name.substringAfterLast('.')}")
                             true
@@ -190,6 +190,7 @@ internal object NeXtepNativeWindowLifecycleGuard {
                 "com.android.server.wm.ActivityRecord") owner
                 else field(owner, "mResumedActivity")
                     ?: call(owner, "topRunningActivity")
+                    ?: call(owner, "getTopNonFinishingActivity")
                     ?: return false
             val task = call(activity, "getTask") ?: return false
             val id = taskId(activity)
