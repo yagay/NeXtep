@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches:
+      - beta
       - feature/floating-lockscreen-audio
   workflow_dispatch:
 
@@ -46,7 +47,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: nextep-panes-four-slot-debug
+          name: nextep-beta-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
