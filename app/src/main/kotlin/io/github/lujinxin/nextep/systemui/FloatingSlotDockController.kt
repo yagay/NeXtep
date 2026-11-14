@@ -100,6 +100,38 @@ internal class FloatingSlotDockController(
     private val removeBadges = mutableMapOf<Int, TextView>()
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
+    private var outsideFoldPending = false
+    private val outsideFold = Runnable {
+        outsideFoldPending = false
+        // Only a genuinely open floating dock may auto-fold. Never interfere
+        // with an active removal confirmation or the real full-screen task.
+        if (!panelVisible || suspendedForLock || removalPending ||
+            fullscreenTask != null || host == null) return@Runnable
+        NeXtepLog.info("floating_dock",
+            "OUTSIDE_TAP_FOLD; retaining original virtual displays and tasks")
+        collapse()
+    }
+
+    /**
+     * ACTION_OUTSIDE comes from FLAG_WATCH_OUTSIDE_TOUCH. The original click
+     * belongs to the app under the overlay: this callback only folds NeXtep.
+     * The bubble itself has its own toggle handler; avoid double-toggling it.
+     */
+    private fun foldForOutsideTap(event: MotionEvent?) {
+        if (!panelVisible || suspendedForLock || removalPending ||
+            fullscreenTask != null || outsideFoldPending) return
+        if (event != null && event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+            val bubble = bubbleAnchor
+            if (bubble != null && bubble.size > 0 &&
+                event.rawX >= bubble.x && event.rawX < bubble.x + bubble.size &&
+                event.rawY >= bubble.y && event.rawY < bubble.y + bubble.size) {
+                NeXtepLog.debug("floating_dock", "Outside tap belongs to floating bubble; defer to bubble toggle")
+                return
+            }
+        }
+        outsideFoldPending = true
+        handler.post(outsideFold)
+    }
     private var picker: FrameLayout? = null
     private var pickerList: LinearLayout? = null
     private var grid: FrameLayout? = null
@@ -964,7 +996,31 @@ internal class FloatingSlotDockController(
             val layout = calculatePanel(screenWidth, screenHeight, recorded)
             profile = recorded
             panel = layout
-            val root = FrameLayout(context).apply {
+            val root = object : FrameLayout(context) {
+                override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                    if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                        foldForOutsideTap(event)
+                        // This is just our copy of the outside notification,
+                        // not the original tap in the underlying application.
+                        return false
+                    }
+                    return super.dispatchTouchEvent(event)
+                }
+            }.apply {
+                // Within the rectangular WindowManager host, blank gaps are
+                // not meaningful controls; a completed blank-area tap folds
+                // the dock without stealing touches from slot/buttons.
+                setOnTouchListener { _, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> true
+                        MotionEvent.ACTION_UP -> {
+                            foldForOutsideTap(null)
+                            true
+                        }
+                        MotionEvent.ACTION_CANCEL -> true
+                        else -> false
+                    }
+                }
                 clipChildren = true
                 clipToPadding = true
                 // The old opaque full-size backing rectangle is removed.
@@ -1039,6 +1095,7 @@ internal class FloatingSlotDockController(
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT,
             ).apply {
@@ -1107,6 +1164,9 @@ internal class FloatingSlotDockController(
     fun collapse(lockEvent: Boolean = false): Boolean {
         val root = host ?: return true
         dismissRemovalPrompt()
+        // An already queued outside tap must not fold a later reopened dock.
+        handler.removeCallbacks(outsideFold)
+        outsideFoldPending = false
         // Return to the compact presentation before hiding the overlay,
         // keeping every task on exactly the same virtual display.
         if (fullscreenTask != null && !returnFullscreenToSlot("dock hide")) {
@@ -1362,6 +1422,8 @@ internal class FloatingSlotDockController(
     }
 
     private fun clear() {
+        handler.removeCallbacks(outsideFold)
+        outsideFoldPending = false
         dismissRemovalPrompt()
         stableControls = null
         stableZoom = null
