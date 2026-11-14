@@ -1,138 +1,112 @@
 package io.github.lujinxin.nextep.systemui
 
 import android.content.Context
-import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.view.Display
-import io.github.lujinxin.nextep.framework.WindowContainerTransactionCompat
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.task.TaskRepository
 import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 
 /**
- * Experimental system-managed multi-freeform workspace. Unlike the VirtualDisplay
- * dock, tasks remain on Display 0 and WM Shell/OEM owns frames and input.
- *
- * Runs only inside the hooked SystemUI process. No vendor/private service names
- * are guessed: an unsupported freeform mode fails without task movement.
+ * Native Oplus zoom window coordinator. Runs in LSPosed-injected SystemUI,
+ * where the OEM's activity-task service can be called with the real taskId.
+ * Never creates VirtualDisplays, starts a launcher Intent or scales a TextureView.
  */
 internal class NativeFreeformController(context: Context) {
-    private val taskRepository = TaskRepository(context)
+    private val repository = TaskRepository(context)
     private val context = context.applicationContext
-    private val tracked = LinkedHashSet<Int>()
-    private val oplusBridge = OplusNativeZoomBridge(context)
+    private val bridge = OplusExistingTaskZoomBridge()
+    private val handler = Handler(Looper.getMainLooper())
     private val nativeTasks = LinkedHashSet<Int>()
+    private val pending = LinkedHashMap<Int, Long>()
     private val capacity = 4
 
     fun addForeground(): Boolean {
         refresh()
-        val task = taskRepository.foregroundTask() ?: return false
-        val packageName = task.component.packageName
+        val task = repository.foregroundTask() ?: return reject("No foreground task")
         val home = TriggerBroadcastContract.resolveHomePackage(context)
+        val pkg = task.component.packageName
         if (task.displayId != Display.DEFAULT_DISPLAY ||
-            packageName == home ||
-            packageName == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
-            packageName == TriggerBroadcastContract.MODULE_PACKAGE ||
-            task.token == null) return false
-        if (task.taskId in nativeTasks || task.windowingMode == FREEFORM_MODE) {
-            tracked.add(task.taskId)
-            NeXtepLog.info("native_freeform", "TRACK_EXISTING task=${task.taskId}")
+            task.userId == null ||
+            pkg == home || pkg == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
+            pkg == TriggerBroadcastContract.MODULE_PACKAGE) {
+            return reject("Ineligible foreground task=${task.taskId} pkg=$pkg")
+        }
+        if (task.vendorWindowed || task.windowingMode == OPLUS_ZOOM_MODE ||
+            task.windowingMode == FREEFORM_MODE) {
+            nativeTasks.add(task.taskId)
+            NeXtepLog.info("native_oplus",
+                "ALREADY_WINDOWED task=${task.taskId} mode=${task.windowingMode} vendor=${task.vendorWindowed}")
             return true
         }
-        if (task.windowingMode != FULLSCREEN_MODE || tracked.size + nativeTasks.size >= capacity) {
-            NeXtepLog.warn("native_freeform", "REFUSED task=${task.taskId} mode=${task.windowingMode} tracked=${tracked.size}")
-            return false
+        if (task.windowingMode != FULLSCREEN_MODE) {
+            return reject("Unsupported source windowing mode=${task.windowingMode}")
         }
-        // OxygenOS / ColorOS controls its own input, keyboard, task chrome
-        // and animations for ZoomWindow. Prefer that instead of generic AOSP
-        // Freeform. Vendor failure falls back to the existing WCT path.
-        when (val vendor = oplusBridge.start(task)) {
-            is OplusNativeZoomBridge.Result.Accepted -> {
-                nativeTasks.add(task.taskId)
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    val actual = taskRepository.runningTasks().firstOrNull {
-                        it.component.packageName == packageName &&
-                            it.displayId == Display.DEFAULT_DISPLAY &&
-                            (it.vendorWindowed || it.windowingMode == FREEFORM_MODE)
-                    }
-                    if (actual == null) {
-                        nativeTasks.remove(task.taskId)
-                        NeXtepLog.warn("native_oplus",
-                            "ZOOM_NOT_CONFIRMED task=${task.taskId} package=$packageName")
-                    } else {
-                        nativeTasks.add(actual.taskId)
-                        NeXtepLog.info("native_oplus",
-                            "ZOOM_CONFIRMED task=${actual.taskId} vendor=${actual.vendorWindowed} mode=${actual.windowingMode}")
-                    }
-                }, 1_500L)
-                NeXtepLog.info("native_oplus",
-                    "ZOOM_ACCEPTED task=${task.taskId} code=${vendor.code}")
-                return true
+        if (task.taskId in pending) {
+            NeXtepLog.info("native_oplus", "ZOOM_ALREADY_PENDING task=${task.taskId}")
+            return true
+        }
+        if (nativeTasks.size + pending.size >= capacity) {
+            return reject("Native window capacity reached ($capacity)")
+        }
+        return when (val result = bridge.start(task)) {
+            is OplusExistingTaskZoomBridge.Result.Failed ->
+                reject("Native zoom task=${task.taskId} failed: ${result.reason}")
+            is OplusExistingTaskZoomBridge.Result.Submitted -> {
+                pending[task.taskId] = SystemClock.elapsedRealtime()
+                verify(task.taskId, attempt = 0)
+                true
             }
-            is OplusNativeZoomBridge.Result.Rejected ->
-                NeXtepLog.warn("native_oplus",
-                    "ZOOM_REJECTED task=${task.taskId}: ${vendor.reason}; trying freeform")
-            OplusNativeZoomBridge.Result.Unavailable ->
-                NeXtepLog.info("native_oplus",
-                    "ZOOM_UNAVAILABLE; using Android freeform")
-        }
-        val display = context.resources.displayMetrics
-        val width = display.widthPixels.coerceAtLeast(320)
-        val height = display.heightPixels.coerceAtLeast(480)
-        val targetWidth = (width * 0.72f).toInt().coerceAtLeast(240).coerceAtMost(width)
-        val targetHeight = (height * 0.55f).toInt().coerceAtLeast(320).coerceAtMost(height)
-        val shift = tracked.size * (width / 18)
-        val left = ((width - targetWidth) / 2 + shift).coerceAtMost(width - targetWidth)
-        val top = ((height - targetHeight) / 3 + shift).coerceAtMost(height - targetHeight)
-        val window = Rect(left, top, left + targetWidth, top + targetHeight)
-        val original = Rect(task.bounds)
-        val originalMode = task.windowingMode
-        return runCatching {
-            // One atomic system transaction. Never first migrate to Display 0.
-            WindowContainerTransactionCompat.applyTaskLayout(
-                task.token, window, task.densityDpi, FREEFORM_MODE
-            ).getOrThrow()
-            // WindowManager applies organizer transactions asynchronously.
-            // Do not read RunningTaskInfo immediately and mistakenly roll
-            // back a transaction which is still being committed by WM Shell.
-            tracked.add(task.taskId)
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                val actual = taskRepository.findTask(task.taskId)
-                if (actual?.windowingMode != FREEFORM_MODE ||
-                    actual?.displayId != Display.DEFAULT_DISPLAY) {
-                    tracked.remove(task.taskId)
-                    NeXtepLog.warn("native_freeform",
-                        "OS_DID_NOT_ENTER_FREEFORM task=${task.taskId} mode=${actual?.windowingMode}")
-                } else {
-                    NeXtepLog.info("native_freeform",
-                        "CONFIRMED task=${task.taskId} bounds=${actual.bounds}")
-                }
-            }, 1_200L)
-            NeXtepLog.info("native_freeform", "REQUEST_SENT task=${task.taskId} bounds=$window")
-            true
-        }.getOrElse { error ->
-            NeXtepLog.warn("native_freeform", "OPEN_FAILED task=${task.taskId}", error)
-            // Restore the original windowing mode and bounds if the OEM rejects the request.
-            runCatching {
-                val after = taskRepository.findTask(task.taskId)
-                if (after?.windowingMode == FREEFORM_MODE)
-                    WindowContainerTransactionCompat.applyTaskLayout(
-                        task.token, original, task.densityDpi, originalMode)
-                        .getOrThrow()
-            }.onFailure { NeXtepLog.warn("native_freeform", "ROLLBACK_FAILED", it) }
-            false
         }
     }
 
-    /** Reap only tracked freeforms, never close or remove app tasks. */
+    /** OEM task transition is async. Never assume successful Binder return is a window. */
+    private fun verify(taskId: Int, attempt: Int) {
+        handler.postDelayed({
+            val target = repository.findTask(taskId)
+            val success = target != null && target.displayId == Display.DEFAULT_DISPLAY &&
+                (target.vendorWindowed || target.windowingMode == OPLUS_ZOOM_MODE ||
+                    target.windowingMode == FREEFORM_MODE)
+            when {
+                success -> {
+                    pending.remove(taskId)
+                    nativeTasks.add(taskId)
+                    NeXtepLog.info("native_oplus",
+                        "TASK_ZOOM_CONFIRMED task=$taskId mode=${target?.windowingMode} vendor=${target?.vendorWindowed} bounds=${target?.bounds}")
+                }
+                attempt < 3 && target != null -> verify(taskId, attempt + 1)
+                else -> {
+                    pending.remove(taskId)
+                    NeXtepLog.warn("native_oplus",
+                        "TASK_ZOOM_NOT_CONFIRMED task=$taskId attempts=${attempt + 1} " +
+                            "mode=${target?.windowingMode} display=${target?.displayId}; " +
+                            "no fallback relaunch or task move")
+                }
+            }
+        }, 450L + attempt * 250L)
+    }
+
     private fun refresh() {
-        val tasks = taskRepository.runningTasks()
-        tracked.removeAll { id -> tasks.none { it.taskId == id &&
-            it.displayId == Display.DEFAULT_DISPLAY && it.windowingMode == FREEFORM_MODE } }
-        nativeTasks.removeAll { id -> tasks.none { it.taskId == id } }
+        val tasks = repository.runningTasks()
+        nativeTasks.removeAll { id ->
+            tasks.none { it.taskId == id && it.displayId == Display.DEFAULT_DISPLAY &&
+                (it.vendorWindowed || it.windowingMode == OPLUS_ZOOM_MODE ||
+                    it.windowingMode == FREEFORM_MODE) }
+        }
+        val now = SystemClock.elapsedRealtime()
+        pending.entries.removeAll { now - it.value > 5_000L }
+    }
+
+    private fun reject(reason: String): Boolean {
+        NeXtepLog.warn("native_oplus", "TASK_ZOOM_REFUSED $reason")
+        return false
     }
 
     private companion object {
         const val FULLSCREEN_MODE = 1
         const val FREEFORM_MODE = 5
+        const val OPLUS_ZOOM_MODE = 100
     }
 }
