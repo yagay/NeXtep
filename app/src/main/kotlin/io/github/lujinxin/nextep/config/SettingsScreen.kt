@@ -225,6 +225,26 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
+                        activity.getString(R.string.nextep_accessibility_navigation_title),
+                        activity.getString(R.string.nextep_accessibility_navigation_summary),
+                        settings.accessibilityNavigationEnabled,
+                        { enabled -> repository.setAccessibilityNavigationEnabled(enabled) },
+                    ), matchWidth())
+                    addView(settingRow(
+                        activity,
+                        activity.getString(R.string.nextep_accessibility_open_settings),
+                        activity.getString(R.string.nextep_accessibility_permission_summary),
+                        MaterialButton(activity).apply {
+                            text = activity.getString(R.string.nextep_accessibility_open_settings)
+                            setOnClickListener {
+                                activity.startActivity(android.content.Intent(
+                                    android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            }
+                        },
+                    ), matchWidth())
+                    addView(settingDivider(activity))
+                    addView(settingSwitchRow(
+                        activity,
                         activity.getString(R.string.floating_popup_back_title),
                         activity.getString(R.string.floating_popup_back_summary),
                         settings.floatingPopupBackEnabled,
