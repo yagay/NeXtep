@@ -89,16 +89,20 @@ object SystemUiRuntime {
             // Verify the actual Binder-origin UID, never an Intent extra.
             val senderUid = sentFromUid
             val fromSystem = senderUid == android.os.Process.SYSTEM_UID
-            val fromLauncher = senderUid >= 0 && context.packageManager
-                .getPackagesForUid(senderUid).orEmpty()
-                .contains("com.android.launcher")
-            if (!fromSystem && !fromLauncher) {
-                NeXtepLog.warn("floating_nav", "NAV_REJECTED uid=$senderUid")
-                return
-            }
+            val packages = if (senderUid >= 0) context.packageManager
+                .getPackagesForUid(senderUid).orEmpty() else emptyArray()
+            val fromLauncher = packages.contains("com.android.launcher")
             val source = intent.getStringExtra(
                 TriggerBroadcastContract.EXTRA_NAVIGATION_EVENT_SOURCE
             )?.take(80) ?: return
+            // The module's accessibility service may only emit its own
+            // diagnostic namespace, never impersonate system_server/launcher.
+            val fromAccessibility = packages.contains(TriggerBroadcastContract.MODULE_PACKAGE) &&
+                source.startsWith("accessibility:")
+            if (!fromSystem && !fromLauncher && !fromAccessibility) {
+                NeXtepLog.warn("floating_nav", "NAV_REJECTED uid=$senderUid")
+                return
+            }
             NeXtepLog.info("floating_nav", "NAV_RECEIVED source=$source")
             onNavigationCompleted(source)
         }
