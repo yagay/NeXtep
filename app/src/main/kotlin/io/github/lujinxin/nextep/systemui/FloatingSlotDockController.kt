@@ -160,6 +160,7 @@ internal class FloatingSlotDockController(
     // from the trusted configuration IPC whenever the user changes Settings.
     private var orientation = FloatingDockRailLayout.Orientation.HORIZONTAL
     private var sizePercent = 100
+    private var resizingDock = false
     private var coordinator: SlotTaskCoordinator? = null
     private var slots: List<VirtualDisplaySlot> = emptyList()
     // A subset of the four EXISTING live virtual displays is presented in
@@ -1136,6 +1137,7 @@ internal class FloatingSlotDockController(
         host = null
         panelVisible = false
         suspendedForLock = false
+        resizingDock = false
         visibleSlotIndices.clear()
         visibleSlotIndices.addAll(0 until WORKSPACE_SLOT_COUNT)
     }
@@ -1210,8 +1212,62 @@ internal class FloatingSlotDockController(
         val add = tiny("＋", str(R.string.floating_dock_add)) { showPicker() }
         val less = tiny("−", "减少槽位 / Select slot to hide") { showSlotRemovalPicker() }
         val more = tiny("+", "增加槽位 / Restore a hidden slot") { restoreHiddenSlot() }
+        // Drag this handle in the expanded dock; the live VirtualDisplay
+        // canvases and Task IDs stay unchanged. Short tap explains the gesture.
+        val resize = tiny("⤢", "按住拖动调整小窗大小 / Drag to resize") {}
         val close = tiny("×", "Hide floating windows") {
             closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
+        }
+        var downX = 0f
+        var downY = 0f
+        var startedAt = sizePercent
+        var dragging = false
+        resize.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (!panelVisible || suspendedForLock || stableZoom != null || removalPending)
+                        return@setOnTouchListener true
+                    downX = event.rawX
+                    downY = event.rawY
+                    startedAt = sizePercent
+                    dragging = false
+                    resizingDock = true
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!resizingDock || !panelVisible) return@setOnTouchListener true
+                    val dx = event.rawX - downX
+                    val dy = downY - event.rawY
+                    val movement = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) dx else dy
+                    val desired = FloatingDockRailLayout.normalizedScale(
+                        startedAt + (movement / dp(4).toFloat()).roundToInt())
+                    if (desired != sizePercent) {
+                        dragging = true
+                        sizePercent = desired
+                        resize.text = "$desired"
+                        resize.textSize = 11f
+                        railOffsetPx = 0
+                        // Only re-layout existing views; never re-create a
+                        // VirtualDisplay or re-parent the app Task.
+                        reconfigure()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (resizingDock) {
+                        resizingDock = false
+                        if (!dragging && event.actionMasked == MotionEvent.ACTION_UP)
+                            Toast.makeText(context, "按住 ⤢ 向右或向上拖动放大，反向缩小",
+                                Toast.LENGTH_SHORT).show()
+                        if (dragging) NeXtepLog.info("floating_dock",
+                            "USER_DRAG_RESIZE scale=$sizePercent% slots=${visibleSlotIndices.size}")
+                    }
+                    resize.text = "⤢"
+                    resize.textSize = 18f
+                    true
+                }
+                else -> true
+            }
         }
         if (isVertical()) {
             fun row(left: TextView, right: TextView): LinearLayout =
@@ -1230,9 +1286,19 @@ internal class FloatingSlotDockController(
             target.addView(row(add, close), LinearLayout.LayoutParams(-2, button).apply {
                 bottomMargin = separation
             })
-            target.addView(row(less, more), LinearLayout.LayoutParams(-2, button))
+            target.addView(row(less, more), LinearLayout.LayoutParams(-2, button).apply {
+                bottomMargin = separation
+            })
+            val scaleLabel = tiny("${sizePercent}%", "当前小窗缩放比例") {
+                sizePercent = 100
+                railOffsetPx = 0
+                reconfigure()
+                buildToolbarControls()
+            }.apply { textSize = 11f }
+            target.addView(row(resize, scaleLabel), LinearLayout.LayoutParams(-2, button))
         } else {
-            listOf(checkNotNull(previousControl), checkNotNull(nextControl), add, less, more, close)
+            listOf(checkNotNull(previousControl), checkNotNull(nextControl),
+                add, less, more, resize, close)
                 .forEachIndexed { index, buttonView ->
                     target.addView(buttonView,
                         LinearLayout.LayoutParams(button, button).apply {
