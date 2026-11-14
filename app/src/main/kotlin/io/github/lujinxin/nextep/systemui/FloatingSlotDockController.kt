@@ -316,6 +316,13 @@ internal class FloatingSlotDockController(
         movingFullscreenTask = true
         return try {
             restorePinnedTaskNow(pin, reason)
+            val canShow = reason.startsWith("background:") ||
+                reason == "floating icon" || reason == "floating card"
+            val unlocked = context.getSystemService(PowerManager::class.java)?.isInteractive == true &&
+                context.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked != true
+            if (canShow && unlocked && !suspendedForLock && hasSession() && !panelVisible) {
+                showRetainedSession()
+            }
             true
         } catch (error: Throwable) {
             lastError = "Unable to return fullscreen app to its floating slot: ${error.message}"
