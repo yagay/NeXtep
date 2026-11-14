@@ -188,49 +188,72 @@ object SystemUiHook {
      * Missing OEM entry points are optional; keep every original callback.
      */
     private fun installFloatingNavigationHooks(module: XposedModule, loader: ClassLoader) {
-        fun installMethod(className: String, methodName: String,
-                          filter: (io.github.libxposed.api.XposedInterface.Chain) -> Boolean) {
-            val clazz = runCatching { loader.loadClass(className) }.getOrNull() ?: return
-            val methods = clazz.declaredMethods.filter { it.name == methodName }
-            methods.forEach { method ->
-                runCatching {
-                    method.isAccessible = true
-                    module.hook(method).intercept(object : io.github.libxposed.api.XposedInterface.Hooker {
-                        override fun intercept(chain: io.github.libxposed.api.XposedInterface.Chain): Any? {
-                            val observed = runCatching { filter(chain) }.getOrDefault(false)
-                            val result = chain.proceed()
-                            if (observed) {
-                                SystemUiRuntime.onNavigationCompleted(
-                                    "${clazz.simpleName}#${method.name}")
-                            }
-                            return result
-                        }
-                    })
+        var installed = 0
+        fun hookCandidates(classNames: List<String>, methodNames: List<String>,
+                           predicate: (io.github.libxposed.api.XposedInterface.Chain) -> Boolean) {
+            classNames.forEach { className ->
+                val clazz = runCatching { loader.loadClass(className) }.getOrNull()
+                if (clazz == null) {
+                    NeXtepLog.info("floating_nav", "NAV_CLASS_MISSING $className")
+                    return@forEach
+                }
+                val methods = clazz.declaredMethods.filter { it.name in methodNames }
+                if (methods.isEmpty()) {
+                    val available = clazz.declaredMethods
+                        .filter { it.name.contains("touch", true) || it.name.contains("event", true) ||
+                            it.name.contains("overview", true) || it.name.contains("back", true) }
+                        .map { it.name }.distinct().take(12)
                     NeXtepLog.info("floating_nav",
-                        "NAV_HOOK_INSTALLED ${clazz.simpleName}#${method.name}")
-                }.onFailure {
-                    NeXtepLog.warn("floating_nav",
-                        "NAV_HOOK_UNAVAILABLE ${clazz.simpleName}#${method.name}", it)
+                        "NAV_METHOD_MISSING $className wanted=$methodNames candidates=$available")
+                }
+                methods.forEach { method ->
+                    runCatching {
+                        method.isAccessible = true
+                        module.hook(method).intercept(object : io.github.libxposed.api.XposedInterface.Hooker {
+                            override fun intercept(chain: io.github.libxposed.api.XposedInterface.Chain): Any? {
+                                val relevant = runCatching { predicate(chain) }.getOrDefault(false)
+                                val result = chain.proceed()
+                                if (relevant) {
+                                    NeXtepLog.info("floating_nav",
+                                        "NAV_EVENT_RECEIVED $className#${method.name}")
+                                    SystemUiRuntime.onNavigationCompleted(
+                                        "$className#${method.name}")
+                                }
+                                return result
+                            }
+                        })
+                        installed++
+                        NeXtepLog.info("floating_nav",
+                            "NAV_HOOK_INSTALLED $className#${method.name}")
+                    }.onFailure { error ->
+                        NeXtepLog.warn("floating_nav",
+                            "NAV_HOOK_FAILED $className#${method.name}", error)
+                    }
                 }
             }
         }
-        // Physical three-button navigation and gesture navigation bar touch
-        // surfaces; touching the dock's own controls does not pass this path.
-        installMethod("com.android.systemui.navigationbar.NavigationBarView",
-            "dispatchTouchEvent") { chain ->
-            val event = chain.args.firstOrNull() as? MotionEvent
-            event?.actionMasked == MotionEvent.ACTION_UP
+
+        val navigationViews = listOf(
+            "com.android.systemui.navigationbar.NavigationBarView",
+            "com.android.systemui.statusbar.phone.NavigationBarView",
+            "com.oplus.systemui.navigationbar.NavigationBarView",
+        )
+        // Restrict the touch fallback to navigation bar view classes, not ViewGroup.
+        hookCandidates(navigationViews, listOf("dispatchTouchEvent", "onTouchEvent")) { chain ->
+            (chain.args.firstOrNull() as? MotionEvent)?.actionMasked == MotionEvent.ACTION_UP
         }
-        // On some ColorOS versions the button sends a key event through this
-        // path even if NavigationBarView does not override dispatchTouchEvent.
-        installMethod("com.android.systemui.navigationbar.buttons.KeyButtonView",
-            "sendEvent") { chain ->
+        val keyButtons = listOf(
+            "com.android.systemui.navigationbar.buttons.KeyButtonView",
+            "com.android.systemui.statusbar.policy.KeyButtonView",
+            "com.oplus.systemui.navigationbar.buttons.KeyButtonView",
+        )
+        hookCandidates(keyButtons, listOf("sendEvent")) { chain ->
             val action = chain.args.firstOrNull() as? Int
-            val button = chain.thisObject
-            val code = button?.let {
+            val target = chain.thisObject
+            val code = target?.let {
                 runCatching {
                     generateSequence(it.javaClass as Class<*>?) { c -> c.superclass }
-                        .mapNotNull { c -> c.declaredFields.firstOrNull { f -> f.name == "mCode" } }
+                        .mapNotNull { c -> c.declaredFields.firstOrNull { field -> field.name == "mCode" } }
                         .firstOrNull()?.apply { isAccessible = true }?.getInt(it)
                 }.getOrNull()
             }
@@ -239,10 +262,15 @@ object SystemUiHook {
                     android.view.KeyEvent.KEYCODE_BACK,
                     android.view.KeyEvent.KEYCODE_APP_SWITCH)
         }
-        // Overview can be shown without a new foreground Task or ACTION_OUTSIDE.
-        installMethod("com.android.systemui.recents.OverviewProxyService",
-            "onOverviewShown") { true }
-        installMethod("com.android.systemui.navigationbar.gestural.EdgeBackGestureHandler",
-            "onBackInvoked") { true }
+        hookCandidates(listOf(
+            "com.android.systemui.recents.OverviewProxyService",
+            "com.android.systemui.shared.recents.OverviewProxyService",
+            "com.oplus.systemui.recents.OverviewProxyService",
+        ), listOf("onOverviewShown")) { true }
+        hookCandidates(listOf(
+            "com.android.systemui.navigationbar.gestural.EdgeBackGestureHandler",
+            "com.oplus.systemui.navigationbar.gestural.EdgeBackGestureHandler",
+        ), listOf("onBackInvoked")) { true }
+        NeXtepLog.info("floating_nav", "NAV_HOOK_SUMMARY installed=$installed")
     }
 }
