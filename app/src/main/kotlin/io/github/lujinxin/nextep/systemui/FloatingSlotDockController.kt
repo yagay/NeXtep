@@ -217,7 +217,7 @@ internal class FloatingSlotDockController(
             return false
         }
         movingFullscreenTask = true
-        var moved = false
+        var moveAttempted = false
         return try {
             // Reconciliation must not interpret this temporary absence as an
             // exited slot and fill it with a different foreground app.
@@ -225,8 +225,8 @@ internal class FloatingSlotDockController(
             if (task.resizeMode != 2) {
                 ActivityTaskManagerCompat.setTaskResizeable(task.taskId, 2).getOrThrow()
             }
+            moveAttempted = true
             movePinnedTask(task.taskId, Display.DEFAULT_DISPLAY)
-            moved = true
             floatingTaskRepository.findTask(task.taskId)?.token?.let { token ->
                 WindowContainerTransactionCompat.applyTaskLayout(
                     token, Rect(), context.resources.displayMetrics.densityDpi, 1,
@@ -250,7 +250,7 @@ internal class FloatingSlotDockController(
         } catch (error: Throwable) {
             NeXtepLog.warn("floating_pinned",
                 "Fullscreen entrance failed; attempting original slot rollback", error)
-            if (moved) {
+            if (moveAttempted) {
                 fullscreenTask = TemporarilyFullscreen(
                     index, task.taskId, state.displayId, task.resizeMode,
                     SystemClock.uptimeMillis(),
@@ -290,8 +290,10 @@ internal class FloatingSlotDockController(
         }
         pin.absentSince = 0L
         if (live.displayId == pin.displayId) {
-            clearTemporaryFullscreen()
-            NeXtepLog.info("floating_pinned", "TASK_RETURNED_EXTERNALLY task=${pin.taskId}")
+            // The system or an earlier attempt may have moved the task back
+            // before layout/surface fitting completed. Finish that restoration
+            // rather than prematurely clearing its reserved-slot state.
+            returnFullscreenToSlot("external slot return")
             return
         }
         if (live.displayId != Display.DEFAULT_DISPLAY) {
