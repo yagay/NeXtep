@@ -62,6 +62,23 @@ class FloatingDockRailLayoutTest {
         }
     }
 
+    @Test fun variableVisibleSlotCountsFitWithoutResizingRemainingCells() {
+        val sizes = List(4) { 120 to 210 }
+        for (orientation in FloatingDockRailLayout.Orientation.entries) {
+            for (count in 1..4) {
+                val plan = FloatingDockRailLayout.calculate(
+                    1080, 2400, 3f, sizes.take(count), orientation, 100)
+                assertEquals(count, plan.cells.size)
+                plan.cells.forEach {
+                    assertEquals(120, it.width)
+                    assertEquals(210, it.height)
+                }
+                assertTrue(plan.panelWidth in 1..1080)
+                assertTrue(plan.panelHeight in 1..2400)
+            }
+        }
+    }
+
     @Test fun sizeClampsToSafePresets() {
         assertEquals(60, FloatingDockRailLayout.normalizedScale(-90))
         assertEquals(140, FloatingDockRailLayout.normalizedScale(155))
