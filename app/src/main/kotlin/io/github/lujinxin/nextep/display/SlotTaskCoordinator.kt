@@ -39,11 +39,6 @@ class SlotTaskCoordinator(
         { _, move, finished -> try { move() } finally { finished() } },
     private val onInternalSlotDrag: (TaskSwitcherView, SlotTaskDrag) -> Boolean = { _, _ -> false },
     private val onInternalDragTouch: (android.view.View, android.view.MotionEvent) -> Boolean = { _, _ -> false },
-    // Floating dock only: preserve the occupied slot when Android's launcher
-    // reuses its Task on Display 0. Default=false keeps the ordinary workspace
-    // promotion/reconciliation behavior fully unchanged.
-    private val onExternalForegroundPromotion:
-        (Int, SlotState.Occupied, TaskRepository.TaskSnapshot) -> Boolean = { _, _, _ -> false },
 ) : VirtualDisplaySlot.Listener, TaskSwitcherView.Listener {
     private data class SlotRecord(
         var state: SlotState = SlotState.Empty,
@@ -1483,22 +1478,6 @@ class SlotTaskCoordinator(
                     val foregroundTaskId = tasks.firstOrNull {
                         it.displayId == Display.DEFAULT_DISPLAY
                     }?.taskId
-                    if (retainedTask.displayId == Display.DEFAULT_DISPLAY) {
-                        // An app icon/shortcut/Recents may reparent a slot's
-                        // exact Task even while the user is switching away.
-                        // In floating mode, its ownership stays pinned to
-                        // this virtual display; never clear it just because
-                        // the Task is no longer the physical foreground.
-                        val occupied = record.state as? SlotState.Occupied
-                        if (occupied != null &&
-                            occupied.taskId == retainedTask.taskId &&
-                            occupied.displayId == displayId &&
-                            onExternalForegroundPromotion(index, occupied, retainedTask)
-                        ) {
-                            record.mismatchSince = 0L
-                            return@forEachIndexed
-                        }
-                    }
                     if (retainedTask.displayId == Display.DEFAULT_DISPLAY &&
                         retainedTask.taskId == foregroundTaskId
                     ) {
