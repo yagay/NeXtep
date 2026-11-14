@@ -616,7 +616,17 @@ object SystemUiRuntime {
             }
         }
         TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
-            val ready = ::floatingDock.isInitialized && ::workspaceController.isInitialized &&
+            val sentAt = intent.getLongExtra(
+                TriggerBroadcastContract.EXTRA_FLOATING_REQUEST_ELAPSED, -1L)
+            val ageMs = if (sentAt >= 0L)
+                android.os.SystemClock.elapsedRealtime() - sentAt else 0L
+            val staleRequest = sentAt >= 0L && (ageMs > 4_500L || ageMs < -1_000L)
+            if (staleRequest) {
+                NeXtepLog.warn("floating_icon",
+                    "TOGGLE_STALE_REJECTED ageMs=$ageMs; no display or task changes")
+            }
+            val ready = !staleRequest &&
+                ::floatingDock.isInitialized && ::workspaceController.isInitialized &&
                 workspaceConfigReady && workspaceConfig.floatingBubbleEnabled &&
                 isScreenReady() && !isKeyguardLocked(context)
             val beforeSession = if (::floatingDock.isInitialized) floatingDock.hasSession() else false
