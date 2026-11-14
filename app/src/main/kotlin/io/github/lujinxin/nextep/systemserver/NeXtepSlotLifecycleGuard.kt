@@ -46,6 +46,7 @@ internal object NeXtepSlotLifecycleGuard {
     @Volatile private var disabledByErrors = false
     @Volatile private var context: Context? = null
     @Volatile private var enabled = false
+    @Volatile private var freezerEnabled = false
 
     fun install(module: XposedModule, loader: ClassLoader) {
         val fragment = loader.loadClass("com.android.server.wm.TaskFragment")
@@ -417,7 +418,7 @@ internal object NeXtepSlotLifecycleGuard {
     }
 
     private fun liveProtectedUid(uid: Int): Boolean {
-        if (!enabled || disabledByErrors || uid < 10000) return false
+        if (!enabled || !freezerEnabled || disabledByErrors || uid < 10000) return false
         val iterator = trackedTasks.entries.iterator()
         while (iterator.hasNext()) {
             val (id, ref) = iterator.next()
@@ -476,6 +477,8 @@ internal object NeXtepSlotLifecycleGuard {
                     override fun onChange(selfChange: Boolean) = refresh(ctx)
                 }
                 resolver.registerContentObserver(Settings.Global.getUriFor(key), false, observer)
+                resolver.registerContentObserver(Settings.Global.getUriFor(
+                    SystemServerWorkspaceBridge.NATIVE_TASK_FREEZER_KEY), false, observer)
                 context = ctx
                 observerStarted.set(true)
                 refresh(ctx)
@@ -513,8 +516,14 @@ internal object NeXtepSlotLifecycleGuard {
                 SystemServerWorkspaceBridge.INDEPENDENT_SLOT_LOCK_GUARD_KEY, 0) == 1
         }.getOrDefault(false)
         enabled = next
+        // Independent user preference: freezer interception is OFF by default
+        // even when both lifecycle guards are enabled.
+        freezerEnabled = runCatching {
+            Settings.Global.getInt(ctx.contentResolver,
+                SystemServerWorkspaceBridge.NATIVE_TASK_FREEZER_KEY, 0) == 1
+        }.getOrDefault(false)
         if (!next) prearmedTasks.clear()
-        Log.i(TAG, "SLOT_LOCK_POLICY enabled=$next tracked=${trackedTasks.size}")
+        Log.i(TAG, "SLOT_LOCK_POLICY enabled=$next freezer=$freezerEnabled tracked=${trackedTasks.size}")
         recordStatus("policy:$next")
     }
 
@@ -526,7 +535,7 @@ internal object NeXtepSlotLifecycleGuard {
                 val ctx = context ?: return@postDelayed
                 val counts = counters.entries.sortedBy { it.key }
                     .joinToString(",") { "${it.key}:${it.value.get()}" }
-                val snapshot = "enabled=$enabled hooks=$installedCount " +
+                val snapshot = "enabled=$enabled freezer=$freezerEnabled hooks=$installedCount " +
                     "tracked=${trackedTasks.size} armed=${prearmedTasks.size} " +
                     "errors=${failureCount.get()} disabledByErrors=$disabledByErrors " +
                     "screenOff=${physicalScreenOff()} last=$lastEvent counters=$counts"
