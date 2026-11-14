@@ -24,6 +24,7 @@ class SettingsRepository(private val context: Context) {
         val playbackCompatAutoResume: Boolean,
         val playbackCompatLockAudio: Boolean,
         val playbackCompatPackages: Set<String>,
+        val floatingAutoProtectPlayback: Boolean,
         val floatingInteractionMode: String,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
@@ -65,6 +66,7 @@ class SettingsRepository(private val context: Context) {
         playbackCompatLockAudio = preferences.getBoolean(KEY_PLAYBACK_COMPAT_LOCK_AUDIO, false),
         playbackCompatPackages = preferences.getStringSet(KEY_PLAYBACK_COMPAT_PACKAGES, emptySet())
             .orEmpty().toSet(),
+        floatingAutoProtectPlayback = preferences.getBoolean(KEY_FLOATING_AUTO_PROTECT_PLAYBACK, true),
         floatingInteractionMode = WorkspaceConfigContract.normalizeFloatingInteractionMode(
             preferences.getString(KEY_FLOATING_INTERACTION_MODE,
                 WorkspaceConfigContract.DEFAULT_FLOATING_INTERACTION_MODE),
@@ -147,7 +149,13 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    /** Opt-in. Nothing is controlled or resumed until the user selects apps. */
+    /** Auto-protect only apps explicitly moved into the live floating dock. */
+    fun setFloatingAutoProtectPlayback(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_FLOATING_AUTO_PROTECT_PLAYBACK, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    /** Explicit manually selected-app compatibility settings remain available. */
     fun setPlaybackCompatEnabled(enabled: Boolean) =
         savePlaybackCompat { it.putBoolean(KEY_PLAYBACK_COMPAT_ENABLED, enabled) }
 
@@ -306,6 +314,7 @@ class SettingsRepository(private val context: Context) {
         const val KEY_PLAYBACK_COMPAT_AUTO_RESUME = "playback_compat_auto_resume"
         const val KEY_PLAYBACK_COMPAT_LOCK_AUDIO = "playback_compat_lock_audio"
         const val KEY_PLAYBACK_COMPAT_PACKAGES = "playback_compat_packages"
+        const val KEY_FLOATING_AUTO_PROTECT_PLAYBACK = "floating_auto_protect_playback"
         const val KEY_FLOATING_INTERACTION_MODE = "floating_interaction_mode"
         const val KEY_FLOATING_DOCK_ORIENTATION = "floating_dock_orientation"
         const val KEY_FLOATING_DOCK_SIZE_PERCENT = "floating_dock_size_percent"
