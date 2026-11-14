@@ -17,7 +17,7 @@ object SystemServerWorkspaceBridge {
     private const val SIDEBAR_SIDE_KEY = "nextep_workspace_sidebar_side_v1"
     private const val GEOMETRY_KEY = "nextep_workspace_geometry_v1"
     internal const val BLOCK_SYSTEM_DRAG_SHARE_KEY = "nextep_workspace_block_system_drag_share_v1"
-    const val INDEPENDENT_SLOT_LOCK_GUARD_KEY = "nextep_slot_independent_lock_guard_v1"
+    const val FLOATING_SLOT_LOCK_GUARD_KEY = "nextep_floating_slot_lock_guard_v2"
     private val geometryObservationStarted = AtomicBoolean(false)
     @Volatile private var observedGeometry: WorkspaceGeometry? = null
 
@@ -56,15 +56,15 @@ object SystemServerWorkspaceBridge {
     }
 
     /** Enable only system_server lifecycle protection for NeXtep-owned virtual tasks. */
-    fun publishIndependentSlotLockGuard(context: Context, enabled: Boolean) {
+    fun publishFloatingSlotLockGuard(context: Context, enabled: Boolean) {
         runCatching {
             val resolver = context.contentResolver
             val value = if (enabled) 1 else 0
-            if (Settings.Global.getInt(resolver, INDEPENDENT_SLOT_LOCK_GUARD_KEY, -1) != value) {
-                Settings.Global.putInt(resolver, INDEPENDENT_SLOT_LOCK_GUARD_KEY, value)
+            if (Settings.Global.getInt(resolver, FLOATING_SLOT_LOCK_GUARD_KEY, -1) != value) {
+                Settings.Global.putInt(resolver, FLOATING_SLOT_LOCK_GUARD_KEY, value)
             }
         }.onFailure {
-            NeXtepLog.warn("system_server_bridge", "Unable to publish independent slot lock guard", it)
+            NeXtepLog.warn("system_server_bridge", "Unable to publish floating slot lock guard", it)
         }
     }
 
