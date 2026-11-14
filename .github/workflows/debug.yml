@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - feature/floating-lockscreen-audio
+      - refactor/main-selected-floating
+      - main
   workflow_dispatch:
 
 permissions:
