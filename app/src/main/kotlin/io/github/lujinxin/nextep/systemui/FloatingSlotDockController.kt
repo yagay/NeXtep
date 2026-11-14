@@ -106,42 +106,30 @@ internal class FloatingSlotDockController(
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
     private var outsideFoldPending = false
-    // System navigation (Home / Recents / app switching) does not reliably
-    // deliver ACTION_OUTSIDE to a NOT_TOUCH_MODAL overlay. Track the actual
-    // foreground task on display 0 while the dock is expanded instead.
+    // Navigation events arrive from SystemUI's actual navigation/overview
+    // handlers. Do not poll TaskRepository while the dock is visible.
     private var expandedMainTaskId: Int? = null
-    // ShellTaskOrganizer does not consistently emit an onTaskInfoChanged
-    // callback for Home or Overview on ColorOS 17. Poll only while visible.
-    private val foregroundFold = object : Runnable {
-        override fun run() {
-            if (!panelVisible || suspendedForLock || host == null) return
-            if (!removalPending && fullscreenTask == null && !movingFullscreenTask) {
-                val current = floatingTaskRepository.foregroundTask()
-                    ?.takeIf { it.displayId == Display.DEFAULT_DISPLAY }
-                val original = expandedMainTaskId
-                if (original == null && current != null) {
-                    expandedMainTaskId = current.taskId
-                    NeXtepLog.info("floating_dock",
-                        "FOREGROUND_WATCH_BASELINE task=${current.taskId}")
-                } else if (original != null && current != null &&
-                    original != current.taskId) {
-                    NeXtepLog.info("floating_dock",
-                        "MAIN_TASK_CHANGED_FOLD from=$original to=${current.taskId}; retaining live slots")
-                    collapse()
-                    return
-                }
-            }
-            handler.postDelayed(this, 350L)
-        }
-    }
+    private var expandedAtMs = 0L
 
     private fun observeExpandedMainTask() {
         expandedMainTaskId = floatingTaskRepository.foregroundTask()
             ?.takeIf { it.displayId == Display.DEFAULT_DISPLAY }?.taskId
+        expandedAtMs = SystemClock.elapsedRealtime()
         NeXtepLog.info("floating_dock",
-            "FOREGROUND_WATCH_START task=${expandedMainTaskId ?: "unavailable"}")
-        handler.removeCallbacks(foregroundFold)
-        handler.postDelayed(foregroundFold, 350L)
+            "NAV_FOLD_ARMED task=${expandedMainTaskId ?: "unavailable"}")
+    }
+
+    fun onSystemNavigation(source: String) {
+        if (!panelVisible || suspendedForLock || removalPending ||
+            fullscreenTask != null || movingFullscreenTask || host == null) return
+        // Ignore stale callbacks from the same touch that opened the dock.
+        if (SystemClock.elapsedRealtime() - expandedAtMs < 250L) return
+        handler.post {
+            if (!panelVisible || suspendedForLock || removalPending ||
+                fullscreenTask != null || movingFullscreenTask) return@post
+            NeXtepLog.info("floating_dock", "NAV_EVENT_FOLD source=$source; preserving tasks")
+            collapse()
+        }
     }
     private val outsideFold = Runnable {
         outsideFoldPending = false
@@ -799,12 +787,16 @@ internal class FloatingSlotDockController(
             }
             return
         }
-        // Fast-path: task callbacks can accelerate the same check, while the
-        // expanded-only poll covers transitions with no callback at all.
         if (panelVisible && !suspendedForLock && !removalPending &&
             expandedMainTaskId != null) {
-            handler.removeCallbacks(foregroundFold)
-            handler.postDelayed(foregroundFold, 150L)
+            val original = expandedMainTaskId
+            // Shell callbacks are supplementary to direct navigation events.
+            // Never mistake a virtual-display task for a Display 0 change.
+            val current = floatingTaskRepository.foregroundTask()
+            if (current != null && current.displayId == Display.DEFAULT_DISPLAY &&
+                current.taskId != original) {
+                onSystemNavigation("shell-task-change:$original->${current.taskId}")
+            }
         }
     }
 
@@ -1320,7 +1312,6 @@ internal class FloatingSlotDockController(
         dismissRemovalPrompt()
         // An already queued outside tap must not fold a later reopened dock.
         handler.removeCallbacks(outsideFold)
-        handler.removeCallbacks(foregroundFold)
         expandedMainTaskId = null
         outsideFoldPending = false
         // Return to the compact presentation before hiding the overlay,
