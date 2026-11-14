@@ -13,6 +13,7 @@ object TriggerBroadcastContract {
     const val EXTRA_FLOATING_BUBBLE_X = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_X"
     const val EXTRA_FLOATING_BUBBLE_Y = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_Y"
     const val EXTRA_FLOATING_BUBBLE_SIZE = "io.github.lujinxin.nextep.extra.FLOATING_BUBBLE_SIZE"
+    const val EXTRA_FLOATING_REQUEST_ELAPSED = "io.github.lujinxin.nextep.extra.FLOATING_REQUEST_ELAPSED"
     const val EXTRA_FLOATING_PANEL_ACTIVE = "io.github.lujinxin.nextep.extra.FLOATING_PANEL_ACTIVE"
     const val EXTRA_FLOATING_PANEL_ERROR = "io.github.lujinxin.nextep.extra.FLOATING_PANEL_ERROR"
     const val EXTRA_FLOATING_PANEL_TRACE = "io.github.lujinxin.nextep.extra.FLOATING_PANEL_TRACE"
