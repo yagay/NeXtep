@@ -460,42 +460,6 @@ object TaskSurfaceCompat {
         return retained
     }
 
-    /**
-     * Floating-dock-only path: a promoted slot task must return to an identity
-     * leash matrix and no crop, even when no regular main presenter owns it.
-     * The original workspace deliberately continues using preparePromotion().
-     */
-    fun resetPromotedSlotToFullscreen(taskId: Int): Result<Unit> = runCatching {
-        val state = findLiveTaskState(taskId)
-            ?: error("Promoted task state unavailable taskId=$taskId")
-        check(state.displayId == Display.DEFAULT_DISPLAY &&
-            !state.vendorWindowed && state.windowingMode == WINDOWING_MODE_FULLSCREEN
-        ) { "Task $taskId has not settled into fullscreen Display 0" }
-        // Slot previews can leave a crop behind on the same WM Shell leash.
-        // Clear all of our transform owners before writing the identity frame.
-        slotSurfaces.remove(taskId)
-        preparedPresentations.remove(taskId)
-        activePresentations.remove(taskId)
-        cancelPresentationAnimation(taskId)
-        val leash = findTaskLeash(taskId, requireMainDisplay = true)
-            ?: error("Promoted task leash unavailable taskId=$taskId")
-        check(isValid(leash)) { "Invalid promoted task leash taskId=$taskId" }
-        val loader = checkNotNull(hostClassLoader)
-        val transaction = loader.loadClass("android.view.SurfaceControl\$Transaction")
-            .getDeclaredConstructor().newInstance()
-        transactionGuard.ownedTransaction {
-            try {
-                writeFrame(transaction, leash, SurfaceFrame(1f, 1f, 0f, 0f, null))
-                invokeRequired(transaction, "apply")
-            } finally {
-                invokeOptional(transaction, "close")
-            }
-        }
-        NeXtepLog.info("floating_dock", "Reset promoted task leash to fullscreen taskId=$taskId")
-    }.onFailure {
-        NeXtepLog.warn("floating_dock", "Unable to reset promoted slot surface taskId=$taskId", it)
-    }
-
     fun restore(taskId: Int, animateToFullscreen: Boolean = false): Result<Unit> = runCatching {
         val previous = activePresentations[taskId]
         if (animateToFullscreen && previous != null && isValid(previous.leash) &&
