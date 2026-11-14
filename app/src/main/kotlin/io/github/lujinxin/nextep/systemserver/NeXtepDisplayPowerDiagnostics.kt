@@ -52,16 +52,20 @@ internal object NeXtepDisplayPowerDiagnostics {
                             ?: return@runCatching
                         val size = call(group, "getSizeLocked") as? Int ?: return@runCatching
                         if (size !in 1..32) return@runCatching
-                        val memberSlots = buildList {
-                            for (i in 0 until size) {
-                                val displayId = call(group, "getIdLocked", i) as? Int ?: continue
-                                val display = call(mapper, "getDisplayLocked", displayId) ?: continue
-                                val device = call(display, "getPrimaryDisplayDeviceLocked") ?: continue
-                                val info = call(device, "getDisplayDeviceInfoLocked") ?: continue
-                                val name = getField(info, "name") as? String ?: continue
-                                if (name.startsWith("NeXtep-slot-")) {
-                                    add("$displayId:$name")
-                                }
+                        val groupMembers = mutableListOf<String>()
+                        val memberSlots = mutableListOf<String>()
+                        var physicalPresent = false
+                        for (i in 0 until size) {
+                            val displayId = call(group, "getIdLocked", i) as? Int ?: continue
+                            val display = call(mapper, "getDisplayLocked", displayId) ?: continue
+                            val device = call(display, "getPrimaryDisplayDeviceLocked") ?: continue
+                            val info = call(device, "getDisplayDeviceInfoLocked") ?: continue
+                            val name = getField(info, "name") as? String ?: ""
+                            // Never export names for unrelated app-owned displays.
+                            groupMembers.add("$displayId")
+                            if (displayId == 0) physicalPresent = true
+                            if (name.startsWith("NeXtep-slot-")) {
+                                memberSlots.add("$displayId:$name")
                             }
                         }
                         if (memberSlots.isEmpty()) return@runCatching
@@ -73,7 +77,9 @@ internal object NeXtepDisplayPowerDiagnostics {
                         if (last != null && now - last < 2_000L) return@runCatching
                         recentlyLogged[key] = now
                         if (recentlyLogged.size > 100) recentlyLogged.clear()
-                        Log.i(TAG, "power_request group=$groupId policy=$policy " +
+                        Log.i(TAG, "power_request group=$groupId policy=$policy groupSize=$size " +
+                            "physicalDisplayPresent=$physicalPresent " +
+                            "memberDisplayIds=${groupMembers.joinToString()} " +
                             "slots=${memberSlots.joinToString()} " +
                             "waitForNegativeProximity=${chain.args[2]}")
                     }.onFailure { error ->
