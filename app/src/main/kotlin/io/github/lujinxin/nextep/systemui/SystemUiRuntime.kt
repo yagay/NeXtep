@@ -39,6 +39,7 @@ object SystemUiRuntime {
     private lateinit var applicationContext: Context
     private lateinit var windowController: NeXtepWindowController
     private lateinit var floatingDock: FloatingSlotDockController
+    private lateinit var nativeFreeform: NativeFreeformController
     private lateinit var workspaceController: WorkspaceController
     private lateinit var fourFingerGestures: FourFingerGestureController
     private val lifecycleHandler = Handler(Looper.getMainLooper())
@@ -153,7 +154,8 @@ object SystemUiRuntime {
                 }
                 // A hidden floating session still owns live VirtualDisplays.
                 // Disabling the feature fully shuts down only that session.
-                if (!workspaceConfig.floatingBubbleEnabled &&
+                if ((!workspaceConfig.floatingBubbleEnabled ||
+                    workspaceConfig.floatingWindowMode == WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM) &&
                     ::floatingDock.isInitialized && floatingDock.hasSession()
                 ) floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.FEATURE_DISABLED)
             }
@@ -278,6 +280,7 @@ object SystemUiRuntime {
             floatingDock = FloatingSlotDockController(
                 applicationContext, windowController::recordedLayoutProfile,
             )
+            nativeFreeform = NativeFreeformController(applicationContext)
             workspaceController = WorkspaceController(
                 applicationContext = applicationContext,
                 windowController = windowController,
@@ -659,11 +662,15 @@ object SystemUiRuntime {
             }
         }
         TriggerBroadcastContract.ACTION_QUICK_ADD_FLOATING_TASK -> {
-            ::floatingDock.isInitialized && ::workspaceController.isInitialized &&
+            val eligible = ::floatingDock.isInitialized && ::workspaceController.isInitialized &&
                 workspaceConfigReady && workspaceConfig.floatingBubbleEnabled &&
-                isScreenReady() && !isKeyguardLocked(context) &&
-                !workspaceController.isActive() &&
-                floatingDock.quickAddForeground(bubbleAnchorFrom(intent))
+                isScreenReady() && !isKeyguardLocked(context) && !workspaceController.isActive()
+            if (!eligible) false
+            else if (workspaceConfig.floatingWindowMode ==
+                WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM)
+                !floatingDock.hasSession() && ::nativeFreeform.isInitialized &&
+                    nativeFreeform.addForeground()
+            else floatingDock.quickAddForeground(bubbleAnchorFrom(intent))
         }
         TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
             val sentAt = intent.getLongExtra(
@@ -687,8 +694,10 @@ object SystemUiRuntime {
                     "anchor=${bubbleAnchorFrom(intent)}")
             val handled = when {
                 !ready -> false
-                // Stable zoom only changes the view; native mode actually
-                // returns the same Task to its reserved virtual display.
+                workspaceConfig.floatingWindowMode ==
+                    WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM ->
+                    !workspaceController.isActive() && !floatingDock.hasSession() &&
+                        ::nativeFreeform.isInitialized && nativeFreeform.addForeground()
                 floatingDock.isStableZoomed() -> floatingDock.shrinkStableZoom()
                 floatingDock.isExpanded() ->
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
