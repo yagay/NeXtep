@@ -38,6 +38,15 @@ The project primarily targets **OnePlus PLK110**, previously verified on **Andro
 
 [Features](#features) · [Energy monitoring](#energy-monitoring-and-resource-use) · [Requirements](#requirements) · [Installation](#installation) · [Workspace controls](#open-and-close-the-workspace) · [External commands](#external-commands) · [Behavior switches](#behavior-switches)
 
+## Selected four-slot and floating workspace
+
+This branch includes an optional bubble-operated four-slot floating dock,
+interactive virtual-display zoom, opt-in floating-only lockscreen protection,
+diagnostic ZIP export and a Debug-only workflow. The original workspace
+retains its task exchange behavior while using four slots. See
+[selective migration notes](docs/MAIN_SELECTIVE_PORT.md) for ownership,
+limitations and the list of deliberately excluded experimental features.
+
 ## Features
 
 ### Workspace and layout

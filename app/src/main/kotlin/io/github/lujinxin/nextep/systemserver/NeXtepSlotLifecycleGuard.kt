@@ -285,9 +285,8 @@ internal object NeXtepSlotLifecycleGuard {
         val ownerPackage: String?,
     ) {
         val matched: Boolean get() =
-            displayId > 0 && name.matches(Regex("NeXtep-floating-slot-[0-3]")) &&
-                type == 5 &&
-                (ownerUid == 1000 || ownerPackage == "com.android.systemui")
+            FloatingLockGuardScope.isEligibleDisplay(
+                displayId, name, type, ownerUid, ownerPackage)
     }
 
     private fun slotIdentity(owner: Any): SlotIdentity? {
