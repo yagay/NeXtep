@@ -29,6 +29,13 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 internal object NeXtepSlotLifecycleGuard {
     private const val TAG = "NeXtepSlotGuard"
+    internal const val STATUS_KEY = "nextep_slot_guard_diagnostics_v1"
+    private const val PREARM_WINDOW_MS = 20_000L
+    private val prearmedTasks = ConcurrentHashMap<Int, Long>()
+    private val counters = ConcurrentHashMap<String, AtomicInteger>()
+    private val statusQueued = AtomicBoolean(false)
+    @Volatile private var lastEvent = "installing"
+    @Volatile private var installedCount = 0
     private val handler = Handler(Looper.getMainLooper())
     private val observerStarted = AtomicBoolean(false)
     private val observerQueued = AtomicBoolean(false)
@@ -50,8 +57,31 @@ internal object NeXtepSlotLifecycleGuard {
         }.forEach { method ->
             hook(module, method) { chain ->
                 val result = chain.proceed()
-                runCatching { trackActivity(chain.thisObject) }
+                runCatching { trackActivity(chain.thisObject, "onDisplayChanged") }
                     .onFailure { logOnce("tracking-error", "Task tracking failed: $it") }
+                result
+            }
+            installed++
+        }
+
+        // Capture the real Activity state after OEM transitions, including
+        // PAUSED/STOPPED if a ColorOS path bypasses our candidate hooks.
+        activity.declaredMethods.filter {
+            it.name == "setState" && it.parameterCount >= 1
+        }.forEach { method ->
+            hook(module, method) { chain ->
+                val result = chain.proceed()
+                runCatching {
+                    val record = chain.thisObject ?: return@runCatching
+                    if (isNeXtepSlot(record)) {
+                        trackActivity(record, "setState")
+                        val state = chain.args.firstOrNull()?.toString().orEmpty()
+                        if (state.contains("PAUS", true) || state.contains("STOP", true)
+                            || state.contains("RESUM", true)) {
+                            note("STATE", "SLOT_ACTIVITY_STATE task=${taskId(record)} state=$state")
+                        }
+                    }
+                }
                 result
             }
             installed++
@@ -69,9 +99,15 @@ internal object NeXtepSlotLifecycleGuard {
                 // suppress a normal same-app navigation or a user-driven pause.
                 val booleans = chain.args.filterIsInstance<Boolean>()
                 val uiSleeping = if (booleans.size >= 2) booleans[1] else sleepingArg
-                if (fragmentObject != null && safeCondition { shouldGuard(fragmentObject, uiSleeping) }) {
-                    logOnce("PAUSE:${taskId(fragmentObject)}",
-                        "SLOT_PAUSE_BLOCK task=${taskId(fragmentObject)}")
+                if (fragmentObject != null) {
+                    probe(fragmentObject, "startPausing")
+                    if (uiSleeping) armForLock(fragmentObject, "startPausing")
+                }
+                if (fragmentObject != null && safeCondition {
+                    shouldGuard(fragmentObject, uiSleeping)
+                }) {
+                    note("PAUSE", "SLOT_PAUSE_BLOCK task=${taskId(fragmentObject)} " +
+                        "uiSleeping=$uiSleeping")
                     false
                 } else chain.proceed()
             }
@@ -83,10 +119,10 @@ internal object NeXtepSlotLifecycleGuard {
         }.forEach { method ->
             hook(module, method) { chain ->
                 val record = chain.thisObject
+                if (record != null) probe(record, "stopIfPossible")
                 if (record != null && safeCondition { !isFinishing(record) && shouldGuard(record) }) {
                     call(record, "resumeKeyDispatchingLocked")
-                    logOnce("STOP:${taskId(record)}",
-                        "SLOT_STOP_BLOCK task=${taskId(record)}")
+                    note("STOP", "SLOT_STOP_BLOCK task=${taskId(record)}")
                     null
                 } else chain.proceed()
             }
@@ -99,9 +135,14 @@ internal object NeXtepSlotLifecycleGuard {
             hook(module, method) { chain ->
                 val fragmentObject = chain.thisObject
                 val forceSleep = chain.args.any { it == true }
-                if (!forceSleep && fragmentObject != null && safeCondition { shouldGuard(fragmentObject, true) }) {
-                    logOnce("SLEEP:${taskId(fragmentObject)}",
-                        "SLOT_SLEEP_BLOCK task=${taskId(fragmentObject)}")
+                if (fragmentObject != null) {
+                    probe(fragmentObject, "sleepIfPossible")
+                    if (!forceSleep) armForLock(fragmentObject, "sleepIfPossible")
+                }
+                if (!forceSleep && fragmentObject != null && safeCondition {
+                    shouldGuard(fragmentObject, true)
+                }) {
+                    note("SLEEP", "SLOT_SLEEP_BLOCK task=${taskId(fragmentObject)}")
                     true
                 } else chain.proceed()
             }
@@ -163,6 +204,8 @@ internal object NeXtepSlotLifecycleGuard {
             }
         }.onFailure { Log.i(TAG, "Stop UID hook unavailable: ${it.javaClass.simpleName}") }
 
+        installedCount = installed
+        recordStatus("installed")
         Log.i(TAG, "Installed scoped ColorOS slot lifecycle hooks=$installed; mode awaits trusted SystemUI setting")
         Log.i("NeXtep", "NeXtep scoped lifecycle hook count=$installed")
     }
