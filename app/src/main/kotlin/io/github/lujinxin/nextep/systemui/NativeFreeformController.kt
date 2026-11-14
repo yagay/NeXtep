@@ -48,6 +48,22 @@ internal class NativeFreeformController(context: Context) {
         when (val vendor = oplusBridge.start(task)) {
             is OplusNativeZoomBridge.Result.Accepted -> {
                 nativeTasks.add(task.taskId)
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    val actual = taskRepository.runningTasks().firstOrNull {
+                        it.component.packageName == packageName &&
+                            it.displayId == Display.DEFAULT_DISPLAY &&
+                            (it.vendorWindowed || it.windowingMode == FREEFORM_MODE)
+                    }
+                    if (actual == null) {
+                        nativeTasks.remove(task.taskId)
+                        NeXtepLog.warn("native_oplus",
+                            "ZOOM_NOT_CONFIRMED task=${task.taskId} package=$packageName")
+                    } else {
+                        nativeTasks.add(actual.taskId)
+                        NeXtepLog.info("native_oplus",
+                            "ZOOM_CONFIRMED task=${actual.taskId} vendor=${actual.vendorWindowed} mode=${actual.windowingMode}")
+                    }
+                }, 1_500L)
                 NeXtepLog.info("native_oplus",
                     "ZOOM_ACCEPTED task=${task.taskId} code=${vendor.code}")
                 return true
