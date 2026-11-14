@@ -541,7 +541,8 @@ class SlotTaskCoordinator(
         if (index < 0) return Result.failure(IllegalStateException("No free floating slot"))
         val ready = slotRecords[index].state as SlotState.Ready
         val current = taskRepository.foregroundTask()
-        if (current?.taskId != taskId || !isExchangeableMainTask(current))
+            ?: return Result.failure(IllegalStateException("No foreground application"))
+        if (current.taskId != taskId || !isExchangeableMainTask(current))
             return Result.failure(IllegalStateException("Foreground app changed or cannot be moved"))
         return runTransition("quick park foreground task=$taskId slot=$index") {
             parkMainTaskInSlot(index, ready, current)
