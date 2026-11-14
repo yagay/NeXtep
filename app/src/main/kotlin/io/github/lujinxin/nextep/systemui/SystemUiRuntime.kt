@@ -96,7 +96,7 @@ object SystemUiRuntime {
             SystemServerWorkspaceBridge.publishBlockSystemDragShare(applicationContext,
                 queriedConfig.blockSystemDragShareEnabled)
             SystemServerWorkspaceBridge.publishIndependentSlotLockGuard(applicationContext,
-                queriedConfig.floatingIndependentDisplayEnabled)
+                queriedConfig.floatingLockGuardEnabled && queriedConfig.floatingBubbleEnabled)
             AppLanguage.updateHostLanguage(queriedConfig.languageTag)
             workspaceConfigReady = true
             lifecycleHandler.post {
@@ -106,21 +106,11 @@ object SystemUiRuntime {
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
                 if (::floatingDock.isInitialized) {
-                    floatingDock.applyInteractionMode(workspaceConfig.floatingInteractionMode)
                     floatingDock.applyLayoutSettings(
                         workspaceConfig.floatingDockOrientation,
                         workspaceConfig.floatingDockSizePercent,
                     )
-                    floatingDock.applyPadModeSetting(workspaceConfig.floatingPadModeEnabled)
-                    floatingDock.applyIndependentDisplaySetting(
-                        workspaceConfig.floatingIndependentDisplayEnabled)
-                    floatingDock.applyPlaybackCompatSettings(
-                        workspaceConfig.playbackCompatEnabled,
-                        workspaceConfig.playbackCompatAutoResume,
-                        workspaceConfig.playbackCompatLockAudio,
-                        workspaceConfig.playbackCompatPackages,
-                        workspaceConfig.floatingAutoProtectPlayback,
-                    )
+
                 }
                 // A hidden floating session still owns live VirtualDisplays.
                 // Disabling the feature fully shuts down only that session.
@@ -198,10 +188,6 @@ object SystemUiRuntime {
     }
     private val keyguardStateListener = KeyguardManager.KeyguardLockedStateListener {
         // Re-read current state: a queued callback can belong to an earlier wake.
-        if (::floatingDock.isInitialized && floatingDock.hasSession() &&
-            isKeyguardLocked(applicationContext)) {
-            floatingDock.onPhysicalLockSignal("keyguard")
-        }
         lockStateObserver.run()
     }
     private val displayStateListener = object : DisplayManager.DisplayListener {
@@ -209,13 +195,6 @@ object SystemUiRuntime {
         override fun onDisplayRemoved(displayId: Int) = Unit
         override fun onDisplayChanged(displayId: Int) {
             if (displayId == Display.DEFAULT_DISPLAY) {
-                if (::floatingDock.isInitialized && floatingDock.hasSession()) {
-                    val state = applicationContext.getSystemService(DisplayManager::class.java)
-                        ?.getDisplay(Display.DEFAULT_DISPLAY)?.state
-                    if (state != null && state != Display.STATE_ON) {
-                        floatingDock.onPhysicalLockSignal("display-state:$state")
-                    }
-                }
                 lockStateObserver.run()
             }
         }
@@ -655,7 +634,6 @@ object SystemUiRuntime {
                 // Stable zoom only changes the view; native mode actually
                 // returns the same Task to its reserved virtual display.
                 floatingDock.isStableZoomed() -> floatingDock.shrinkStableZoom()
-                floatingDock.hasTemporaryFullscreen() -> floatingDock.returnTemporaryFullscreen()
                 floatingDock.isExpanded() ->
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
                 workspaceController.isActive() -> false
