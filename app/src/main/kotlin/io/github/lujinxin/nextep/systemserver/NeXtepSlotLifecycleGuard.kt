@@ -105,7 +105,7 @@ internal object NeXtepSlotLifecycleGuard {
                     if (uiSleeping) armForLock(fragmentObject, "startPausing")
                 }
                 if (fragmentObject != null && safeCondition {
-                    shouldGuard(fragmentObject, uiSleeping)
+                    shouldGuard(fragmentObject)
                 }) {
                     note("PAUSE", "SLOT_PAUSE_BLOCK task=${taskId(fragmentObject)} " +
                         "uiSleeping=$uiSleeping")
@@ -141,7 +141,7 @@ internal object NeXtepSlotLifecycleGuard {
                     if (!forceSleep) armForLock(fragmentObject, "sleepIfPossible")
                 }
                 if (!forceSleep && fragmentObject != null && safeCondition {
-                    shouldGuard(fragmentObject, true)
+                    shouldGuard(fragmentObject)
                 }) {
                     note("SLEEP", "SLOT_SLEEP_BLOCK task=${taskId(fragmentObject)}")
                     true
@@ -404,12 +404,16 @@ internal object NeXtepSlotLifecycleGuard {
     private fun physicalScreenOff(): Boolean =
         context?.getSystemService(PowerManager::class.java)?.isInteractive == false
 
-    private fun shouldGuard(owner: Any, explicitSleep: Boolean = false): Boolean {
+    private fun shouldGuard(owner: Any): Boolean {
         queueObserver(owner)
-        return enabled && !disabledByErrors && isNeXtepSlot(owner) &&
-            !isFinishing(owner) &&
-            (physicalScreenOff() || displaySleeping(owner) ||
-                (explicitSleep && isPrearmed(owner)) || isPrearmed(owner))
+        return SlotLockProtectionPolicy.eligible(
+            enabled = enabled && !disabledByErrors,
+            matchingSlot = isNeXtepSlot(owner),
+            finishing = isFinishing(owner),
+            physicallyOff = physicalScreenOff(),
+            displaySleeping = displaySleeping(owner),
+            prearmed = isPrearmed(owner),
+        )
     }
 
     private fun liveProtectedUid(uid: Int): Boolean {
