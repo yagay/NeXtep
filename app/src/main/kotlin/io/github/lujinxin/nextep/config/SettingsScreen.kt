@@ -208,6 +208,39 @@ object SettingsScreen {
                         },
                     ), matchWidth())
                     addView(settingDivider(activity))
+                    val windowModeButton = SettingsRowButton.create(activity).apply {
+                        fun updateText() {
+                            text = if (repository.topBarSettings().floatingWindowMode ==
+                                WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM)
+                                "系统 Freeform（实验性）" else "虚拟四槽位（默认）"
+                        }
+                        updateText()
+                        setOnClickListener {
+                            val values = arrayOf("虚拟四槽位（默认）", "系统 Freeform 多窗口（实验性）")
+                            val current = repository.topBarSettings().floatingWindowMode
+                            val checked = if (current ==
+                                WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM) 1 else 0
+                            MaterialAlertDialogBuilder(activity)
+                                .setTitle("小窗运行模式")
+                                .setSingleChoiceItems(values, checked) { dialog, which ->
+                                    repository.setFloatingWindowMode(if (which == 1)
+                                        WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM
+                                    else WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL)
+                                    updateText()
+                                    dialog.dismiss()
+                                }
+                                .setNegativeButton(R.string.action_cancel, null)
+                                .show()
+                        }
+                    }
+                    addView(settingRow(
+                        activity, "小窗运行模式",
+                        "虚拟四槽位保留后台任务；系统 Freeform 使用 Android 真正的自由窗口，需系统支持。切换模式会关闭旧的虚拟面板。",
+                        windowModeButton,
+                    ).apply {
+                        setOnClickListener { windowModeButton.performClick() }
+                    }, matchWidth())
+                    addView(settingDivider(activity))
                     val layoutButton = SettingsRowButton.create(activity).apply {
                         updateFloatingLayoutLabel(activity, this, repository.topBarSettings())
                         setOnClickListener { showFloatingLayoutDialog(activity, repository, this) }
