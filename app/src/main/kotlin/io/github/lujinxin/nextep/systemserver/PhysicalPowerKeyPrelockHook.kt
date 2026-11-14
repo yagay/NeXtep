@@ -61,8 +61,15 @@ internal object PhysicalPowerKeyPrelockHook {
     private fun dispatch(policy: Any?, event: KeyEvent) {
         if (event.keyCode != KeyEvent.KEYCODE_POWER ||
             event.action != KeyEvent.ACTION_DOWN ||
-            event.repeatCount != 0 || event.isCanceled ||
-            event.displayId > 0) return
+            event.repeatCount != 0 || event.isCanceled) return
+        // InputEvent.getDisplayId is hidden on several public SDK stubs.
+        // Mirror our existing SystemNavigationFoldHook's verified reflection.
+        val inputDisplay = runCatching {
+            android.view.InputEvent::class.java.getDeclaredMethod("getDisplayId").apply {
+                isAccessible = true
+            }.invoke(event) as Int
+        }.getOrDefault(-1)
+        if (inputDisplay > 0) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastSentAt in 0L..799L) return
         val context = generateSequence(policy?.javaClass) { it.superclass }
