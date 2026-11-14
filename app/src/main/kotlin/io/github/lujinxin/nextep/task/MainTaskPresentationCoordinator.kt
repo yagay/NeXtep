@@ -10,7 +10,7 @@ import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 import io.github.lujinxin.nextep.workspace.WorkspaceGeometry
 
-class MainTaskPresentationCoordinator(context: Context) {
+class MainTaskPresentationCoordinator(context: Context, private val preserveFullscreen: Boolean = false) {
     private val applicationContext = context.applicationContext ?: context
     private val taskRepository = TaskRepository(applicationContext)
     private val surfacePresenter = SurfaceTaskPresenter()
@@ -20,12 +20,14 @@ class MainTaskPresentationCoordinator(context: Context) {
     private var homePresented = false
 
     fun presentForeground(geometry: WorkspaceGeometry, animateFromFullscreen: Boolean = false): Result<Unit> {
+        if (preserveFullscreen) return Result.success(Unit)
         val task = taskRepository.foregroundTask()
             ?: return Result.failure(IllegalStateException("No foreground Display 0 task"))
         return presentTask(task, geometry, animateFromFullscreen)
     }
 
     fun presentTask(taskId: Int, geometry: WorkspaceGeometry): Result<Unit> {
+        if (preserveFullscreen) return Result.success(Unit)
         val task = taskRepository.findTask(taskId)
             ?: return Result.failure(IllegalStateException("Task $taskId is unavailable"))
         return presentTask(task, geometry)
@@ -93,6 +95,9 @@ class MainTaskPresentationCoordinator(context: Context) {
         geometry: WorkspaceGeometry,
         tasks: List<TaskRepository.TaskSnapshot>,
     ): Result<Unit> = runCatching {
+        // A floating dock must never fit or scale the physical Display 0 task.
+        // Only its four VirtualDisplay tasks are managed by the slot coordinator.
+        if (preserveFullscreen) return@runCatching
         val foreground = tasks.firstOrNull { it.displayId == Display.DEFAULT_DISPLAY }
             ?: error("No foreground Display 0 task")
         val homePackage = TriggerBroadcastContract.resolveHomePackage(applicationContext)
@@ -135,6 +140,7 @@ class MainTaskPresentationCoordinator(context: Context) {
     fun currentTaskId(): Int? = presentedTaskId
 
     fun restoreForeground(animateToFullscreen: Boolean = false): Result<Unit> {
+        if (preserveFullscreen) return Result.success(Unit)
         val taskId = presentedTaskId ?: return Result.success(Unit)
         val presenter = activePresenter ?: return Result.success(Unit)
         val restored = if (animateToFullscreen && presenter === surfacePresenter) {

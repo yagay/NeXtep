@@ -317,6 +317,14 @@ class NeXtepWindowController(
     fun currentGeometry(refreshViewport: Boolean = false): WorkspaceGeometry =
         viewport.geometry(sidebarSide, refreshViewport)
 
+    /**
+     * The optional floating rail reads the SAME recorded profile as the
+     * original sidebar. No fresh zero-inset geometry or second display
+     * observer may change the original card dimensions.
+     */
+    internal fun recordedLayoutProfile(refreshViewport: Boolean = false) =
+        viewport.layout(refreshViewport)
+
     fun projectDisplayRotation(rotation: Int) {
         viewport.projectRotation(rotation)
     }

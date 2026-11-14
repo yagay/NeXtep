@@ -38,6 +38,7 @@ object SystemUiRuntime {
     private val initialized = AtomicBoolean(false)
     private lateinit var applicationContext: Context
     private lateinit var windowController: NeXtepWindowController
+    private lateinit var floatingDock: FloatingSlotDockController
     private lateinit var workspaceController: WorkspaceController
     private lateinit var fourFingerGestures: FourFingerGestureController
     private val lifecycleHandler = Handler(Looper.getMainLooper())
@@ -47,10 +48,29 @@ object SystemUiRuntime {
     @Volatile private var workspaceConfig = WorkspaceTopConfig()
     @Volatile private var workspaceConfigReady = false
     private val configRetry = Runnable { refreshWorkspaceConfig() }
+    // Restore hidden floating task coordination after the keyguard is gone,
+    // without requiring the user to show the window again.
+    private var hiddenFloatingResumeAttempts = 0
+    private val hiddenFloatingResume = object : Runnable {
+        override fun run() {
+            if (!::floatingDock.isInitialized || !floatingDock.hasSession()) return
+            val screenReady = isScreenReady()
+            val unlocked = !isKeyguardLocked(applicationContext)
+            if (screenReady && unlocked && floatingDock.resumeHiddenSessionAfterUnlock()) return
+            if (++hiddenFloatingResumeAttempts < 12) {
+                lifecycleHandler.postDelayed(this, 500L)
+            } else {
+                NeXtepLog.warn("floating_dock",
+                    "Retained hidden session did not resume after unlock " +
+                        "screenReady=$screenReady unlocked=$unlocked")
+            }
+        }
+    }
     private val taskRefreshQueued = AtomicBoolean(false)
     private val taskRefresh = Runnable {
         taskRefreshQueued.set(false)
         if (::windowController.isInitialized) windowController.onTasksChanged()
+        if (::floatingDock.isInitialized) floatingDock.onTasksChanged()
     }
 
     fun onTasksChanged() {
@@ -75,6 +95,8 @@ object SystemUiRuntime {
             workspaceConfig = queriedConfig
             SystemServerWorkspaceBridge.publishBlockSystemDragShare(applicationContext,
                 queriedConfig.blockSystemDragShareEnabled)
+            SystemServerWorkspaceBridge.publishIndependentSlotLockGuard(applicationContext,
+                queriedConfig.floatingIndependentDisplayEnabled)
             AppLanguage.updateHostLanguage(queriedConfig.languageTag)
             workspaceConfigReady = true
             lifecycleHandler.post {
@@ -83,6 +105,28 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
+                if (::floatingDock.isInitialized) {
+                    floatingDock.applyInteractionMode(workspaceConfig.floatingInteractionMode)
+                    floatingDock.applyLayoutSettings(
+                        workspaceConfig.floatingDockOrientation,
+                        workspaceConfig.floatingDockSizePercent,
+                    )
+                    floatingDock.applyPadModeSetting(workspaceConfig.floatingPadModeEnabled)
+                    floatingDock.applyIndependentDisplaySetting(
+                        workspaceConfig.floatingIndependentDisplayEnabled)
+                    floatingDock.applyPlaybackCompatSettings(
+                        workspaceConfig.playbackCompatEnabled,
+                        workspaceConfig.playbackCompatAutoResume,
+                        workspaceConfig.playbackCompatLockAudio,
+                        workspaceConfig.playbackCompatPackages,
+                        workspaceConfig.floatingAutoProtectPlayback,
+                    )
+                }
+                // A hidden floating session still owns live VirtualDisplays.
+                // Disabling the feature fully shuts down only that session.
+                if (!workspaceConfig.floatingBubbleEnabled &&
+                    ::floatingDock.isInitialized && floatingDock.hasSession()
+                ) floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.FEATURE_DISABLED)
             }
             NeXtepLog.info(
                 "workspace_config",
@@ -154,13 +198,26 @@ object SystemUiRuntime {
     }
     private val keyguardStateListener = KeyguardManager.KeyguardLockedStateListener {
         // Re-read current state: a queued callback can belong to an earlier wake.
+        if (::floatingDock.isInitialized && floatingDock.hasSession() &&
+            isKeyguardLocked(applicationContext)) {
+            floatingDock.onPhysicalLockSignal("keyguard")
+        }
         lockStateObserver.run()
     }
     private val displayStateListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
         override fun onDisplayRemoved(displayId: Int) = Unit
         override fun onDisplayChanged(displayId: Int) {
-            if (displayId == Display.DEFAULT_DISPLAY) lockStateObserver.run()
+            if (displayId == Display.DEFAULT_DISPLAY) {
+                if (::floatingDock.isInitialized && floatingDock.hasSession()) {
+                    val state = applicationContext.getSystemService(DisplayManager::class.java)
+                        ?.getDisplay(Display.DEFAULT_DISPLAY)?.state
+                    if (state != null && state != Display.STATE_ON) {
+                        floatingDock.onPhysicalLockSignal("display-state:$state")
+                    }
+                }
+                lockStateObserver.run()
+            }
         }
     }
 
@@ -198,6 +255,11 @@ object SystemUiRuntime {
                 onExitRequested = ::closeWorkspaceFromGesture,
                 onViewportChanged = ::reconfigureForViewport,
             )
+            // Share the exact saved slot dimensions/rotation profile with the
+            // optional horizontal dock, but never share task or window ownership.
+            floatingDock = FloatingSlotDockController(
+                applicationContext, windowController::recordedLayoutProfile,
+            )
             workspaceController = WorkspaceController(
                 applicationContext = applicationContext,
                 windowController = windowController,
@@ -214,8 +276,11 @@ object SystemUiRuntime {
 
             val filter = IntentFilter().apply {
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE)
+                addAction(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL)
+                addAction(TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR)
                 addAction(TriggerBroadcastContract.ACTION_SET_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_QUERY_WORKSPACE)
+                addAction(TriggerBroadcastContract.ACTION_QUERY_DIAGNOSTICS)
                 addAction(TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST)
                 addAction(TriggerBroadcastContract.ACTION_FOUR_FINGER_WORKSPACE)
             }
@@ -326,6 +391,8 @@ object SystemUiRuntime {
         if (!isStatusBarGestureEnabled() || !::workspaceController.isInitialized) return
         val target = !workspaceController.isActive()
         if (target && isKeyguardLocked(applicationContext)) return
+        if (target && ::floatingDock.isInitialized && floatingDock.hasSession() &&
+            !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) return
         if (workspaceController.setActive(target)) {
             publishWorkspaceSurfaceState(target)
             if (!target) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -352,6 +419,8 @@ object SystemUiRuntime {
             !::workspaceController.isInitialized || !isScreenReady() || isKeyguardLocked(applicationContext) ||
             workspaceController.isSuspended() || workspaceController.isActive() == active
         ) return
+        if (active && ::floatingDock.isInitialized && floatingDock.hasSession() &&
+            !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) return
         if (workspaceController.setActive(active)) {
             publishWorkspaceSurfaceState(active)
             if (!active) WorkspaceStateBridge.requestInactiveFromSystemUi(applicationContext)
@@ -405,8 +474,29 @@ object SystemUiRuntime {
 
     private val lifecycleReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == Intent.ACTION_USER_PRESENT) refreshWorkspaceConfig()
-            if (intent.action == Intent.ACTION_SCREEN_OFF) TaskSurfaceCompat.finishWorkspaceExitAnimations()
+            if (intent.action == Intent.ACTION_USER_PRESENT) {
+                refreshWorkspaceConfig()
+            }
+            if (intent.action == Intent.ACTION_SCREEN_ON ||
+                intent.action == Intent.ACTION_USER_PRESENT
+            ) {
+                // Some Android configurations have no secure keyguard, hence
+                // USER_PRESENT may never arrive after a normal screen wake.
+                // Both events trigger bounded retries, but actual resume is
+                // gated on screenReady and a fully dismissed keyguard.
+                lifecycleHandler.removeCallbacks(hiddenFloatingResume)
+                hiddenFloatingResumeAttempts = 0
+                lifecycleHandler.postDelayed(hiddenFloatingResume, 250L)
+            }
+            if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                lifecycleHandler.removeCallbacks(hiddenFloatingResume)
+                TaskSurfaceCompat.finishWorkspaceExitAnimations()
+                if (::floatingDock.isInitialized)
+                    floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
+            }
+            if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
+                floatingDock.reconfigure()
+            }
             if (!::workspaceController.isInitialized || !workspaceController.isActive()) return
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
@@ -467,11 +557,45 @@ object SystemUiRuntime {
                 }, PANEL_COLLAPSE_DELAY_MS)
                 return
             }
-            val handled = handleControl(context, intent)
-            if (!handled) return
+            // Bubble commands run in SystemUI's main-thread receiver. An
+            // unexpected OEM WindowManager/DisplayManager exception must not
+            // crash SystemUI and consequently destroy its virtual displays.
+            val handled = try {
+                handleControl(context, intent)
+            } catch (error: Throwable) {
+                if (error is VirtualMachineError || error is ThreadDeath) throw error
+                NeXtepLog.error("floating_icon",
+                    "SYSTEMUI_TOGGLE_EXCEPTION action=${intent.action}", error)
+                if (intent.action == TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL) {
+                    setResultExtras(Bundle().apply {
+                        putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
+                            "SystemUI floating icon handler failed: ${error.javaClass.simpleName}")
+                        putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_TRACE,
+                            android.util.Log.getStackTraceString(error).take(6_000))
+                    })
+                }
+                return
+            }
+            if (!handled) {
+                if (intent.action == TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL) {
+                    setResultExtras(Bundle().apply {
+                        putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
+                            floatingDock.lastError ?: "Floating dock is disabled, locked, or the original workspace is active")
+                        floatingDock.lastErrorTrace?.let {
+                            putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_TRACE, it)
+                        }
+                    })
+                }
+                return
+            }
 
             resultCode = TriggerBroadcastContract.RESULT_HANDLED
-            setResultExtras(responseBundle(getResultExtras(true)))
+            setResultExtras(responseBundle(getResultExtras(true)).apply {
+                if (intent.action == TriggerBroadcastContract.ACTION_QUERY_DIAGNOSTICS) {
+                    putString(TriggerBroadcastContract.EXTRA_DIAGNOSTICS_LOG, NeXtepLog.snapshot(60_000))
+                    putString(TriggerBroadcastContract.EXTRA_DIAGNOSTICS_PROCESS, "com.android.systemui")
+                }
+            })
         }
     }
 
@@ -484,7 +608,65 @@ object SystemUiRuntime {
         else -> null
     }
 
+    private fun bubbleAnchorFrom(intent: Intent): FloatingDockPlacement.Anchor? {
+        if (!intent.hasExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_X) ||
+            !intent.hasExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_Y) ||
+            !intent.hasExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_SIZE)
+        ) return null
+        val size = intent.getIntExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_SIZE, 0)
+        if (size <= 0) return null
+        return FloatingDockPlacement.Anchor(
+            intent.getIntExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_X, 0),
+            intent.getIntExtra(TriggerBroadcastContract.EXTRA_FLOATING_BUBBLE_Y, 0),
+            size,
+        )
+    }
+
     private fun handleControl(context: Context, intent: Intent): Boolean = when (intent.action) {
+        TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR -> {
+            if (!::floatingDock.isInitialized) false
+            else {
+                bubbleAnchorFrom(intent)?.let { floatingDock.updateAnchor(it) }
+                true
+            }
+        }
+        TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL -> {
+            val sentAt = intent.getLongExtra(
+                TriggerBroadcastContract.EXTRA_FLOATING_REQUEST_ELAPSED, -1L)
+            val ageMs = if (sentAt >= 0L)
+                android.os.SystemClock.elapsedRealtime() - sentAt else 0L
+            val staleRequest = sentAt >= 0L && (ageMs > 4_500L || ageMs < -1_000L)
+            if (staleRequest) {
+                NeXtepLog.warn("floating_icon",
+                    "TOGGLE_STALE_REJECTED ageMs=$ageMs; no display or task changes")
+            }
+            val ready = !staleRequest &&
+                ::floatingDock.isInitialized && ::workspaceController.isInitialized &&
+                workspaceConfigReady && workspaceConfig.floatingBubbleEnabled &&
+                isScreenReady() && !isKeyguardLocked(context)
+            val beforeSession = if (::floatingDock.isInitialized) floatingDock.hasSession() else false
+            val beforeExpanded = if (::floatingDock.isInitialized) floatingDock.isExpanded() else false
+            NeXtepLog.info("floating_icon",
+                "TOGGLE_RECEIVED ready=$ready hasSession=$beforeSession " +
+                    "expanded=$beforeExpanded workspaceActive=${::workspaceController.isInitialized && workspaceController.isActive()} " +
+                    "anchor=${bubbleAnchorFrom(intent)}")
+            val handled = when {
+                !ready -> false
+                // Stable zoom only changes the view; native mode actually
+                // returns the same Task to its reserved virtual display.
+                floatingDock.isStableZoomed() -> floatingDock.shrinkStableZoom()
+                floatingDock.hasTemporaryFullscreen() -> floatingDock.returnTemporaryFullscreen()
+                floatingDock.isExpanded() ->
+                    floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
+                workspaceController.isActive() -> false
+                else -> floatingDock.expand(bubbleAnchorFrom(intent))
+            }
+            NeXtepLog.info("floating_icon",
+                "TOGGLE_RESULT handled=$handled wasSession=$beforeSession " +
+                    "nowSession=${floatingDock.hasSession()} wasExpanded=$beforeExpanded " +
+                    "nowExpanded=${floatingDock.isExpanded()} error=${floatingDock.lastError}")
+            handled
+        }
         TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE,
         TriggerBroadcastContract.ACTION_SET_WORKSPACE -> {
             val target = requestedTarget(intent) ?: false
@@ -492,15 +674,21 @@ object SystemUiRuntime {
                     intent.getBooleanExtra(TriggerBroadcastContract.EXTRA_ONLY_IF_INACTIVE, false),
                     workspaceController.isActive())) true
             else if (target && isKeyguardLocked(context)) false
+            else if (target && ::floatingDock.isInitialized && floatingDock.hasSession() &&
+                !floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.OPEN_ORIGINAL_WORKSPACE)) false
             else workspaceController.setActive(target).also { handled ->
                 // The tile/coordinated path must also restore the separate assistant panel.
                 if (handled) publishWorkspaceSurfaceState(target)
             }
         }
-        TriggerBroadcastContract.ACTION_QUERY_WORKSPACE -> true
+        TriggerBroadcastContract.ACTION_QUERY_WORKSPACE,
+        TriggerBroadcastContract.ACTION_QUERY_DIAGNOSTICS -> true
         TriggerBroadcastContract.ACTION_FOUR_FINGER_WORKSPACE -> fourFingerGestures.handleRequest(intent)
         TriggerBroadcastContract.ACTION_LAUNCH_SLOT_TEST -> {
-            val active = workspaceController.isActive() || workspaceController.setActive(true)
+            val canSwitch = !::floatingDock.isInitialized || !floatingDock.hasSession() ||
+                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SLOT_TEST_SWITCH)
+            val active = canSwitch &&
+                (workspaceController.isActive() || workspaceController.setActive(true))
             active && workspaceController.launchInSlot(
                 Intent(Settings.ACTION_SETTINGS).setPackage("com.android.settings"),
             )
@@ -512,6 +700,10 @@ object SystemUiRuntime {
         putBoolean(
             TriggerBroadcastContract.EXTRA_ACTIVE,
             workspaceController.isActive(),
+        )
+        putBoolean(
+            TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ACTIVE,
+            ::floatingDock.isInitialized && floatingDock.isExpanded(),
         )
         putString(
             TriggerBroadcastContract.EXTRA_HOME_PACKAGE,
