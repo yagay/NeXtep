@@ -139,7 +139,7 @@ object SystemUiRuntime {
             SystemServerWorkspaceBridge.publishBlockSystemDragShare(applicationContext,
                 queriedConfig.blockSystemDragShareEnabled)
             SystemServerWorkspaceBridge.publishIndependentSlotLockGuard(applicationContext,
-                queriedConfig.floatingLockGuardEnabled && queriedConfig.floatingBubbleEnabled)
+                io.github.lujinxin.nextep.systemserver.FloatingLockGuardScope.shouldEnablePolicy(\n                    queriedConfig.floatingBubbleEnabled, queriedConfig.floatingLockGuardEnabled))
             AppLanguage.updateHostLanguage(queriedConfig.languageTag)
             workspaceConfigReady = true
             lifecycleHandler.post {
