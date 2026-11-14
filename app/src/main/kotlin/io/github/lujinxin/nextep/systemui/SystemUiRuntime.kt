@@ -133,6 +133,8 @@ object SystemUiRuntime {
                 queriedConfig.blockSystemDragShareEnabled)
             SystemServerWorkspaceBridge.publishIndependentSlotLockGuard(applicationContext,
                 queriedConfig.floatingLockGuardEnabled)
+            SystemServerWorkspaceBridge.publishNativeLockSettings(applicationContext,
+                queriedConfig.nativeLockGuardEnabled, queriedConfig.nativeFreezeProtectionEnabled)
             AppLanguage.updateHostLanguage(queriedConfig.languageTag)
             workspaceConfigReady = true
             lifecycleHandler.post {
@@ -141,6 +143,9 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
+                if (::nativeFreeform.isInitialized) nativeFreeform.configureNativeLockGuard(
+                    workspaceConfig.nativeLockGuardEnabled &&
+                    workspaceConfig.floatingWindowMode == WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM)
                 if (::floatingDock.isInitialized) {
                     floatingDock.applyLayoutSettings(
                         workspaceConfig.floatingDockOrientation,
