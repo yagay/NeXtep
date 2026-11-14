@@ -82,11 +82,15 @@ object SystemUiRuntime {
             workspaceConfig.floatingWindowMode != WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL ||
             task?.userId == null || task.displayId != Display.DEFAULT_DISPLAY ||
             task.windowingMode != 1 || task.vendorWindowed) return false
-        if (if (onLock) !workspaceConfig.autoSlotOnLock
-            else !workspaceConfig.autoSlotOnBackground) return false
         val pkg = task.component.packageName
-        if (workspaceConfig.autoSlotPackages.isEmpty() ||
-            pkg !in workspaceConfig.autoSlotPackages ||
+        val pinned = floatingDock.pinnedSlotFor(pkg, task.userId) != null
+        val enabled = pinned ||
+            if (onLock) workspaceConfig.autoSlotOnLock
+            else workspaceConfig.autoSlotOnBackground
+        if (!enabled) return false
+        if (!pinned && (workspaceConfig.autoSlotPackages.isEmpty() ||
+            pkg !in workspaceConfig.autoSlotPackages) ||
+
             pkg == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
             pkg == TriggerBroadcastContract.MODULE_PACKAGE ||
             pkg == TriggerBroadcastContract.resolveHomePackage(applicationContext)) return false
@@ -97,7 +101,8 @@ object SystemUiRuntime {
 
     private fun captureAutoSlotForeground(source: String, parkOnChange: Boolean) {
         if (!::autoSlotTaskRepository.isInitialized ||
-            (!workspaceConfig.autoSlotOnBackground && !workspaceConfig.autoSlotOnLock)) return
+            (!workspaceConfig.autoSlotOnBackground && !workspaceConfig.autoSlotOnLock &&
+                (!::floatingDock.isInitialized || !floatingDock.hasPinnedBindings()))) return
         val next = autoSlotTaskRepository.foregroundTask()
         val previous = observedForeground
         observedForeground = next
@@ -113,7 +118,7 @@ object SystemUiRuntime {
         lifecycleHandler.postDelayed({
             try {
                 if (isScreenReady() && !isKeyguardLocked(applicationContext) &&
-                    workspaceConfig.autoSlotOnBackground &&
+                    isAutoSlotAllowed(previous, onLock = false) &&
                     autoSlotTaskRepository.foregroundTask()?.taskId != taskId) {
                     floatingDock.autoParkCaptured(taskId, pkg, userId, "background")
                 }
@@ -123,6 +128,25 @@ object SystemUiRuntime {
                 autoSlotPending = false
             }
         }, 120L)
+    }
+
+    /**
+     * A pinned card has just been promoted to the physical display. Seed the
+     * observed identity from the real Task, so its next Home/app switch will
+     * return the SAME Task to its reserved virtual slot.
+     */
+    fun onPinnedTaskPromoted(taskId: Int) {
+        lifecycleHandler.postDelayed({
+            if (!::autoSlotTaskRepository.isInitialized) return@postDelayed
+            val task = autoSlotTaskRepository.findTask(taskId)
+            if (task?.displayId == Display.DEFAULT_DISPLAY &&
+                task.userId != null && ::floatingDock.isInitialized &&
+                floatingDock.pinnedSlotFor(task.component.packageName, task.userId) != null) {
+                observedForeground = task
+                lastAutoParkTaskId = -1
+                NeXtepLog.info("auto_slot", "PIN_FOREGROUND_CAPTURED task=$taskId")
+            }
+        }, 160L)
     }
 
     private fun autoParkForLock(): Boolean {
@@ -227,13 +251,15 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
-                if (workspaceConfig.autoSlotOnBackground || workspaceConfig.autoSlotOnLock)
+                if (workspaceConfig.autoSlotOnBackground || workspaceConfig.autoSlotOnLock ||
+                    (::floatingDock.isInitialized && floatingDock.hasPinnedBindings()))
                     captureAutoSlotForeground("config-init", parkOnChange = false)
                 // Prepare four hidden real VirtualDisplays while the screen is
                 // still unlocked. Creating a focusable SystemUI overlay after
                 // ACTION_SCREEN_OFF is too late and can disrupt keyguard.
-                if (workspaceConfig.autoSlotOnLock &&
-                    workspaceConfig.autoSlotPackages.isNotEmpty() &&
+                if ((workspaceConfig.autoSlotOnLock &&
+                    workspaceConfig.autoSlotPackages.isNotEmpty() ||
+                    (::floatingDock.isInitialized && floatingDock.hasPinnedBindings())) &&
                     workspaceConfig.floatingBubbleEnabled &&
                     workspaceConfig.floatingWindowMode ==
                         WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL &&
