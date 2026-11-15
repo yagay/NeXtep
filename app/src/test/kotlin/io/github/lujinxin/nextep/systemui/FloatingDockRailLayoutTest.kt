@@ -94,8 +94,8 @@ class FloatingDockRailLayoutTest {
         )
         assertTrue(plan.panelWidth < 250)
         assertTrue(plan.panelWidth >= plan.cells[0].width)
-        // Four compact toolbar rows now include the live resize handle.
-        // A bounded toolbar is expected, not the former three-row height.
+        // Two compact toolbar rows now include the live resize handle.
+        // A bounded toolbar is expected, not the former four-row height.
         assertTrue(plan.panelHeight < 1400)
         assertEquals(4, plan.cells.size)
     }
@@ -108,6 +108,23 @@ class FloatingDockRailLayoutTest {
         assertTrue(plan.panelHeight < 390)
         assertTrue(plan.panelWidth >= plan.railContentWidth)
         assertEquals(4, plan.cells.size)
+    }
+
+    @Test fun toolbarHasFourPrimaryActionsAndShrinksVerticalHeader() {
+        val sizes = listOf(90 to 200)
+        val horizontal = FloatingDockRailLayout.calculate(
+            1080, 2400, 2f, sizes, FloatingDockRailLayout.Orientation.HORIZONTAL)
+        val vertical = FloatingDockRailLayout.calculate(
+            1080, 2400, 2f, sizes, FloatingDockRailLayout.Orientation.VERTICAL)
+
+        // Horizontal 4 x 30dp, three 4dp gaps, and two 4dp edges.
+        assertEquals(280, horizontal.panelWidth)
+        assertEquals(76, horizontal.headerHeight)
+        // Vertical 2 x 30dp, 4dp gap, two 4dp edges; exactly two rows.
+        assertEquals(144, vertical.panelWidth)
+        assertEquals(144, vertical.headerHeight)
+        assertEquals(horizontal.cells[0].width, vertical.cells[0].width)
+        assertEquals(horizontal.cells[0].height, vertical.cells[0].height)
     }
 
     @Test fun compactColumnKeepsAllFourSlotsAtOriginalAspectRatio() {
