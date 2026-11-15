@@ -235,7 +235,7 @@ internal class FloatingSlotDockController(
         Toast.makeText(context,
             "已锁定槽位 ${index + 1}：启用后台与锁屏任务保护；Home 不会自动移入小窗",
             Toast.LENGTH_LONG).show()
-        NeXtepLog.info("auto_slot", "PIN_APP index=$index task=${task.taskId} user=$user")
+        NeXtepLog.info("pinned_keepalive", "PIN_APP index=$index task=${task.taskId} user=$user")
     }
 
     private fun updatePinBadges() {
@@ -248,7 +248,6 @@ internal class FloatingSlotDockController(
 
     private var removalPrompt: FrameLayout? = null
     private var removalPending = false
-    private var autoParkPending = false
     private var outsideFoldPending = false
     private val outsideFold = Runnable {
         outsideFoldPending = false
@@ -402,8 +401,8 @@ internal class FloatingSlotDockController(
         val result = coordinator.promoteMediaTask(index, occupied.taskId)
         return if (result.isSuccess) {
             collapse()
-            SystemUiRuntime.onPinnedTaskPromoted(occupied.taskId)
             publishPinnedTaskProtection()
+            handler.postDelayed({ publishPinnedTaskProtection() }, 160L)
             NeXtepLog.info("media_bridge",
                 "MEDIA_OPEN_PROMOTED pkg=$packageName task=${occupied.taskId} slot=$index")
             MediaOpenResult.PROMOTED
@@ -474,116 +473,6 @@ internal class FloatingSlotDockController(
         return true
     }
 
-    /**
-     * Move a specifically captured pre-switch Task, never a newly focused
-     * task. Permission, package allowlist and foreground identity are checked
-     * by the caller; coordinator independently re-reads the actual task.
-     *
-     * The original four VirtualDisplays remain owned by one coordinator.
-     * This method is asynchronous because new VDs become Ready after their
-     * TextureViews attach. It never uses OEM Task Zoom or relaunches an app.
-     */
-    fun autoParkCaptured(
-        taskId: Int,
-        packageName: String,
-        userId: Int,
-        reason: String,
-        after: (() -> Unit)? = null,
-    ): Boolean {
-        // Defense in depth: no caller may reparent a Task on HOME, even if
-        // an older task-stack observation or a future feature calls here.
-        if (reason == "home") {
-            NeXtepLog.info("auto_slot",
-                "HOME_AUTO_PARK_REJECTED task=$taskId")
-            after?.invoke()
-            return false
-        }
-        if (taskId <= 0 || userId < 0 || suspendedForLock || removalPending ||
-            stableZoom != null || autoParkPending) {
-            NeXtepLog.info("auto_slot", "REJECT_BUSY reason=$reason task=$taskId")
-            after?.invoke()
-            return false
-        }
-        val existed = hasSession()
-        val expanded = isExpanded()
-        if (!existed && !prepareHiddenAutoSession()) {
-            NeXtepLog.warn("auto_slot",
-                "NO_SESSION task=$taskId reason=$reason error=$lastError")
-            after?.invoke()
-            return false
-        }
-        autoParkPending = true
-        fun finish() {
-            autoParkPending = false
-            if (!expanded && hasSession()) collapse()
-            after?.invoke()
-        }
-        fun attempt(left: Int) {
-            if (!hasSession() || suspendedForLock) {
-                NeXtepLog.info("auto_slot", "CANCELLED task=$taskId reason=$reason")
-                finish()
-                return
-            }
-            val task = floatingTaskRepository.findTask(taskId)
-            if (task == null || task.component.packageName != packageName ||
-                task.userId != userId ||
-                task.displayId != android.view.Display.DEFAULT_DISPLAY ||
-                task.vendorWindowed || task.windowingMode != 1) {
-                NeXtepLog.info("auto_slot", "STALE_TASK task=$taskId reason=$reason")
-                finish()
-                return
-            }
-            val states = coordinator?.slotStates().orEmpty()
-            val pinnedIndex = pinnedSlotFor(packageName, userId)
-            val eligibleIndices = if (pinnedIndex != null) listOf(pinnedIndex)
-                else states.indices.filter { it !in pinnedSlots }
-            val ready = eligibleIndices.any { states.getOrNull(it) is SlotState.Ready }
-            val waiting = eligibleIndices.any { states.getOrNull(it) is SlotState.Empty }
-            if (!ready && waiting && left > 0) {
-                handler.postDelayed({ attempt(left - 1) }, 100L)
-                return
-            }
-            if (!ready) {
-                NeXtepLog.info("auto_slot", "NO_FREE_SLOT task=$taskId reason=$reason")
-                finish()
-                return
-            }
-            coordinator?.autoParkTask(taskId, packageName, userId,
-                preferredSlot = pinnedIndex ?: -1,
-                homeTriggered = PinnedHomeTransitionPolicy.isPinnedHomePark(
-                    pinned = pinnedIndex != null, reason = reason))
-                ?.onSuccess { index ->
-                    revealOccupiedSlot(index, "auto-$reason")
-                    NeXtepLog.info("auto_slot",
-                        "PARKED reason=$reason task=$taskId user=$userId slot=$index")
-                }?.onFailure { error ->
-                    NeXtepLog.warn("auto_slot",
-                        "PARK_FAILED reason=$reason task=$taskId", error)
-                }
-            finish()
-        }
-        // Prelock is a race against Activity pause. The virtual displays
-        // are already prewarmed; do not add another main-loop turn when a
-        // reserved slot is Ready. Keep retries asynchronous for cold slots.
-        val currentStates = coordinator?.slotStates().orEmpty()
-        val pinnedIndex = pinnedSlotFor(packageName, userId)
-        val targetReady = if (pinnedIndex != null)
-            currentStates.getOrNull(pinnedIndex) is SlotState.Ready
-        else currentStates.any { it is SlotState.Ready }
-        // HOME was already settled by SystemUiRuntime. Pre-lock must
-        // still move immediately, before the physical screen sleeps.
-        if (reason in setOf("lock", "home") &&
-            Looper.myLooper() == Looper.getMainLooper() && targetReady) {
-            attempt(0)
-        } else {
-            handler.post { attempt(if (reason == "lock") 3 else 12) }
-        }
-        return true
-    }
-
-    /** Never suspend a retained virtual display while its Task is mid-migration. */
-    fun isAutoParkInProgress(): Boolean = autoParkPending
-
     /** A hidden dock still owns the original live VirtualDisplays and tasks. */
     fun hasSession(): Boolean = host != null
     fun isStableZoomed(): Boolean = stableZoom != null
@@ -608,12 +497,12 @@ internal class FloatingSlotDockController(
                     coordinator?.promotePinnedTask(index, state.taskId)
                         ?.onSuccess {
                             collapse()
-                            SystemUiRuntime.onPinnedTaskPromoted(state.taskId)
                             publishPinnedTaskProtection()
-                            NeXtepLog.info("auto_slot",
+                            handler.postDelayed({ publishPinnedTaskProtection() }, 160L)
+                            NeXtepLog.info("pinned_keepalive",
                                 "PIN_PROMOTED task=${state.taskId} slot=$index")
                         }?.onFailure { error ->
-                            NeXtepLog.warn("auto_slot",
+                            NeXtepLog.warn("pinned_keepalive",
                                 "PIN_PROMOTE_FAILED task=${state.taskId}", error)
                         }
                 } else zoomStableCard(index, state)
@@ -997,12 +886,6 @@ internal class FloatingSlotDockController(
         bubbleAnchor = anchor
         verticalPreviewFallback = false
         if (hasSession()) reconfigure()
-    }
-
-    fun prepareHiddenAutoSession(): Boolean {
-        if (hasSession()) return true
-        if (suspendedForLock) return false
-        return expand(startHidden = true)
     }
 
     fun expand(
