@@ -136,6 +136,14 @@ class SettingsRepository(private val context: Context) {
         notifyTopContentChanged()
     }
 
+    /** Restore only already-enabled NeXtep components after reboot/unlock. */
+    fun isStartupRestoreEnabled(): Boolean =
+        preferences.getBoolean(KEY_STARTUP_RESTORE_ENABLED, true)
+
+    fun setStartupRestoreEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_STARTUP_RESTORE_ENABLED, enabled).commit()
+    }
+
     fun setFloatingBubbleEnabled(enabled: Boolean) {
         preferences.edit().putBoolean("floating_bubble_enabled", enabled).apply()
         notifyTopContentChanged()
@@ -359,6 +367,7 @@ class SettingsRepository(private val context: Context) {
         const val KEY_AUTO_SLOT_LOCK = "auto_slot_on_lock"
         const val KEY_AUTO_SLOT_PACKAGES = "auto_slot_packages"
         const val KEY_MEDIA_BRIDGE_ENABLED = "media_bridge_enabled"
+        const val KEY_STARTUP_RESTORE_ENABLED = "startup_restore_enabled"
         const val KEY_NATIVE_LOCK_GUARD_ENABLED = "native_lock_guard_enabled"
         const val KEY_NATIVE_FREEZE_PROTECTION_ENABLED = "native_freeze_protection_enabled"
         const val KEY_FLOATING_POPUP_BACK_ENABLED = "floating_popup_back_enabled"

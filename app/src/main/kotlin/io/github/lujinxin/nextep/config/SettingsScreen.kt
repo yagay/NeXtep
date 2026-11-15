@@ -130,6 +130,14 @@ object SettingsScreen {
                 activity, R.string.settings_group_general, R.string.settings_group_general_summary,
                 "general", true,
             ) {
+                    addView(settingSwitchRow(
+                        activity,
+                        activity.getString(R.string.startup_restore_title),
+                        activity.getString(R.string.startup_restore_summary),
+                        repository.isStartupRestoreEnabled(),
+                        repository::setStartupRestoreEnabled,
+                    ), matchWidth())
+                    addView(settingDivider(activity))
                     addView(settingRow(activity, activity.getString(R.string.tile_entry_title), activity.getString(R.string.tile_entry_summary), addTileButton), matchWidth())
                     addView(settingDivider(activity))
                     addView(settingRow(activity, activity.getString(R.string.language_title),

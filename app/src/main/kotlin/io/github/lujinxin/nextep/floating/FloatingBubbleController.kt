@@ -34,19 +34,24 @@ object FloatingBubbleController {
     }
 
     /** Called on settings toggle and on Activity resume after special-access settings. */
-    fun sync(context: Context) {
+    /** Returns whether Android accepted a service-start request, not whether the
+     * OEM ultimately displayed the overlay. The service logs its own startup. */
+    fun sync(context: Context): Boolean {
         val service = Intent(context, FloatingBubbleService::class.java)
         val enabled = SettingsRepository(context).topBarSettings().floatingBubbleEnabled
         if (!enabled || !hasPermission(context)) {
             context.stopService(service)
-            return
+            return false
         }
-        runCatching { ContextCompat.startForegroundService(context, service) }
-            .onFailure { error ->
-                NeXtepLog.warn("floating_workspace", "Unable to start overlay service", error)
-                if (context is Activity) {
-                    Toast.makeText(context, R.string.floating_start_failed, Toast.LENGTH_LONG).show()
-                }
+        return runCatching {
+            ContextCompat.startForegroundService(context, service)
+            true
+        }.getOrElse { error ->
+            NeXtepLog.warn("floating_workspace", "Unable to start overlay service", error)
+            if (context is Activity) {
+                Toast.makeText(context, R.string.floating_start_failed, Toast.LENGTH_LONG).show()
             }
+            false
+        }
     }
 }

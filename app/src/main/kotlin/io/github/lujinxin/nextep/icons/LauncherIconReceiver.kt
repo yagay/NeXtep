@@ -3,9 +3,11 @@ package io.github.lujinxin.nextep.icons
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import io.github.lujinxin.nextep.startup.SystemStartupCoordinator
 
 class LauncherIconReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        SystemStartupCoordinator.onBootEvent(context, intent.action)
         when (intent.action) {
             LauncherIconManager.ACTION_REFRESH,
             Intent.ACTION_BOOT_COMPLETED,

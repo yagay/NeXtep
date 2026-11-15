@@ -306,4 +306,6 @@
     <string name="media_bridge_listener_action">Open notification access</string>
     <string name="media_bridge_listener_unavailable">Cannot open notification access settings</string>
     <string name="media_bridge_open_app">Open NeXtep</string>
+    <string name="startup_restore_title">Start NeXtep automatically after reboot</string>
+    <string name="startup_restore_summary">Restore already-enabled floating icon and system media listener after unlock or app update. Other LSPosed features load with SystemUI. Never auto-launch slot apps.</string>
 </resources>

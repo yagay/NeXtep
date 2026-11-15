@@ -298,4 +298,6 @@
     <string name="media_bridge_listener_action">打开通知使用权设置</string>
     <string name="media_bridge_listener_unavailable">无法打开通知使用权设置</string>
     <string name="media_bridge_open_app">打开 NeXtep</string>
+    <string name="startup_restore_title">开机自动启动</string>
+    <string name="startup_restore_summary">开机解锁或应用更新后，自动恢复已启用的悬浮图标和系统媒体监听；其他 LSPosed 功能随 SystemUI 加载。不自动打开槽位内的 App。</string>
 </resources>
