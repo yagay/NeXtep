@@ -40,6 +40,13 @@ class MediaBridgeListenerService : NotificationListenerService() {
     private var selected: MediaBridgeSnapshot? = null
     private var connected = false
     private var lastDockReportMs = 0L
+    private var lastDecision: String? = null
+
+    private fun traceDecision(value: String) {
+        if (lastDecision == value) return
+        lastDecision = value
+        NeXtepLog.info("media_bridge", "DOCK_DECISION $value")
+    }
     private val refreshTask = object : Runnable {
         override fun run() {
             if (!connected) return
@@ -62,7 +69,11 @@ class MediaBridgeListenerService : NotificationListenerService() {
         }.onFailure { NeXtepLog.warn("media_bridge", "SESSION_LISTENER_FAILED", it) }
         handler.removeCallbacks(refreshTask)
         handler.post(refreshTask)
-        NeXtepLog.info("media_bridge", "DOCK_MEDIA_LISTENER_CONNECTED")
+        NeXtepLog.info("media_bridge",
+            "DOCK_MEDIA_LISTENER_CONNECTED notificationsEnabled=" +
+                "${notifications?.areNotificationsEnabled() == true} permissionGranted=" +
+                (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED))
     }
 
     override fun onListenerDisconnected() {
@@ -92,6 +103,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
         runCatching { sessions?.removeOnActiveSessionsChangedListener(activeSessionsListener) }
         candidates.clear()
         lastDockReportMs = 0
+        lastDecision = null
         retire()
     }
 
@@ -124,12 +136,36 @@ class MediaBridgeListenerService : NotificationListenerService() {
         refresh()
     }
 
+    /**
+     * Some apps keep a MediaSession token alive without publishing a system
+     * media notification. Suppressing every such token hid real, confirmed
+     * dock audio on OxygenOS 17. Only an actually posted, active media-style
+     * notification is sufficient proof that SystemUI has a native media card.
+     */
     private fun originalSessionPackages(): Set<String> = runCatching {
-        sessions?.getActiveSessions(listenerId).orEmpty()
-            .asSequence()
+        val notificationsWithTokens = runCatching {
+            activeNotifications.orEmpty().mapNotNull { sbn ->
+                val token = sbn.notification.extras.getParcelable(
+                    Notification.EXTRA_MEDIA_SESSION, MediaSession.Token::class.java)
+                if (token != null) sbn.packageName to token else null
+            }
+        }.onFailure {
+            NeXtepLog.warn("media_bridge", "NATIVE_NOTIFICATION_SCAN_FAILED", it)
+        }.getOrDefault(emptyList())
+
+        val native = sessions?.getActiveSessions(listenerId).orEmpty()
             .filter { it.packageName != packageName }
-            .map(MediaController::getPackageName)
-            .toSet()
+        val preferred = native.filter { controller ->
+            val hasMediaCard = notificationsWithTokens.any { (pkg, token) ->
+                pkg == controller.packageName && token == controller.sessionToken
+            }
+            val state = runCatching { controller.playbackState?.state }.getOrNull()
+            NativeMediaCardPolicy.shouldPreferNative(hasMediaCard, state)
+        }.map { it.packageName }.toSet()
+
+        traceDecision("NATIVE_CHECK sessions=${native.size} nativeCards=" +
+            "${notificationsWithTokens.size} preferred=${preferred.sorted()}")
+        preferred
     }.onFailure { NeXtepLog.warn("media_bridge", "NATIVE_SESSION_QUERY_FAILED", it) }
         .getOrDefault(emptySet())
 
@@ -137,8 +173,14 @@ class MediaBridgeListenerService : NotificationListenerService() {
         if (!connected) return
         val settings = SettingsRepository(this)
         val now = SystemClock.elapsedRealtime()
-        if (!settings.isMediaBridgeEnabled() ||
-            now - lastDockReportMs > DOCK_REPORT_TTL_MS) {
+        if (!settings.isMediaBridgeEnabled()) {
+            traceDecision("DISABLED")
+            candidates.clear()
+            retire()
+            return
+        }
+        if (now - lastDockReportMs > DOCK_REPORT_TTL_MS) {
+            traceDecision("DOCK_REPORT_EXPIRED")
             candidates.clear()
             retire()
             return
@@ -147,16 +189,25 @@ class MediaBridgeListenerService : NotificationListenerService() {
             now - sample.receivedAtMs > MediaBridgePolicy.PLAYING_STALE_MS
         }
         if (candidates.isEmpty()) {
+            traceDecision("NO_CONFIRMED_DOCK_AUDIO")
             retire()
             return
         }
-        val best = MediaBridgePolicy.choose(candidates.values, now, originalSessionPackages())
+        val native = originalSessionPackages()
+        val best = MediaBridgePolicy.choose(candidates.values, now, native)
         if (best == null) {
+            traceDecision("SUPPRESSED_NATIVE_MEDIA packages=${native.sorted()}")
             retire()
             return
         }
+        traceDecision("PROXY_ELIGIBLE pkg=${best.packageName} native=${native.sorted()}")
         if (session == null || selected?.packageName != best.packageName ||
-            selected?.state != best.state) publish(best)
+            selected?.state != best.state) {
+            runCatching { publish(best) }.onFailure {
+                NeXtepLog.warn("media_bridge", "DOCK_MEDIA_PUBLISH_FAILED", it)
+                retire()
+            }
+        }
     }
 
     private fun ensureSession(): MediaSession {
@@ -211,11 +262,21 @@ class MediaBridgeListenerService : NotificationListenerService() {
             .setStyle(Notification.MediaStyle().setMediaSession(media.sessionToken))
             .apply { if (art != null) setLargeIcon(art) }
             .build()
+        val permissionGranted = checkSelfPermission(
+            android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        val notificationsEnabled = notifications?.areNotificationsEnabled() == true
+        if (!permissionGranted || !notificationsEnabled) {
+            NeXtepLog.warn("media_bridge",
+                "MEDIA_NOTIFICATION_PERMISSION_BLOCKED granted=$permissionGranted " +
+                    "notificationsEnabled=$notificationsEnabled")
+        }
         runCatching { notifications?.notify(NOTIFICATION_ID, notification) }
             .onFailure { NeXtepLog.warn("media_bridge", "NOTIFICATION_FAILED", it) }
         NeXtepLog.info("media_bridge",
             "DOCK_MEDIA_PUBLISHED pkg=${sample.packageName} metadata=app-label " +
-                "source=${sample.source} controls=false")
+                "source=${sample.source} controls=false " +
+                "notificationsEnabled=$notificationsEnabled granted=$permissionGranted")
     }
 
     private fun retire() {
