@@ -282,6 +282,8 @@ object SystemUiRuntime {
                 queriedConfig.blockSystemDragShareEnabled)
             SystemServerWorkspaceBridge.publishIndependentSlotLockGuard(applicationContext,
                 queriedConfig.floatingLockGuardEnabled)
+            SystemServerWorkspaceBridge.publishFloatingSlotBackgroundKeepalive(applicationContext,
+                queriedConfig.floatingBackgroundKeepaliveEnabled)
             SystemServerWorkspaceBridge.publishNativeLockSettings(applicationContext,
                 queriedConfig.nativeLockGuardEnabled, queriedConfig.nativeFreezeProtectionEnabled)
             AppLanguage.updateHostLanguage(queriedConfig.languageTag)
