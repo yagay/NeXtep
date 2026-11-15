@@ -85,6 +85,32 @@ class FloatingDockPlacementTest {
         assertTrue(dock.y + dock.height <= 1080 - safe.bottom)
     }
 
+    @Test fun verticalRailFallsBackWhenBubbleClipsEveryPreview() {
+        val bubble = FloatingDockPlacement.Anchor(260, 1200, 560)
+        val previewWidth = 300
+        val anchored = FloatingDockPlacement.calculate(
+            1080, 2340, previewWidth, 1600, bubble, 3f,
+            FloatingDockPlacement.Insets(top = 90, bottom = 110))
+        val full = FloatingDockPlacement.calculate(
+            1080, 2340, previewWidth, 1600, null, 3f,
+            FloatingDockPlacement.Insets(top = 90, bottom = 110))
+        assertTrue(anchored.width < previewWidth)
+        assertEquals(full, FloatingDockPlacement.ensureVerticalPreviewWidth(
+            anchored, full, previewWidth))
+        assertTrue(full.width >= previewWidth)
+    }
+
+    @Test fun verticalRailKeepsBubblePlacementWhenPreviewFullyFits() {
+        val bubble = FloatingDockPlacement.Anchor(920, 400, 120)
+        val anchored = FloatingDockPlacement.calculate(
+            1080, 2340, 260, 1200, bubble, 3f)
+        val full = FloatingDockPlacement.calculate(
+            1080, 2340, 260, 1200, null, 3f)
+        assertEquals(260, anchored.width)
+        assertEquals(anchored, FloatingDockPlacement.ensureVerticalPreviewWidth(
+            anchored, full, 260))
+    }
+
     @Test fun noBubbleFallbackAlsoRespectsBars() {
         val safe = FloatingDockPlacement.Insets(top = 130, bottom = 150)
         val dock = FloatingDockPlacement.calculate(1080, 2200, 800, 2400, null, 3f, safe)
