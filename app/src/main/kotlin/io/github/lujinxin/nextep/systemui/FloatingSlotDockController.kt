@@ -1554,9 +1554,9 @@ internal class FloatingSlotDockController(
     }
 
     /**
-     * Horizontal mode uses one short toolbar row; vertical mode uses a tight
-     * 2x2 control cluster so a narrow live preview never reserves 240dp.
-     * Buttons have their own small background, not a full-width backdrop.
+     * Only three toolbar actions remain: add, resize and overflow.
+     * The separate floating bubble already toggles expansion/collapse.
+     * Vertical mode keeps a narrow two-row cluster to avoid clipping previews.
      */
     private fun buildToolbarControls() {
         val target = toolbar ?: return
@@ -1583,9 +1583,6 @@ internal class FloatingSlotDockController(
         lateinit var more: TextView
         more = tiny("⋯", str(R.string.floating_dock_menu_more)) {
             showToolbarOverflowMenu(more)
-        }
-        val collapse = tiny("⌃", str(R.string.floating_dock_menu_collapse)) {
-            closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
         }
         var downX = 0f
         var downY = 0f
@@ -1653,9 +1650,11 @@ internal class FloatingSlotDockController(
             target.addView(row(add, resize), LinearLayout.LayoutParams(-2, button).apply {
                 bottomMargin = separation
             })
-            target.addView(row(more, collapse), LinearLayout.LayoutParams(-2, button))
+            // Keep the two-column vertical width. The second row has a
+            // centered overflow button instead of an unused collapse control.
+            target.addView(more, LinearLayout.LayoutParams(button, button))
         } else {
-            listOf(add, resize, more, collapse).forEachIndexed { index, buttonView ->
+            listOf(add, resize, more).forEachIndexed { index, buttonView ->
                 target.addView(buttonView, LinearLayout.LayoutParams(button, button).apply {
                     if (index > 0) marginStart = separation
                 })

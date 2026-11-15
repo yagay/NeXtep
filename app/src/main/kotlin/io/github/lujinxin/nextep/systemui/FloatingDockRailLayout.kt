@@ -47,9 +47,9 @@ internal object FloatingDockRailLayout {
         require(density.isFinite() && density > 0f)
         require(slotSizes.isNotEmpty() && slotSizes.all { it.first > 0 && it.second > 0 })
         fun dp(value: Int) = (value * density).roundToInt().coerceAtLeast(1)
-        // Four direct controls (add, resize, more, collapse).
-        // Secondary actions live in an anchored menu, not the live panel.
-        // Horizontal: 1 x 4; vertical: 2 x 2. Only the header changes;
+        // Three direct controls (add, resize, more). Tapping the floating
+        // bubble collapses or expands the dock, so no duplicate button.
+        // Horizontal: 1 x 3; vertical: 2 + 1. Only the header changes;
         // the existing slot display/surface geometry remains untouched.
         val pad = dp(4)
         val gap = dp(6)
@@ -59,7 +59,7 @@ internal object FloatingDockRailLayout {
             button * 2 + dp(12) else button + dp(8)
         val toolbarWidth = if (orientation == Orientation.VERTICAL)
             button * 2 + controlGap + pad * 2
-        else button * 4 + controlGap * 3 + pad * 2
+        else button * 3 + controlGap * 2 + pad * 2
         val percent = normalizedScale(scalePercent)
         // A single proportional factor locks the source aspect ratio. Integer
         // pixels can vary by at most a rounding pixel, never a freeform resize.

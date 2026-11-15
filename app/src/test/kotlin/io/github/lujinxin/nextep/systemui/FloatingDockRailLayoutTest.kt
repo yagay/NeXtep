@@ -110,17 +110,18 @@ class FloatingDockRailLayoutTest {
         assertEquals(4, plan.cells.size)
     }
 
-    @Test fun toolbarHasFourPrimaryActionsAndShrinksVerticalHeader() {
+    @Test fun toolbarHasThreePrimaryActionsAndKeepsNarrowVerticalHeader() {
         val sizes = listOf(90 to 200)
         val horizontal = FloatingDockRailLayout.calculate(
             1080, 2400, 2f, sizes, FloatingDockRailLayout.Orientation.HORIZONTAL)
         val vertical = FloatingDockRailLayout.calculate(
             1080, 2400, 2f, sizes, FloatingDockRailLayout.Orientation.VERTICAL)
 
-        // Horizontal 4 x 30dp, three 4dp gaps, and two 4dp edges.
-        assertEquals(280, horizontal.panelWidth)
+        // Horizontal 3 x 30dp, two 4dp gaps, and two 4dp edges.
+        assertEquals(212, horizontal.panelWidth)
         assertEquals(76, horizontal.headerHeight)
-        // Vertical 2 x 30dp, 4dp gap, two 4dp edges; exactly two rows.
+        // Vertical first row has two actions; more is centered below.
+        // The same narrow two-column width and two-row header are retained.
         assertEquals(144, vertical.panelWidth)
         assertEquals(144, vertical.headerHeight)
         assertEquals(horizontal.cells[0].width, vertical.cells[0].width)
