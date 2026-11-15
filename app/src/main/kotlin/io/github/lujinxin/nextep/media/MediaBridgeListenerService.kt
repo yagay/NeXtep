@@ -192,7 +192,9 @@ class MediaBridgeListenerService : NotificationListenerService() {
             .setContentText(sample.artist ?: appName)
             .setShowWhen(false)
             .setOngoing(playing)
-            .setContentIntent(media.sessionActivity)
+            .setContentIntent(PendingIntent.getActivity(this, 1801,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .setStyle(Notification.MediaStyle().setMediaSession(media.sessionToken))
             .apply {
                 if (sample.controllable) {
@@ -254,7 +256,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
         private const val NOTIFICATION_ID = 18022
         @Volatile private var active: MediaBridgeListenerService? = null
 
-        fun accept(sample: MediaBridgeSnapshot) {
+        internal fun accept(sample: MediaBridgeSnapshot) {
             val target = active
             target?.handler?.post { if (active === target) target.observe(sample) }
         }
