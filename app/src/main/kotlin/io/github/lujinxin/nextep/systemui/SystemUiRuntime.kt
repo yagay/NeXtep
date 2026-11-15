@@ -108,15 +108,38 @@ object SystemUiRuntime {
         if (!parkOnChange || autoSlotPending || previous?.userId == null ||
             next == null || next.taskId == previous.taskId ||
             !isAutoSlotAllowed(previous, onLock = false)) return
+
+        // Moving a pinned task to an OWN_FOCUS VirtualDisplay during HOME
+        // can refocus it over the launcher on OPlus. Let HOME win and keep
+        // the exact task in Display 0's background under the pinned guard.
+        val homePackage = TriggerBroadcastContract.resolveHomePackage(applicationContext)
+        if (PinnedHomeTransitionPolicy.shouldKeepOnMain(
+                pinned = floatingDock.pinnedSlotFor(
+                    previous.component.packageName, previous.userId) != null,
+                nextIsHome = homePackage != null &&
+                    next.component.packageName == homePackage,
+            )) {
+            NeXtepLog.info("auto_slot",
+                "PIN_HOME_KEEP_MAIN task=${previous.taskId} home=${next.component.packageName}")
+            return
+        }
         val taskId = previous.taskId
         val pkg = previous.component.packageName
         val userId = previous.userId
         autoSlotPending = true
         lifecycleHandler.postDelayed({
             try {
+                val latest = autoSlotTaskRepository.foregroundTask()
+                val latestHome = TriggerBroadcastContract.resolveHomePackage(applicationContext)
+                if (PinnedHomeTransitionPolicy.shouldKeepOnMain(
+                        floatingDock.pinnedSlotFor(pkg, userId) != null,
+                        latestHome != null && latest?.component?.packageName == latestHome)) {
+                    NeXtepLog.info("auto_slot", "PIN_HOME_LATE_CANCEL task=$taskId")
+                    return@postDelayed
+                }
                 if (isScreenReady() && !isKeyguardLocked(applicationContext) &&
                     isAutoSlotAllowed(previous, onLock = false) &&
-                    autoSlotTaskRepository.foregroundTask()?.taskId != taskId) {
+                    latest?.taskId != taskId) {
                     val accepted = floatingDock.autoParkCaptured(
                         taskId, pkg, userId, "background")
                     if (accepted) {
