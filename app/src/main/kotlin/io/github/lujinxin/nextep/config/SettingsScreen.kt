@@ -251,8 +251,8 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
-                        "切换后台自动移入四槽位",
-                        "切换到其他 App 或桌面时，将选中的原前台 App 的原 Task 移入空闲虚拟槽位。仅在已选择应用且有空位时生效。",
+                        "切换应用自动移入四槽位",
+                        "仅切换到其他 App 时，对明确选中的应用自动迁移；按 Home 返回桌面永不自动加入。锁定应用不代表开启自动迁移。",
                         settings.autoSlotOnBackground,
                         repository::setAutoSlotOnBackground,
                     ), matchWidth())
@@ -260,7 +260,7 @@ object SettingsScreen {
                     addView(settingSwitchRow(
                         activity,
                         "锁屏自动移入四槽位（实验性）",
-                        "收到屏幕关闭事件时，先尝试迁移当前指定 App，再隐藏并保留四槽位；是否赶在系统暂停之前取决于厂商时序。",
+                        "仅在主动开启且选中 App 时尝试迁移当前前台 Task。槽位锁定本身不会触发锁屏自动加入；已在小窗的任务继续保留。",
                         settings.autoSlotOnLock,
                         repository::setAutoSlotOnLock,
                     ), matchWidth())
@@ -368,7 +368,7 @@ object SettingsScreen {
                     addView(settingSwitchRow(
                         activity,
                         "非锁定小窗后台保活（实验性）",
-                        "仅控制未锁定的虚拟槽位 App，默认关闭。已经锁定的 App 使用上方锁屏保护开关：同一任务切到主屏幕后仍启用停止/冻结保护，正常主屏幕切换仍允许系统 Pause。主动退出不阻断。",
+                        "仅控制未锁定的虚拟槽位 App，默认关闭。锁定 App 由上方开关按 Task ID/UID 保护后台和锁屏，但不会因 Home 自动加入小窗；位于主屏时仍允许正常 Pause，因此不能保证所有视频持续播放。主动退出不阻断。",
                         settings.floatingBackgroundKeepaliveEnabled,
                         repository::setFloatingBackgroundKeepaliveEnabled,
                     ), matchWidth())
