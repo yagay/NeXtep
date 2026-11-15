@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.media.MediaBridgeContract
+import io.github.lujinxin.nextep.media.DockMediaMatchPolicy
 import java.util.concurrent.Executors
 
 /**
@@ -24,7 +25,7 @@ internal class DockMediaAudioObserver(
     data class SlotApp(val packageName: String, val uid: Int)
     private val main = Handler(Looper.getMainLooper())
     private val audio = context.getSystemService(AudioManager::class.java)
-    private val io = Executors.newSingleThreadExecutor { task ->
+    private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "NeXtep-DockMedia").apply { isDaemon = true }
     }
     private var started = false
@@ -34,7 +35,7 @@ internal class DockMediaAudioObserver(
             val apps = runCatching { occupiedSlots() }.onFailure {
                 NeXtepLog.warn("media_bridge", "DOCK_SLOT_QUERY_FAILED", it)
             }.getOrDefault(emptyList()).distinctBy { it.packageName to it.uid }
-            io.execute { sendSnapshot(apps) }
+            worker.execute { sendSnapshot(apps) }
             main.postDelayed(this, UPDATE_MS)
         }
     }
@@ -58,7 +59,18 @@ internal class DockMediaAudioObserver(
         if (apps.isNotEmpty()) {
             runCatching {
                 audio?.activePlaybackConfigurations.orEmpty().forEach { config ->
-                    if (!config.isActive) return@forEach
+                    val active = runCatching {
+                        (config.javaClass.getMethod("isActive")
+                            .invoke(config) as? Boolean) ?: false
+                    }.getOrElse {
+                        // On some platform builds, isActive is hidden. STARTED
+                        // has platform value 2; reject an inaccessible state.
+                        runCatching {
+                            (config.javaClass.getMethod("getPlayerState")
+                                .invoke(config) as? Number)?.toInt() == 2
+                        }.getOrDefault(false)
+                    }
+                    if (!active) return@forEach
                     val usage = config.audioAttributes.usage
                     if (usage != AudioAttributes.USAGE_MEDIA &&
                         usage != AudioAttributes.USAGE_GAME) return@forEach
@@ -77,7 +89,7 @@ internal class DockMediaAudioObserver(
             }
         }
         val packages = apps.map { it.packageName }.distinct().take(4)
-        val playing = io.github.lujinxin.nextep.media.DockMediaMatchPolicy
+        val playing = DockMediaMatchPolicy
             .audiblePackages(apps.map { it.packageName to it.uid }, mediaUids)
             .toList()
         val payload = Bundle().apply {
