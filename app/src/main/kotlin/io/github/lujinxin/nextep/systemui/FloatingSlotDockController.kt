@@ -286,6 +286,9 @@ internal class FloatingSlotDockController(
     private var grid: FrameLayout? = null
     private var railViewport: FrameLayout? = null
     private var railOffsetPx = 0
+    // If an OEM clips the rail next to a bubble, keep the live previews in
+    // a full safe-area placement rather than a buttons-only narrow sliver.
+    private var verticalPreviewFallback = false
     private var toolbar: LinearLayout? = null
     private var toolbarMenuWindow: FrameLayout? = null
     // The app's SettingsRepository is the source of truth. These are updated
@@ -893,6 +896,7 @@ internal class FloatingSlotDockController(
         if (nextOrientation == orientation && nextSize == sizePercent) return
         orientation = nextOrientation
         sizePercent = nextSize
+        verticalPreviewFallback = false
         railOffsetPx = 0
         if (hasSession()) {
             buildToolbarControls()
@@ -905,6 +909,7 @@ internal class FloatingSlotDockController(
     fun updateAnchor(anchor: FloatingDockPlacement.Anchor) {
         if (bubbleAnchor == anchor) return
         bubbleAnchor = anchor
+        verticalPreviewFallback = false
         if (hasSession()) reconfigure()
     }
 
@@ -1394,15 +1399,69 @@ internal class FloatingSlotDockController(
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
             toolbar?.layoutParams = FrameLayout.LayoutParams(-1, dimensions.header, Gravity.TOP)
             grid?.layoutParams = FrameLayout.LayoutParams(dimensions.railWidth, dimensions.railHeight)
+            railViewport?.visibility = View.VISIBLE
+            grid?.visibility = View.VISIBLE
             picker?.layoutParams = FrameLayout.LayoutParams(-1,
                 dimensions.height - dimensions.header).apply { topMargin = dimensions.header }
             layoutCells(dimensions)
             applyRailOffset()
             manager?.updateViewLayout(root, wnd)
             if (picker?.visibility == View.VISIBLE) placeExpandedPicker()
+            if (oldPanel?.orientation != dimensions.orientation &&
+                dimensions.orientation == FloatingDockRailLayout.Orientation.VERTICAL) {
+                // Validate the final measured root AFTER WindowManager applies
+                // the taller window. Do not touch the live TextureView owners.
+                root.post { verifyVerticalPreviewAfterReflow(root, dimensions) }
+            }
         }.onFailure {
             NeXtepLog.warn("floating_dock", "Rotation reflow failed; closing dock", it)
             collapse()
+        }
+    }
+
+    /**
+     * An OEM can keep the old clipped viewport for one frame when the host
+     * changes from a wide row to a tall column. Verify the actual first card,
+     * not merely the header button positions. Recover using a safe central
+     * placement without recreating VirtualDisplays or restarting any Task.
+     */
+    private fun verifyVerticalPreviewAfterReflow(root: FrameLayout, expected: Panel) {
+        if (host !== root || !panelVisible || panel != expected ||
+            expected.orientation != FloatingDockRailLayout.Orientation.VERTICAL) return
+        val viewport = railViewport ?: return
+        val first = visibleSlotIndices.firstOrNull()?.let { slots.getOrNull(it)?.view }
+            ?: return
+        if (!viewport.isLaidOut || !first.isLaidOut) {
+            root.postDelayed({
+                if (host === root && panel == expected && panelVisible) {
+                    verifyVerticalPreviewMeasured(root, expected)
+                }
+            }, 90L)
+            return
+        }
+        verifyVerticalPreviewMeasured(root, expected)
+    }
+
+    private fun verifyVerticalPreviewMeasured(root: FrameLayout, expected: Panel) {
+        if (host !== root || !panelVisible || panel != expected ||
+            expected.orientation != FloatingDockRailLayout.Orientation.VERTICAL) return
+        val viewport = railViewport ?: return
+        val first = visibleSlotIndices.firstOrNull()?.let { slots.getOrNull(it)?.view }
+            ?: return
+        val visible = Rect()
+        val valid = viewport.width > 0 && viewport.height > 0 &&
+            first.getGlobalVisibleRect(visible) &&
+            visible.width() >= dp(24) && visible.height() >= dp(24)
+        NeXtepLog.info("floating_dock",
+            "VERTICAL_PREVIEW_CHECK valid=$valid viewport=${viewport.width}x${viewport.height} " +
+                "card=${first.width}x${first.height} visible=$visible " +
+                "panel=${expected.width}x${expected.height}")
+        if (!valid && !verticalPreviewFallback) {
+            verticalPreviewFallback = true
+            railOffsetPx = 0
+            reconfigure()
+            NeXtepLog.warn("floating_dock",
+                "VERTICAL_PREVIEW_REPAIRED_WITH_SAFE_PLACEMENT")
         }
     }
 
@@ -1422,6 +1481,7 @@ internal class FloatingSlotDockController(
         grid = null
         railViewport = null
         railOffsetPx = 0
+        verticalPreviewFallback = false
         toolbar = null
         picker = null
         pickerList = null
@@ -1447,11 +1507,28 @@ internal class FloatingSlotDockController(
             },
             orientation, sizePercent,
         )
-        val position = FloatingDockPlacement.calculate(
-            width, height, plan.panelWidth, plan.panelHeight, bubbleAnchor,
-            recorded.densityDpi / 160f,
-            FloatingDockSafeArea.measure(context, manager),
+        val safeInsets = FloatingDockSafeArea.measure(context, manager)
+        val anchored = FloatingDockPlacement.calculate(
+            width, height, plan.panelWidth, plan.panelHeight,
+            if (verticalPreviewFallback) null else bubbleAnchor,
+            recorded.densityDpi / 160f, safeInsets,
         )
+        // A horizontal rail intentionally scrolls. A VERTICAL rail must
+        // show at least one whole preview: the side-of-bubble placement can
+        // otherwise shrink a tall column to a few pixels on either side.
+        val position = if (orientation == FloatingDockRailLayout.Orientation.VERTICAL &&
+            anchored.width < plan.railContentWidth) {
+            val full = FloatingDockPlacement.calculate(
+                width, height, plan.panelWidth, plan.panelHeight, null,
+                recorded.densityDpi / 160f, safeInsets,
+            )
+            if (full.width > anchored.width) {
+                NeXtepLog.info("floating_dock",
+                    "VERTICAL_PREVIEW_SAFE_PLACEMENT anchored=${anchored.width} " +
+                        "required=${plan.railContentWidth} full=${full.width}")
+                full
+            } else anchored
+        } else anchored
         return Panel(position.width, position.height, plan.headerHeight, plan.gap,
             plan.padding, plan.railContentWidth, plan.railHeight, plan.cells,
             position.x, position.y, orientation)
