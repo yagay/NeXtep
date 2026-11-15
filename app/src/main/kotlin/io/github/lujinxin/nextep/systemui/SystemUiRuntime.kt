@@ -194,11 +194,9 @@ object SystemUiRuntime {
             NeXtepLog.info("auto_slot", "LOCK_PREPARK_ALREADY_IN_FLIGHT")
             return true
         }
-        val latest = autoSlotTaskRepository.foregroundTask()
-        val captured = latest?.takeIf {
-            it.userId != null && ::floatingDock.isInitialized &&
-                floatingDock.pinnedSlotFor(it.component.packageName, it.userId) != null
-        } ?: observedForeground ?: latest
+        // Lock auto-move is opt-in and concerns only the CURRENT foreground
+        // Task. Never migrate an older pinned/observed Task by implication.
+        val captured = autoSlotTaskRepository.foregroundTask()
         if (!isAutoSlotAllowed(captured, onLock = true) || captured?.userId == null)
             return false
         // Do not create a fresh focusable SystemUI overlay after keyguard is
@@ -241,10 +239,6 @@ object SystemUiRuntime {
             }
             if (!isScreenReady() || isKeyguardLocked(applicationContext)) return
             val current = autoSlotTaskRepository.foregroundTask()
-            val userId = current?.userId
-            if (current != null && userId != null &&
-                floatingDock.pinnedSlotFor(current.component.packageName, userId) != null)
-                observedForeground = current
             val accepted = autoParkForLock()
             NeXtepLog.info("auto_slot",
                 "EARLY_POWER_PRELOCK ageMs=$ageMs accepted=$accepted " +
