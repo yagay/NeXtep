@@ -47,19 +47,19 @@ internal object FloatingDockRailLayout {
         require(density.isFinite() && density > 0f)
         require(slotSizes.isNotEmpty() && slotSizes.all { it.first > 0 && it.second > 0 })
         fun dp(value: Int) = (value * density).roundToInt().coerceAtLeast(1)
-        // No decorative full-size backing panel. Reserve only the live
-        // card strip and a two-row (vertical) or one-row (horizontal) toolbar.
+        // Four direct controls (add, resize, more, collapse).
+        // Secondary actions live in an anchored menu, not the live panel.
+        // Horizontal: 1 x 4; vertical: 2 x 2. Only the header changes;
+        // the existing slot display/surface geometry remains untouched.
         val pad = dp(4)
         val gap = dp(6)
         val button = dp(30)
         val controlGap = dp(4)
-        // Expanded toolbar: navigation, app picker, slot count − / +,
-        // drag-resize and collapse. Vertical uses four compact rows of two.
         val header = if (orientation == Orientation.VERTICAL)
-            button * 4 + dp(20) else button + dp(8)
+            button * 2 + dp(12) else button + dp(8)
         val toolbarWidth = if (orientation == Orientation.VERTICAL)
             button * 2 + controlGap + pad * 2
-        else button * 7 + controlGap * 6 + pad * 2
+        else button * 4 + controlGap * 3 + pad * 2
         val percent = normalizedScale(scalePercent)
         // A single proportional factor locks the source aspect ratio. Integer
         // pixels can vary by at most a rounding pixel, never a freeform resize.
