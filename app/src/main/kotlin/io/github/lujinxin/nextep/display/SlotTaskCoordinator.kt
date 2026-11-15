@@ -101,6 +101,32 @@ class SlotTaskCoordinator(
         }
     }
 
+    /**
+     * User explicitly tapped a media notification for a live dock task.
+     * Promote that exact task to Display 0 without restarting the player
+     * or silently moving the app currently on the main screen into a slot.
+     */
+    fun promoteMediaTask(slotIndex: Int, expectedTaskId: Int): Result<Unit> {
+        ensureMainThread()
+        val occupied = slotRecords.getOrNull(slotIndex)?.state as? SlotState.Occupied
+            ?: return Result.failure(IllegalStateException("Media slot no longer occupied"))
+        if (occupied.taskId != expectedTaskId)
+            return Result.failure(IllegalStateException("Media task identity changed"))
+        if (!active || suspended || transitionInProgress || recentSelectionPending ||
+            activeDrag != null || visualTransitionPending)
+            return Result.failure(IllegalStateException("Media slot is transitioning"))
+        val live = taskRepository.findTask(expectedTaskId)
+            ?: return Result.failure(IllegalStateException("Media task is gone"))
+        if (live.displayId != occupied.displayId ||
+            live.component.packageName != occupied.component.packageName)
+            return Result.failure(IllegalStateException("Media task moved or changed"))
+
+        // Same immediate, rollback-aware transaction used by pinned promotions.
+        return runTransition("promote media task=$expectedTaskId slot=$slotIndex") {
+            swapWithMain(slotIndex, occupied, exchangeCurrentMain = false)
+        }
+    }
+
     private var active = false
     private var suspended = false
     private var transitionInProgress = false

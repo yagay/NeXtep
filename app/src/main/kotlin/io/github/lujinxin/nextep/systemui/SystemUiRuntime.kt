@@ -523,6 +523,7 @@ object SystemUiRuntime {
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL)
                 addAction(TriggerBroadcastContract.ACTION_QUICK_ADD_FLOATING_TASK)
+                addAction(TriggerBroadcastContract.ACTION_OPEN_MEDIA_DOCK_APP)
                 addAction(TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR)
                 addAction(TriggerBroadcastContract.ACTION_SET_WORKSPACE)
                 addAction(TriggerBroadcastContract.ACTION_QUERY_WORKSPACE)
@@ -848,6 +849,11 @@ object SystemUiRuntime {
                 return
             }
             if (!handled) {
+                if (intent.action == TriggerBroadcastContract.ACTION_OPEN_MEDIA_DOCK_APP) {
+                    // handleControl already wrote a reason and NOT_IN_DOCK
+                    // discriminator. Only true absence permits a fresh launch.
+                    return
+                }
                 if (intent.action == TriggerBroadcastContract.ACTION_TOGGLE_FLOATING_PANEL) {
                     setResultExtras(Bundle().apply {
                         putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR,
@@ -894,6 +900,30 @@ object SystemUiRuntime {
     }
 
     private fun handleControl(context: Context, intent: Intent): Boolean = when (intent.action) {
+        TriggerBroadcastContract.ACTION_OPEN_MEDIA_DOCK_APP -> {
+            val pkg = intent.getStringExtra(TriggerBroadcastContract.EXTRA_MEDIA_APP_PACKAGE)
+                .orEmpty().trim()
+            val whenSent = intent.getLongExtra(
+                TriggerBroadcastContract.EXTRA_FLOATING_REQUEST_ELAPSED, -1L)
+            val age = android.os.SystemClock.elapsedRealtime() - whenSent
+            val accepted = ::floatingDock.isInitialized &&
+                ::workspaceController.isInitialized &&
+                workspaceConfigReady && workspaceConfig.floatingBubbleEnabled &&
+                !workspaceController.isActive() &&
+                isScreenReady() && !isKeyguardLocked(context) &&
+                whenSent > 0L && age in -1_000L..8_000L &&
+                pkg.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+"))
+            val outcome = if (accepted) floatingDock.promoteMediaApp(pkg)
+                else FloatingSlotDockController.MediaOpenResult.NOT_READY
+            setResultExtras(Bundle().apply {
+                putBoolean(TriggerBroadcastContract.EXTRA_MEDIA_APP_NOT_IN_DOCK,
+                    outcome == FloatingSlotDockController.MediaOpenResult.NOT_IN_DOCK)
+                putString(TriggerBroadcastContract.EXTRA_FLOATING_PANEL_ERROR, outcome.name)
+            })
+            NeXtepLog.info("media_bridge",
+                "MEDIA_OPEN_REQUEST pkg=$pkg accepted=$accepted result=$outcome ageMs=$age")
+            outcome == FloatingSlotDockController.MediaOpenResult.PROMOTED
+        }
         TriggerBroadcastContract.ACTION_UPDATE_FLOATING_ANCHOR -> {
             if (!::floatingDock.isInitialized) false
             else {

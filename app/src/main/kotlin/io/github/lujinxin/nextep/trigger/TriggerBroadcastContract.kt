@@ -9,6 +9,10 @@ import android.app.PendingIntent
 object TriggerBroadcastContract {
     const val ACTION_TOGGLE_WORKSPACE = "io.github.lujinxin.nextep.action.TOGGLE_WORKSPACE"
     const val ACTION_QUICK_ADD_FLOATING_TASK = "io.github.lujinxin.nextep.action.QUICK_ADD_FLOATING_TASK"
+    /** User-initiated media notification click: promote the existing dock task. */
+    const val ACTION_OPEN_MEDIA_DOCK_APP = "io.github.lujinxin.nextep.action.OPEN_MEDIA_DOCK_APP"
+    const val EXTRA_MEDIA_APP_PACKAGE = "io.github.lujinxin.nextep.extra.MEDIA_APP_PACKAGE"
+    const val EXTRA_MEDIA_APP_NOT_IN_DOCK = "io.github.lujinxin.nextep.extra.MEDIA_APP_NOT_IN_DOCK"
     const val ACTION_TOGGLE_FLOATING_PANEL = "io.github.lujinxin.nextep.action.TOGGLE_FLOATING_PANEL"
     const val ACTION_SYSTEM_NAVIGATION_FOLD = "io.github.lujinxin.nextep.action.SYSTEM_NAVIGATION_FOLD"
     const val ACTION_POWER_KEY_PRELOCK = "io.github.lujinxin.nextep.action.POWER_KEY_PRELOCK"

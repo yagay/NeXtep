@@ -360,6 +360,61 @@ internal class FloatingSlotDockController(
         }
     }
 
+    /** No package-based task launching here: only the exact live slot Task. */
+    enum class MediaOpenResult {
+        PROMOTED, NOT_IN_DOCK, MULTIPLE_TASKS, NOT_READY, FAILED,
+    }
+
+    fun promoteMediaApp(packageName: String): MediaOpenResult {
+        if (packageName.isBlank() || !hasSession()) return MediaOpenResult.NOT_IN_DOCK
+        if (suspendedForLock || removalPending) return MediaOpenResult.NOT_READY
+        val states = coordinator?.slotStates().orEmpty().mapIndexedNotNull { index, state ->
+            val occupied = state as? SlotState.Occupied ?: return@mapIndexedNotNull null
+            if (occupied.component.packageName != packageName) return@mapIndexedNotNull null
+            val live = floatingTaskRepository.findTask(occupied.taskId)
+                ?: return@mapIndexedNotNull null
+            if (live.displayId != occupied.displayId ||
+                live.component.packageName != packageName ||
+                slots.getOrNull(index)?.displayId() != occupied.displayId)
+                return@mapIndexedNotNull null
+            index to occupied
+        }
+        if (states.isEmpty()) {
+            // A task may still be on our virtual display while reconciliation
+            // has not yet marked its slot Occupied. Do not launch a duplicate.
+            val stillOnVirtualDisplay = floatingTaskRepository.runningTasks().any { task ->
+                task.component.packageName == packageName &&
+                    slots.any { slot -> slot.displayId() == task.displayId }
+            }
+            return if (stillOnVirtualDisplay) MediaOpenResult.NOT_READY
+                else MediaOpenResult.NOT_IN_DOCK
+        }
+        // Cloned profiles can have identical package names in two slots.
+        // Never promote an arbitrary user's task on a notification click.
+        if (states.size != 1) {
+            NeXtepLog.warn("media_bridge",
+                "MEDIA_OPEN_AMBIGUOUS pkg=$packageName count=${states.size}")
+            return MediaOpenResult.MULTIPLE_TASKS
+        }
+        if (stableZoom != null && !restoreStableCompact()) return MediaOpenResult.NOT_READY
+        val (index, occupied) = states.single()
+        val coordinator = coordinator ?: return MediaOpenResult.NOT_READY
+        val result = coordinator.promoteMediaTask(index, occupied.taskId)
+        return if (result.isSuccess) {
+            collapse()
+            SystemUiRuntime.onPinnedTaskPromoted(occupied.taskId)
+            publishPinnedTaskProtection()
+            NeXtepLog.info("media_bridge",
+                "MEDIA_OPEN_PROMOTED pkg=$packageName task=${occupied.taskId} slot=$index")
+            MediaOpenResult.PROMOTED
+        } else {
+            NeXtepLog.warn("media_bridge",
+                "MEDIA_OPEN_PROMOTE_FAILED pkg=$packageName task=${occupied.taskId}",
+                result.exceptionOrNull())
+            MediaOpenResult.FAILED
+        }
+    }
+
     /** Visible and interactive, as opposed to a retained hidden live session. */
     fun isExpanded(): Boolean = host != null && panelVisible
 

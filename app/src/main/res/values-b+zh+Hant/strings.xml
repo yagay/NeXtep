@@ -293,7 +293,7 @@
     <string name="media_bridge_listener_summary">用於偵測原生媒體並避免重複卡片，同時發布小窗媒體卡</string>
     <string name="media_bridge_listener_action">開啟通知存取設定</string>
     <string name="media_bridge_listener_unavailable">無法開啟通知存取設定</string>
-    <string name="media_bridge_open_app">開啟 NeXtep</string>
+    <string name="media_bridge_open_app">開啟正在播放的應用</string>
     <string name="startup_restore_title">開機自動啟動</string>
     <string name="startup_restore_summary">開機解鎖或應用程式更新後，自動恢復已啟用的懸浮圖示和系統媒體監聽；其他 LSPosed 功能隨 SystemUI 載入。不自動啟動槽位內的 App。</string>
 </resources>

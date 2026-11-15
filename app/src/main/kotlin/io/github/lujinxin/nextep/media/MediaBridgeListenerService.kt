@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
+import io.github.lujinxin.nextep.trigger.TriggerBroadcastContract
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
@@ -231,10 +233,14 @@ class MediaBridgeListenerService : NotificationListenerService() {
         }
     }
 
-    private fun moduleActivityIntent(): PendingIntent {
-        val open = Intent(this, MainActivity::class.java).addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        return PendingIntent.getActivity(this, 1801, open,
+    private fun mediaAppIntent(targetPackage: String): PendingIntent {
+        // Different players must never share a PendingIntent; package extras
+        // alone are NOT part of Android PendingIntent identity.
+        val open = Intent(this, MediaOpenActivity::class.java)
+            .setData(Uri.Builder().scheme("nextep")
+                .authority("media-open").appendPath(targetPackage).build())
+            .putExtra(TriggerBroadcastContract.EXTRA_MEDIA_APP_PACKAGE, targetPackage)
+        return PendingIntent.getActivity(this, 1803, open,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
@@ -245,14 +251,15 @@ class MediaBridgeListenerService : NotificationListenerService() {
             // support pause/next for a third-party video engine.
             setCallback(object : MediaSession.Callback() {
                 override fun onCustomAction(action: String, extras: android.os.Bundle?) {
-                    if (action != ACTION_OPEN_MODULE) return
-                    runCatching { moduleActivityIntent().send() }
+                    if (action != ACTION_OPEN_MEDIA_APP) return
+                    val pkg = selected?.packageName ?: return
+                    runCatching { mediaAppIntent(pkg).send() }
                         .onFailure {
-                            NeXtepLog.warn("media_bridge", "OPEN_MODULE_ACTION_FAILED", it)
+                            NeXtepLog.warn("media_bridge", "OPEN_MEDIA_APP_ACTION_FAILED", it)
                         }
                 }
             }, handler)
-            setSessionActivity(moduleActivityIntent())
+            // Target task is assigned when a concrete dock app is selected.
             session = this
             // Activating after metadata/state are set prevents an initial
             // empty session from being selected by OxygenOS SystemUI.
@@ -303,6 +310,8 @@ class MediaBridgeListenerService : NotificationListenerService() {
     private fun publish(sample: MediaBridgeSnapshot) {
         val media = ensureSession()
         selected = sample
+        val appIntent = mediaAppIntent(sample.packageName)
+        media.setSessionActivity(appIntent)
         val appName = runCatching {
             val info = packageManager.getApplicationInfo(sample.packageName, 0)
             packageManager.getApplicationLabel(info).toString()
@@ -327,7 +336,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
             // No fake play/pause/seek actions. SystemUI may still show the
             // one supported custom action for opening the NeXtep window.
             .setActions(0L)
-            .addCustomAction(ACTION_OPEN_MODULE,
+            .addCustomAction(ACTION_OPEN_MEDIA_APP,
                 getString(R.string.media_bridge_open_app), R.drawable.ic_nextep_tile)
             .setState(PlaybackState.STATE_PLAYING,
                 PlaybackState.PLAYBACK_POSITION_UNKNOWN,
@@ -343,9 +352,9 @@ class MediaBridgeListenerService : NotificationListenerService() {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setCategory(Notification.CATEGORY_TRANSPORT)
             .setOngoing(true)
-            .setContentIntent(moduleActivityIntent())
+            .setContentIntent(appIntent)
             .addAction(Notification.Action.Builder(R.drawable.ic_nextep_tile,
-                getString(R.string.media_bridge_open_app), moduleActivityIntent()).build())
+                getString(R.string.media_bridge_open_app), appIntent).build())
             .setStyle(Notification.MediaStyle().setMediaSession(media.sessionToken)
                 .setShowActionsInCompactView(0))
             .apply { if (art != null) setLargeIcon(art) }
@@ -403,8 +412,8 @@ class MediaBridgeListenerService : NotificationListenerService() {
     }
 
     companion object {
-        private const val ACTION_OPEN_MODULE =
-            "io.github.lujinxin.nextep.media.OPEN_MODULE"
+        private const val ACTION_OPEN_MEDIA_APP =
+            "io.github.lujinxin.nextep.media.OPEN_MEDIA_APP"
         private const val CHANNEL = "nextep_media_bridge"
         private const val NOTIFICATION_ID = 18022
         private const val DOCK_REPORT_TTL_MS = 20_000L
