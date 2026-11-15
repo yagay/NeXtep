@@ -280,4 +280,11 @@
     <string name="floating_dock_menu_restore_slot">增加槽位</string>
     <string name="floating_dock_menu_collapse">折叠小窗</string>
     <string name="floating_dock_menu_resize">拖动调整小窗大小</string>
+    <!-- Compact in-theme floating action menu -->
+    <string name="floating_dock_menu_slots_section">槽位管理</string>
+    <string name="floating_dock_menu_layout_section">窗口布局</string>
+    <string name="floating_dock_menu_prev_short">上一个</string>
+    <string name="floating_dock_menu_next_short">下一个</string>
+    <string name="floating_dock_menu_hide_short">减少槽位</string>
+    <string name="floating_dock_menu_add_short">增加槽位</string>
 </resources>
