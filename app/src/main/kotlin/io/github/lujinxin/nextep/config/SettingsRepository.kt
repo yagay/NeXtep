@@ -24,6 +24,7 @@ class SettingsRepository(private val context: Context) {
         val floatingBubbleEdgeDp: Int,
         val floatingBubbleHalfHidden: Boolean,
         val floatingLockGuardEnabled: Boolean,
+        val floatingBackgroundKeepaliveEnabled: Boolean,
         val nativeLockGuardEnabled: Boolean,
         val nativeFreezeProtectionEnabled: Boolean,
         val floatingPopupBackEnabled: Boolean,
@@ -70,6 +71,7 @@ class SettingsRepository(private val context: Context) {
         floatingBubbleEdgeDp = preferences.getInt(KEY_FLOATING_BUBBLE_EDGE_DP, 8).coerceIn(0, 40),
         floatingBubbleHalfHidden = preferences.getBoolean(KEY_FLOATING_BUBBLE_HALF_HIDDEN, false),
         floatingLockGuardEnabled = preferences.getBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, true),
+        floatingBackgroundKeepaliveEnabled = preferences.getBoolean(KEY_FLOATING_BACKGROUND_KEEPALIVE_ENABLED, false),
         nativeLockGuardEnabled = preferences.getBoolean(KEY_NATIVE_LOCK_GUARD_ENABLED, true),
         nativeFreezeProtectionEnabled = preferences.getBoolean(KEY_NATIVE_FREEZE_PROTECTION_ENABLED, false),
         floatingPopupBackEnabled = preferences.getBoolean(KEY_FLOATING_POPUP_BACK_ENABLED, true),
@@ -174,6 +176,13 @@ class SettingsRepository(private val context: Context) {
     /** System-server floating lock guard is enabled by default; eligibility remains scoped to owned slots. */
     fun setFloatingLockGuardEnabled(enabled: Boolean) {
         if (preferences.edit().putBoolean(KEY_FLOATING_LOCK_GUARD_ENABLED, enabled).commit())
+            notifyTopContentChanged()
+    }
+
+    /** Opt-in all-day protection for activities genuinely running on a
+     * SystemUI-owned NeXtep floating virtual display. Never protect Display 0. */
+    fun setFloatingBackgroundKeepaliveEnabled(enabled: Boolean) {
+        if (preferences.edit().putBoolean(KEY_FLOATING_BACKGROUND_KEEPALIVE_ENABLED, enabled).commit())
             notifyTopContentChanged()
     }
 
@@ -337,6 +346,7 @@ class SettingsRepository(private val context: Context) {
         const val KEY_FLOATING_BUBBLE_EDGE_DP = "floating_bubble_edge_dp"
         const val KEY_FLOATING_BUBBLE_HALF_HIDDEN = "floating_bubble_half_hidden"
         const val KEY_FLOATING_LOCK_GUARD_ENABLED = "floating_lock_guard_enabled"
+        const val KEY_FLOATING_BACKGROUND_KEEPALIVE_ENABLED = "floating_background_keepalive_enabled"
         const val KEY_AUTO_SLOT_BACKGROUND = "auto_slot_on_background"
         const val KEY_AUTO_SLOT_LOCK = "auto_slot_on_lock"
         const val KEY_AUTO_SLOT_PACKAGES = "auto_slot_packages"
