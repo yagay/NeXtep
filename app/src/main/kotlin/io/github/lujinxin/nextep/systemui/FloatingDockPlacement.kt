@@ -16,6 +16,19 @@ internal object FloatingDockPlacement {
     enum class Side { LEFT_OF_BUBBLE, RIGHT_OF_BUBBLE, FALLBACK }
     data class Result(val x: Int, val y: Int, val width: Int, val height: Int, val side: Side)
 
+    /**
+     * A stacked rail cannot work as a narrow clipped strip beside a bubble:
+     * if the side placement cuts its first preview, choose the protected
+     * full-width position instead. Horizontal rails deliberately remain
+     * scrollable and do not call this policy.
+     */
+    fun ensureVerticalPreviewWidth(
+        anchored: Result,
+        fallback: Result,
+        previewWidth: Int,
+    ): Result = if (anchored.width < previewWidth && fallback.width > anchored.width)
+        fallback else anchored
+
     fun calculate(
         screenWidth: Int,
         screenHeight: Int,
