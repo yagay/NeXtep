@@ -22,6 +22,7 @@ object SystemServerWorkspaceBridge {
     const val NATIVE_TASK_LOCK_GUARD_KEY = "nextep_native_task_lock_guard_v1"
     const val NATIVE_TASK_FREEZER_KEY = "nextep_native_task_freezer_v1"
     const val NATIVE_TASK_IDENTITIES_KEY = "nextep_native_task_identities_v1"
+    const val PINNED_TASK_IDENTITIES_KEY = "nextep_pinned_task_identities_v1"
     private val geometryObservationStarted = AtomicBoolean(false)
     @Volatile private var observedGeometry: WorkspaceGeometry? = null
 
@@ -115,6 +116,24 @@ object SystemServerWorkspaceBridge {
             Settings.Global.putString(context.contentResolver, NATIVE_TASK_IDENTITIES_KEY, encoded)
             NeXtepLog.info("native_lock_bridge", "Published verified native task count=${identities.size}")
         }.onFailure { NeXtepLog.warn("native_lock_bridge", "Unable to publish native identities", it) }
+    }
+
+    /** Publish only live verified pin registrations from the injected SystemUI host. */
+    fun publishPinnedTaskIdentities(
+        context: Context, identities: Collection<PinnedTaskIdentityContract.Identity>,
+    ) {
+        runCatching {
+            val resolver = context.contentResolver
+            val boot = Settings.Global.getInt(resolver, "boot_count", -1)
+            val encoded = PinnedTaskIdentityContract.encode(
+                identities.filter { it.bootCount == boot })
+            if (Settings.Global.getString(resolver, PINNED_TASK_IDENTITIES_KEY) != encoded) {
+                Settings.Global.putString(resolver, PINNED_TASK_IDENTITIES_KEY, encoded)
+                NeXtepLog.info("pinned_task_bridge", "Live protected pins=${identities.size} published=${encoded.isNotEmpty()}")
+            }
+        }.onFailure {
+            NeXtepLog.warn("pinned_task_bridge", "Unable to publish pinned identities; no exemption granted", it)
+        }
     }
 
     fun publishLayout(context: Context, profile: WorkspaceLayoutProfile) {

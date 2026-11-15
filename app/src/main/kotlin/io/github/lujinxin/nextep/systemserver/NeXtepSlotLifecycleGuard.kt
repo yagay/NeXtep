@@ -11,6 +11,7 @@ import android.util.Log
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.lujinxin.nextep.workspace.SystemServerWorkspaceBridge
+import io.github.lujinxin.nextep.workspace.PinnedTaskIdentityContract
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
@@ -32,6 +33,14 @@ internal object NeXtepSlotLifecycleGuard {
     private const val TAG = "NeXtepSlotGuard"
     internal const val STATUS_KEY = "nextep_slot_guard_diagnostics_v1"
     private const val PREARM_WINDOW_MS = 20_000L
+    private const val PINNED_PRELOCK_WINDOW_MS = 2_000L
+    @Volatile private var lastPinnedPowerKeyAt = -1L
+    @Volatile private var pinnedIdentities = emptyMap<Int, PinnedTaskIdentityContract.Identity>()
+
+    /** Called from the policy hook without locking WM or querying tasks. */
+    fun onPhysicalPowerKeyDown() {
+        lastPinnedPowerKeyAt = android.os.SystemClock.elapsedRealtime()
+    }
     private val prearmedTasks = ConcurrentHashMap<Int, Long>()
     private val counters = ConcurrentHashMap<String, AtomicInteger>()
     private val statusQueued = AtomicBoolean(false)
@@ -79,7 +88,7 @@ internal object NeXtepSlotLifecycleGuard {
                 val result = chain.proceed()
                 runCatching {
                     val record = chain.thisObject ?: return@runCatching
-                    if (isNeXtepSlot(record)) {
+                    if (isTrackedEligible(record)) {
                         trackActivity(record, "setState")
                         val state = chain.args.firstOrNull()?.toString().orEmpty()
                         if (state.contains("RESUMED", ignoreCase = true)) {
@@ -158,9 +167,11 @@ internal object NeXtepSlotLifecycleGuard {
                     if (!forceSleep) armForLock(fragmentObject, "sleepIfPossible")
                 }
                 if (!forceSleep && fragmentObject != null && safeCondition {
-                    shouldGuard(fragmentObject) ||
+                    // Never bypass physical Display 0 sleep: keyguard and power
+                    // transitions must remain owned by Android, not this hook.
+                    isNeXtepSlot(fragmentObject) && (shouldGuard(fragmentObject) ||
                         (shouldKeepBackgroundTask(fragmentObject) &&
-                            (physicalScreenOff() || displaySleeping(fragmentObject)))
+                            (physicalScreenOff() || displaySleeping(fragmentObject))))
                 }) {
                     note("SLEEP", "SLOT_SLEEP_BLOCK task=${taskId(fragmentObject)}")
                     true
@@ -419,7 +430,7 @@ internal object NeXtepSlotLifecycleGuard {
         probe(record, source)
         val id = taskId(record)
         if (id < 0) return
-        if (isNeXtepSlot(record) && !isFinishing(record)) {
+        if (isTrackedEligible(record) && !isFinishing(record)) {
             trackedTasks[id] = WeakReference(record)
             logOnce("SLOT_TRACK:$id", "SLOT_TASK_TRACKED task=$id source=$source uid=${recordUid(record)}")
             recordStatus("tracked:$id")
@@ -432,7 +443,7 @@ internal object NeXtepSlotLifecycleGuard {
     }
 
     private fun armForLock(owner: Any, source: String) {
-        if (!enabled || !isNeXtepSlot(owner) || isFinishing(owner)) return
+        if (!enabled || !isTrackedEligible(owner) || isFinishing(owner)) return
         val id = taskId(owner)
         if (id < 0) return
         val first = prearmedTasks.putIfAbsent(id, android.os.SystemClock.elapsedRealtime())
@@ -451,7 +462,7 @@ internal object NeXtepSlotLifecycleGuard {
         while (iter.hasNext()) {
             val (id, ref) = iter.next()
             val record = ref.get()
-            if (record == null || !isNeXtepSlot(record) || isFinishing(record)) {
+            if (record == null || !isTrackedEligible(record) || isFinishing(record)) {
                 iter.remove()
                 prearmedTasks.remove(id)
                 continue
@@ -470,6 +481,10 @@ internal object NeXtepSlotLifecycleGuard {
 
     private fun isPrearmed(owner: Any): Boolean {
         val id = taskId(owner)
+        if (isPinnedTask(owner)) {
+            val elapsed = android.os.SystemClock.elapsedRealtime() - lastPinnedPowerKeyAt
+            if (elapsed in 0..PINNED_PRELOCK_WINDOW_MS) return true
+        }
         val armed = prearmedTasks[id] ?: return false
         val elapsed = android.os.SystemClock.elapsedRealtime() - armed
         if (elapsed in 0..PREARM_WINDOW_MS) return true
@@ -487,7 +502,7 @@ internal object NeXtepSlotLifecycleGuard {
         queueObserver(owner)
         return SlotLockProtectionPolicy.eligible(
             enabled = enabled && !disabledByErrors,
-            matchingSlot = isNeXtepSlot(owner),
+            matchingSlot = isTrackedEligible(owner),
             finishing = isFinishing(owner),
             physicallyOff = physicalScreenOff(),
             displaySleeping = displaySleeping(owner),
@@ -495,13 +510,12 @@ internal object NeXtepSlotLifecycleGuard {
         )
     }
 
-    /**
-     * A real SystemUI-owned floating VirtualDisplay is mandatory. This is not
-     * an unconditional foreground claim or package-wide lifecycle exemption.
-     */
+    /** Unpinned tasks retain the original virtual-display-only opt-in.
+     * Explicit pins are protected on their exact Task even on Display 0. */
     private fun shouldKeepBackgroundTask(owner: Any): Boolean =
-        backgroundKeepaliveEnabled && !disabledByErrors &&
-            isNeXtepSlot(owner) && !isFinishing(owner) && taskId(owner) > 0
+        !disabledByErrors && !isFinishing(owner) && taskId(owner) > 0 &&
+            ((backgroundKeepaliveEnabled && isNeXtepSlot(owner)) ||
+                (enabled && isPinnedTask(owner)))
 
     private fun resumedActivity(owner: Any): Any? =
         if (owner.javaClass.name == "com.android.server.wm.ActivityRecord") owner
@@ -551,7 +565,10 @@ internal object NeXtepSlotLifecycleGuard {
             !uiSleeping && !recents && !physicalScreenOff()) return false
         backgroundSessions[task] = BackgroundSession(uid, android.os.SystemClock.elapsedRealtime())
         trackActivity(activity, "background-armed")
-        return true
+        // Preventing normal PAUSE on the physical display can deadlock task
+        // switching, recents and keyguard. Allow regular Display 0 pause;
+        // stop/UID-freeze remain gated by the verified pinned Task.
+        return !isPinnedTask(owner) || slotIdentity(owner)?.displayId != 0
     }
 
     private fun shouldGuardBackgroundStop(owner: Any): Boolean {
@@ -563,11 +580,11 @@ internal object NeXtepSlotLifecycleGuard {
     }
 
     private fun liveBackgroundUid(uid: Int): Boolean {
-        if (!backgroundKeepaliveEnabled || disabledByErrors || uid < 10000) return false
+        if (disabledByErrors || uid < 10000 || (!backgroundKeepaliveEnabled && !enabled)) return false
         return trackedTasks.entries.any { (id, ref) ->
             val record = ref.get()
             record != null && taskId(record) == id &&
-                !isFinishing(record) && isNeXtepSlot(record) &&
+                !isFinishing(record) && shouldKeepBackgroundTask(record) &&
                 recordUid(record) == uid
         }
     }
@@ -580,7 +597,7 @@ internal object NeXtepSlotLifecycleGuard {
         while (iterator.hasNext()) {
             val (id, ref) = iterator.next()
             val record = ref.get()
-            if (record == null || isFinishing(record) || !isNeXtepSlot(record)) {
+            if (record == null || isFinishing(record) || !isTrackedEligible(record)) {
                 iterator.remove()
                 prearmedTasks.remove(id)
                 continue
@@ -594,7 +611,7 @@ internal object NeXtepSlotLifecycleGuard {
     private fun cleanup() {
         trackedTasks.entries.removeIf { (id, ref) ->
             val activity = ref.get()
-            val stale = activity == null || isFinishing(activity) || !isNeXtepSlot(activity)
+            val stale = activity == null || isFinishing(activity) || !isTrackedEligible(activity)
             if (stale) {
                 prearmedTasks.remove(id)
                 backgroundSessions.remove(id)
@@ -641,6 +658,9 @@ internal object NeXtepSlotLifecycleGuard {
                     SystemServerWorkspaceBridge.NATIVE_TASK_FREEZER_KEY), false, observer)
                 resolver.registerContentObserver(Settings.Global.getUriFor(
                     SystemServerWorkspaceBridge.FLOATING_SLOT_BACKGROUND_KEEPALIVE_KEY),
+                    false, observer)
+                resolver.registerContentObserver(Settings.Global.getUriFor(
+                    SystemServerWorkspaceBridge.PINNED_TASK_IDENTITIES_KEY),
                     false, observer)
                 context = ctx
                 observerStarted.set(true)
@@ -689,10 +709,27 @@ internal object NeXtepSlotLifecycleGuard {
             Settings.Global.getInt(ctx.contentResolver,
                 SystemServerWorkspaceBridge.FLOATING_SLOT_BACKGROUND_KEEPALIVE_KEY, 0) == 1
         }.getOrDefault(false)
+        val bootCount = runCatching {
+            Settings.Global.getInt(ctx.contentResolver, "boot_count", -1)
+        }.getOrDefault(-1)
+        val registrations = runCatching {
+            PinnedTaskIdentityContract.decode(
+                Settings.Global.getString(ctx.contentResolver,
+                    SystemServerWorkspaceBridge.PINNED_TASK_IDENTITIES_KEY),
+                bootCount)
+        }.getOrDefault(emptyMap())
+        val prior = pinnedIdentities
+        pinnedIdentities = registrations
+        // A deleted/moved pin must revoke all old Task sessions immediately.
+        (prior.keys - registrations.keys).forEach { id ->
+            backgroundSessions.remove(id)
+            prearmedTasks.remove(id)
+            trackedTasks.remove(id)
+        }
         if (!next) prearmedTasks.clear()
-        if (!backgroundKeepaliveEnabled) backgroundSessions.clear()
+        if (!backgroundKeepaliveEnabled && !enabled) backgroundSessions.clear()
         Log.i(TAG, "SLOT_LOCK_POLICY enabled=$next freezer=$freezerEnabled " +
-            "background=$backgroundKeepaliveEnabled tracked=${trackedTasks.size}")
+            "background=$backgroundKeepaliveEnabled pinned=${pinnedIdentities.size} tracked=${trackedTasks.size}")
         recordStatus("policy:$next")
     }
 
@@ -707,7 +744,7 @@ internal object NeXtepSlotLifecycleGuard {
                 val snapshot = "enabled=$enabled freezer=$freezerEnabled " +
                     "background=$backgroundKeepaliveEnabled hooks=$installedCount " +
                     "tracked=${trackedTasks.size} armed=${prearmedTasks.size} " +
-                    "backgroundSessions=${backgroundSessions.size} " +
+                    "backgroundSessions=${backgroundSessions.size} pinned=${pinnedIdentities.size} " +
                     "errors=${failureCount.get()} disabledByErrors=$disabledByErrors " +
                     "screenOff=${physicalScreenOff()} last=$lastEvent counters=$counts"
                 Settings.Global.putString(ctx.contentResolver, STATUS_KEY, snapshot)
@@ -727,6 +764,24 @@ internal object NeXtepSlotLifecycleGuard {
 
     private fun isNeXtepSlot(owner: Any): Boolean =
         slotIdentity(owner)?.matched == true
+
+    private fun isTrackedEligible(owner: Any): Boolean =
+        isNeXtepSlot(owner) || (enabled && isPinnedTask(owner))
+
+    private fun isPinnedTask(owner: Any): Boolean {
+        val id = taskId(owner)
+        val identity = pinnedIdentities[id] ?: return false
+        val activity = resumedActivity(owner) ?: return false
+        if (isFinishing(activity)) return false
+        val uid = recordUid(activity) ?: return false
+        val display = slotIdentity(owner) ?: return false
+        val slotIndex = if (display.matched)
+            display.name.removePrefix("NeXtep-floating-slot-").toIntOrNull()
+        else null
+        return PinnedTaskIdentityContract.matches(
+            identity, id, uid, activityPackage(activity),
+            display.displayId, slotIndex)
+    }
 
     private fun taskId(owner: Any): Int {
         val task = call(owner, "getTask")

@@ -8,6 +8,7 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.KeyEvent
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
@@ -37,6 +38,8 @@ import io.github.lujinxin.nextep.task.MainTaskPresentationCoordinator
 import io.github.lujinxin.nextep.task.TaskRepository
 import io.github.lujinxin.nextep.workspace.SidebarSide
 import io.github.lujinxin.nextep.workspace.WorkspaceLayoutProfile
+import io.github.lujinxin.nextep.workspace.SystemServerWorkspaceBridge
+import io.github.lujinxin.nextep.workspace.PinnedTaskIdentityContract
 import kotlin.math.roundToInt
 
 /**
@@ -119,6 +122,8 @@ internal class FloatingSlotDockController(
     private val pinPrefs = context.createDeviceProtectedStorageContext()
         .getSharedPreferences("nextep_virtual_pinned_slots", Context.MODE_PRIVATE)
     private val pinnedSlots = linkedMapOf<Int, Pair<String, Int>>()
+    /** Retains a precise Task identity during promotion to Display 0. */
+    private val pinnedTaskIds = mutableMapOf<Int, Int>()
 
     init {
         for (index in 0 until WORKSPACE_SLOT_COUNT) {
@@ -136,12 +141,77 @@ internal class FloatingSlotDockController(
     private fun syncPinnedSlots() {
         coordinator?.setPinnedSlots(pinnedSlots.mapValues { it.value.first })
         updatePinBadges()
+        publishPinnedTaskProtection()
+    }
+
+    private fun pinnedPackageUid(packageName: String, userId: Int): Int? {
+        val pm = context.packageManager
+        // OEM SystemUI is privileged, but getPackageUidAsUser is hidden in
+        // some Android SDK stubs. Fail closed for secondary profiles if absent.
+        val uid = runCatching {
+            pm.javaClass.getMethod("getPackageUidAsUser",
+                String::class.java, Int::class.javaPrimitiveType)
+                .invoke(pm, packageName, userId) as? Int
+        }.getOrNull() ?: runCatching {
+            pm.javaClass.getMethod("getPackageUidAsUser",
+                String::class.java, Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType)
+                .invoke(pm, packageName, 0, userId) as? Int
+        }.getOrNull() ?: if (userId == 0) runCatching {
+            pm.getPackageUid(packageName, 0)
+        }.getOrNull() else null
+        return uid?.takeIf { it >= 10000 && it / 100000 == userId }
+    }
+
+    /**
+     * No package-wide protection. Recheck the live Task on each stack event,
+     * and publish one exact (slot, task, UID, user, boot, package) identity.
+     * No binder query is required from system_server's hot WM hooks.
+     */
+    private fun publishPinnedTaskProtection() {
+        val bootCount = runCatching {
+            Settings.Global.getInt(context.contentResolver, "boot_count", -1)
+        }.getOrDefault(-1)
+        val running = if (hasSession() && bootCount >= 0)
+            floatingTaskRepository.runningTasks() else emptyList()
+        val states = coordinator?.slotStates().orEmpty()
+        val registrations = pinnedSlots.mapNotNull { (slot, binding) ->
+            val (pkg, user) = binding
+            val candidates = running.filter {
+                it.component.packageName == pkg && it.userId == user
+            }
+            val slotState = states.getOrNull(slot) as? SlotState.Occupied
+            val display = slots.getOrNull(slot)?.displayId()
+            val inSlot = candidates.firstOrNull {
+                it.taskId == slotState?.taskId && it.displayId == display
+            }
+            val remembered = pinnedTaskIds[slot]?.let { taskId ->
+                candidates.firstOrNull {
+                    it.taskId == taskId &&
+                        (it.displayId == android.view.Display.DEFAULT_DISPLAY ||
+                            (display != null && it.displayId == display))
+                }
+            }
+            // Restore a saved pin only when a single unambiguous task exists.
+            val task = inSlot ?: remembered ?: candidates.singleOrNull {
+                it.displayId == android.view.Display.DEFAULT_DISPLAY
+            }
+            if (task == null) {
+                pinnedTaskIds.remove(slot)
+                return@mapNotNull null
+            }
+            val uid = pinnedPackageUid(pkg, user) ?: return@mapNotNull null
+            pinnedTaskIds[slot] = task.taskId
+            PinnedTaskIdentityContract.Identity(slot, task.taskId, uid, user, bootCount, pkg)
+        }
+        SystemServerWorkspaceBridge.publishPinnedTaskIdentities(context, registrations)
     }
 
     private fun togglePinnedSlot(index: Int) {
         if (index !in 0 until WORKSPACE_SLOT_COUNT) return
         if (index in pinnedSlots) {
             pinnedSlots.remove(index)
+            pinnedTaskIds.remove(index)
             pinPrefs.edit().remove("slot_$index").apply()
             syncPinnedSlots()
             Toast.makeText(context, "已解除槽位 ${index + 1} 的应用锁定", Toast.LENGTH_SHORT).show()
@@ -155,9 +225,11 @@ internal class FloatingSlotDockController(
         pinnedSlots.entries.filter { it.value == (task.component.packageName to user) }
             .map { it.key }.forEach { old ->
                 pinnedSlots.remove(old)
+                pinnedTaskIds.remove(old)
                 pinPrefs.edit().remove("slot_$old").apply()
             }
         pinnedSlots[index] = task.component.packageName to user
+        pinnedTaskIds[index] = task.taskId
         pinPrefs.edit().putString("slot_$index", "${task.component.packageName}|$user").apply()
         syncPinnedSlots()
         Toast.makeText(context,
@@ -440,6 +512,7 @@ internal class FloatingSlotDockController(
                         ?.onSuccess {
                             collapse()
                             SystemUiRuntime.onPinnedTaskPromoted(state.taskId)
+                            publishPinnedTaskProtection()
                             NeXtepLog.info("auto_slot",
                                 "PIN_PROMOTED task=${state.taskId} slot=$index")
                         }?.onFailure { error ->
@@ -1241,7 +1314,10 @@ internal class FloatingSlotDockController(
     }
 
     fun onTasksChanged() {
-        if (!hasSession()) return
+        if (!hasSession()) {
+            publishPinnedTaskProtection()
+            return
+        }
         stableZoom?.let { zoom ->
             if (slots.getOrNull(zoom.index)?.displayId() != zoom.displayId ||
                 floatingTaskRepository.findTask(zoom.taskId)?.displayId != zoom.displayId) {
@@ -1257,6 +1333,7 @@ internal class FloatingSlotDockController(
             if (state is SlotState.Occupied) revealOccupiedSlot(index, "reconciliation")
         }
         updateRemoveBadges()
+        publishPinnedTaskProtection()
     }
 
     /** Reflow cells on rotation; keep the original displays and their task ownership alive. */
@@ -1343,6 +1420,8 @@ internal class FloatingSlotDockController(
         panel = null
         host = null
         panelVisible = false
+        pinnedTaskIds.clear()
+        publishPinnedTaskProtection()
         suspendedForLock = false
         resizingDock = false
         visibleSlotIndices.clear()

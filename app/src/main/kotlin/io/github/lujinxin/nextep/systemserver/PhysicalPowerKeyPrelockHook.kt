@@ -85,6 +85,9 @@ internal object PhysicalPowerKeyPrelockHook {
         val power = context.getSystemService(PowerManager::class.java) ?: return
         if (!power.isInteractive) return
         lastSentAt = now
+        // Pre-arm exact pinned Task IDs before the cross-process broadcast.
+        // No WM callback or task traversal is performed under policy locks.
+        NeXtepSlotLifecycleGuard.onPhysicalPowerKeyDown()
         // Receiver requires android.permission.DEVICE_POWER, available to the
         // real system_server sender. This is not a public app-trigger action.
         context.sendBroadcast(
