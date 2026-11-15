@@ -1,6 +1,7 @@
 package io.github.lujinxin.nextep.launcher
 
 import android.app.Activity
+import android.app.BroadcastOptions
 import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
@@ -98,13 +99,17 @@ internal object LauncherNavigationFoldHook {
         lastSignal = source
         lastSignalAt = now
         runCatching {
+            // Preserve origin verification in SystemUI. Without this opt-in
+            // Android's BroadcastReceiver.sentFromUid is INVALID_UID (-1).
             context.sendBroadcast(
                 Intent(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD)
                     .setPackage(TriggerBroadcastContract.SYSTEM_UI_PACKAGE)
                     .putExtra(TriggerBroadcastContract.EXTRA_NAVIGATION_EVENT_SOURCE, source)
                     .putExtra(TriggerBroadcastContract.EXTRA_GESTURE_EVENT_TIME, now),
+                null,
+                BroadcastOptions.makeBasic().setShareIdentityEnabled(true).toBundle(),
             )
-            Log.i(TAG, "NAV_SENT source=$source")
+            Log.i(TAG, "NAV_SENT source=$source sharedIdentity=true")
         }.onFailure { Log.w(TAG, "NAV_SEND_FAILED source=$source", it) }
     }
 }

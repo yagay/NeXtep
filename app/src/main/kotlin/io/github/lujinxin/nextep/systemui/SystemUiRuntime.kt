@@ -282,10 +282,13 @@ object SystemUiRuntime {
             val fromAccessibility = packages.contains(TriggerBroadcastContract.MODULE_PACKAGE) &&
                 source.startsWith("accessibility:")
             if (!fromSystem && !fromLauncher && !fromAccessibility) {
-                NeXtepLog.warn("floating_nav", "NAV_REJECTED uid=$senderUid")
+                NeXtepLog.warn("floating_nav",
+                    "NAV_REJECTED uid=$senderUid package=$sentFromPackage " +
+                        "source=$source")
                 return
             }
-            NeXtepLog.info("floating_nav", "NAV_RECEIVED source=$source")
+            NeXtepLog.info("floating_nav",
+                "NAV_RECEIVED source=$source uid=$senderUid package=$sentFromPackage")
             onNavigationCompleted(source)
         }
     }

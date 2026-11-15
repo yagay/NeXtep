@@ -2,6 +2,7 @@ package io.github.lujinxin.nextep.systemserver
 
 import android.content.Context
 import android.content.Intent
+import android.app.BroadcastOptions
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -102,13 +103,17 @@ internal object SystemNavigationFoldHook {
             return
         }
         runCatching {
+            // Android 14+ hides sender UID unless the sending process opts
+            // into identity sharing. SystemUI must authenticate this event.
             ctx.sendBroadcast(
                 Intent(TriggerBroadcastContract.ACTION_SYSTEM_NAVIGATION_FOLD)
                     .setPackage(TriggerBroadcastContract.SYSTEM_UI_PACKAGE)
                     .putExtra(TriggerBroadcastContract.EXTRA_NAVIGATION_EVENT_SOURCE, source)
                     .putExtra(TriggerBroadcastContract.EXTRA_GESTURE_EVENT_TIME, now),
+                null,
+                BroadcastOptions.makeBasic().setShareIdentityEnabled(true).toBundle(),
             )
-            Log.i(TAG, "NAV_SENT source=$source")
+            Log.i(TAG, "NAV_SENT source=$source sharedIdentity=true")
         }.onFailure { Log.w(TAG, "NAV_SEND_FAILED source=$source", it) }
     }
 }
