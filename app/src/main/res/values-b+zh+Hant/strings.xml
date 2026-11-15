@@ -268,4 +268,12 @@
     <string name="playback_compat_apps_count">已選 %1$d 個</string>
     <string name="playback_compat_lock_title">鎖屏繼續播放（實驗性）</string>
     <string name="playback_compat_lock_summary">僅針對已在 NeXtep 小視窗播放的選取應用，熄屏後嘗試一次媒體工作階段恢復。沒有背景服務的播放器可能無效；不會解鎖螢幕，可能增加耗電。</string>
+    <!-- Compact floating toolbar secondary actions. -->
+    <string name="floating_dock_menu_more">更多操作</string>
+    <string name="floating_dock_menu_previous">上一個槽位</string>
+    <string name="floating_dock_menu_next">下一個槽位</string>
+    <string name="floating_dock_menu_hide_slot">減少槽位（選擇槽位）…</string>
+    <string name="floating_dock_menu_restore_slot">增加槽位</string>
+    <string name="floating_dock_menu_collapse">收合小視窗</string>
+    <string name="floating_dock_menu_resize">拖動調整小視窗大小</string>
 </resources>
