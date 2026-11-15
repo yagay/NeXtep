@@ -31,9 +31,6 @@ class SettingsRepository(private val context: Context) {
         val floatingSwipeCollapseEnabled: Boolean,
         val floatingDockOrientation: String,
         val floatingDockSizePercent: Int,
-        val autoSlotOnBackground: Boolean,
-        val autoSlotOnLock: Boolean,
-        val autoSlotPackages: Set<String>,
         val slotBackgroundSwipeEnabled: Boolean,
         val autoMinimizeMainOnTopAppSwitch: Boolean,
         val navigationButtonsEnabled: Boolean,
@@ -85,10 +82,6 @@ class SettingsRepository(private val context: Context) {
                 WorkspaceConfigContract.DEFAULT_FLOATING_DOCK_SIZE_PERCENT),
         ),
         slotBackgroundSwipeEnabled = preferences.getBoolean("slot_background_swipe_enabled", true),
-        autoSlotOnBackground = preferences.getBoolean(KEY_AUTO_SLOT_BACKGROUND, false),
-        autoSlotOnLock = preferences.getBoolean(KEY_AUTO_SLOT_LOCK, false),
-        autoSlotPackages = preferences.getStringSet(KEY_AUTO_SLOT_PACKAGES, emptySet())
-            .orEmpty().filter { it.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) }.toSet(),
         autoMinimizeMainOnTopAppSwitch = preferences.getBoolean("auto_minimize_main_on_top_app_switch", false),
         navigationButtonsEnabled = preferences.getBoolean("navigation_buttons_enabled", false),
         swapAnimationDurationMs = WorkspaceConfigContract.normalizeSwapAnimationDurationMs(
@@ -204,30 +197,12 @@ class SettingsRepository(private val context: Context) {
             notifyTopContentChanged()
     }
 
-    fun setAutoSlotOnBackground(enabled: Boolean) {
-        if (preferences.edit().putBoolean(KEY_AUTO_SLOT_BACKGROUND, enabled).commit())
-            notifyTopContentChanged()
-    }
-
-    fun setAutoSlotOnLock(enabled: Boolean) {
-        if (preferences.edit().putBoolean(KEY_AUTO_SLOT_LOCK, enabled).commit())
-            notifyTopContentChanged()
-    }
-
     /** No target-app allowlist is needed; only SystemUI monitors NeXtep slots. */
     fun isMediaBridgeEnabled(): Boolean =
         preferences.getBoolean(KEY_MEDIA_BRIDGE_ENABLED, false)
 
     fun setMediaBridgeEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_MEDIA_BRIDGE_ENABLED, enabled).commit()
-    }
-
-    fun setAutoSlotPackages(packages: Set<String>) {
-        val safe = packages.map(String::trim)
-            .filter { it.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) }
-            .take(30).toSet()
-        if (preferences.edit().putStringSet(KEY_AUTO_SLOT_PACKAGES, safe).commit())
-            notifyTopContentChanged()
     }
 
     fun setFloatingPopupBackEnabled(enabled: Boolean) {
@@ -363,9 +338,6 @@ class SettingsRepository(private val context: Context) {
         const val KEY_FLOATING_BUBBLE_HALF_HIDDEN = "floating_bubble_half_hidden"
         const val KEY_FLOATING_LOCK_GUARD_ENABLED = "floating_lock_guard_enabled"
         const val KEY_FLOATING_BACKGROUND_KEEPALIVE_ENABLED = "floating_background_keepalive_enabled"
-        const val KEY_AUTO_SLOT_BACKGROUND = "auto_slot_on_background"
-        const val KEY_AUTO_SLOT_LOCK = "auto_slot_on_lock"
-        const val KEY_AUTO_SLOT_PACKAGES = "auto_slot_packages"
         const val KEY_MEDIA_BRIDGE_ENABLED = "media_bridge_enabled"
         const val KEY_STARTUP_RESTORE_ENABLED = "startup_restore_enabled"
         const val KEY_NATIVE_LOCK_GUARD_ENABLED = "native_lock_guard_enabled"
