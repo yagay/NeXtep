@@ -1624,7 +1624,7 @@ internal class FloatingSlotDockController(
         val inset = dp(8)
         val width = minOf(dp(264),
             (bounds.width() - safe.left - safe.right - inset * 2).coerceAtLeast(dp(180)))
-        val height = minOf(dp(284),
+        val height = minOf(dp(296),
             (bounds.height() - safe.top - safe.bottom - inset * 2).coerceAtLeast(dp(180)))
         val anchor = IntArray(2)
         moreAnchor.getLocationOnScreen(anchor)
@@ -1708,20 +1708,20 @@ internal class FloatingSlotDockController(
                     bottomMargin = dp(6)
                 })
         }
-        val title = LinearLayout(context).apply {
+        val headingRow = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
             orientation = LinearLayout.HORIZONTAL
         }
-        title.addView(TextView(context).apply {
+        headingRow.addView(TextView(context).apply {
             text = str(R.string.floating_dock_menu_more)
             textSize = 15f
             setTextColor(Color.WHITE)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(dp(4), 0, 0, 0)
         }, LinearLayout.LayoutParams(0, dp(28), 1f))
-        title.addView(button("×") { dismissToolbarMenu() },
+        headingRow.addView(button("×") { dismissToolbarMenu() },
             LinearLayout.LayoutParams(dp(30), dp(28)))
-        body.addView(title, LinearLayout.LayoutParams(-1, dp(28)))
+        body.addView(headingRow, LinearLayout.LayoutParams(-1, dp(28)))
         section(str(R.string.floating_dock_menu_slots_section))
         pair("‹  " + str(R.string.floating_dock_menu_prev_short),
             railOffsetPx > 0, { stepRail(forward = false) },
@@ -1756,7 +1756,7 @@ internal class FloatingSlotDockController(
             gravity = Gravity.TOP or Gravity.LEFT
             this.x = x
             this.y = y
-            title = "NeXtepFloatingToolbarMenu"
+            this.title = "NeXtepFloatingToolbarMenu"
             setFitInsetsTypes(0)
         }
         runCatching {
