@@ -21,7 +21,6 @@ import io.github.lujinxin.nextep.config.WorkspaceConfigClient
 import io.github.lujinxin.nextep.config.WorkspaceConfigContract
 import io.github.lujinxin.nextep.config.WorkspaceTopConfig
 import io.github.lujinxin.nextep.framework.TaskSurfaceCompat
-import io.github.lujinxin.nextep.task.TaskRepository
 import io.github.lujinxin.nextep.monitoring.WorkspaceEnergyContract
 import io.github.lujinxin.nextep.monitoring.WorkspaceEnergyDiagnostics
 import io.github.lujinxin.nextep.logging.NeXtepLog
@@ -70,186 +69,9 @@ object SystemUiRuntime {
         }
     }
 
-    private lateinit var autoSlotTaskRepository: TaskRepository
-    private var observedForeground: TaskRepository.TaskSnapshot? = null
-    private var lastAutoParkTaskId = -1
-    private var lastAutoParkAt = 0L
-    private var autoSlotPending = false
-
-    private fun isAutoSlotAllowed(task: TaskRepository.TaskSnapshot?, onLock: Boolean): Boolean {
-        if (!workspaceConfigReady || !::floatingDock.isInitialized ||
-            !::workspaceController.isInitialized || workspaceController.isActive() ||
-            !workspaceConfig.floatingBubbleEnabled ||
-            workspaceConfig.floatingWindowMode != WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL ||
-            task?.userId == null || task.displayId != Display.DEFAULT_DISPLAY ||
-            task.windowingMode != 1 || task.vendorWindowed) return false
-        val pkg = task.component.packageName
-        // Locking a slot grants Task-scoped lifecycle protection only.
-        // Automatic migration is a separate explicit option plus app selection.
-        if (!AutoSlotTransitionPolicy.permitsAutomaticMove(
-                enabled = if (onLock) workspaceConfig.autoSlotOnLock
-                    else workspaceConfig.autoSlotOnBackground,
-                selected = pkg in workspaceConfig.autoSlotPackages,
-                nextIsHome = false,
-            )) return false
-        if (pkg == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
-            pkg == TriggerBroadcastContract.MODULE_PACKAGE ||
-            pkg == TriggerBroadcastContract.resolveHomePackage(applicationContext)) return false
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (task.taskId == lastAutoParkTaskId && now - lastAutoParkAt < 3_000L) return false
-        return true
-    }
-
-    private fun captureAutoSlotForeground(source: String, parkOnChange: Boolean) {
-        if (!::autoSlotTaskRepository.isInitialized ||
-            (!workspaceConfig.autoSlotOnBackground && !workspaceConfig.autoSlotOnLock)) return
-        val next = autoSlotTaskRepository.foregroundTask()
-        val previous = observedForeground
-        observedForeground = next
-        if (!parkOnChange || autoSlotPending || previous?.userId == null ||
-            next == null || next.taskId == previous.taskId) return
-
-        val homePackage = TriggerBroadcastContract.resolveHomePackage(applicationContext)
-        val nextIsHome = homePackage != null && next.component.packageName == homePackage
-        if (!AutoSlotTransitionPolicy.permitsAutomaticMove(
-                enabled = workspaceConfig.autoSlotOnBackground,
-                selected = previous.component.packageName in workspaceConfig.autoSlotPackages,
-                nextIsHome = nextIsHome,
-            )) {
-            if (nextIsHome) NeXtepLog.info("auto_slot",
-                "HOME_AUTO_PARK_DISABLED task=${previous.taskId} source=$source")
-            return
-        }
-        if (!isAutoSlotAllowed(previous, onLock = false)) return
-
-        val taskId = previous.taskId
-        val pkg = previous.component.packageName
-        val userId = previous.userId
-        autoSlotPending = true
-        // Never reparent a Task during/after HOME's Quickstep transition,
-        // including when focus changes to HOME while this callback is queued.
-        lifecycleHandler.postDelayed({
-            try {
-                val latest = autoSlotTaskRepository.foregroundTask()
-                val nowHome = homePackage != null &&
-                    latest?.component?.packageName == homePackage
-                if (!nowHome && isScreenReady() &&
-                    !isKeyguardLocked(applicationContext) &&
-                    isAutoSlotAllowed(previous, onLock = false) &&
-                    latest?.taskId != taskId) {
-                    val accepted = floatingDock.autoParkCaptured(
-                        taskId, pkg, userId, "background")
-                    if (accepted) {
-                        lastAutoParkTaskId = taskId
-                        lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
-                        NeXtepLog.info("auto_slot",
-                            "AUTO_PARK_DISPATCH task=$taskId reason=background")
-                    }
-                } else {
-                    NeXtepLog.info("auto_slot",
-                        "AUTO_PARK_SKIP_CHANGED_STATE task=$taskId " +
-                            "latest=${latest?.taskId} home=$nowHome")
-                }
-            } catch (error: Throwable) {
-                NeXtepLog.warn("auto_slot",
-                    "AUTO_BACKGROUND_EXCEPTION task=$taskId source=$source", error)
-            } finally {
-                autoSlotPending = false
-            }
-        }, 120L)
-    }
-
-    /**
-     * A pinned card has just been promoted to the physical display. Seed the
-     * observed identity from the real foreground Task. A pin alone never
-     * triggers a return to a virtual slot: HOME remains a normal transition.
-     * Explicit automatic movement to another app is still configurable.
-     */
-    fun onPinnedTaskPromoted(taskId: Int) {
-        fun capture(source: String) {
-            if (!::autoSlotTaskRepository.isInitialized) return
-            val task = autoSlotTaskRepository.findTask(taskId)
-            if (task?.displayId == Display.DEFAULT_DISPLAY &&
-                autoSlotTaskRepository.foregroundTask()?.taskId == taskId &&
-                task.userId != null && ::floatingDock.isInitialized &&
-                floatingDock.pinnedSlotFor(task.component.packageName, task.userId) != null) {
-                observedForeground = task
-                lastAutoParkTaskId = -1
-                NeXtepLog.info("auto_slot",
-                    "PIN_FOREGROUND_CAPTURED task=$taskId source=$source")
-            }
-        }
-        // Observe the promoted Task immediately and after the display move
-        // settles; this records identity for explicit auto-move settings only.
-        // HOME does not park it, and lock protection stays Task-scoped.
-        capture("immediate")
-        lifecycleHandler.postDelayed({ capture("settled") }, 160L)
-    }
-
-    private fun autoParkForLock(): Boolean {
-        if (!::autoSlotTaskRepository.isInitialized ||
-            !workspaceConfig.autoSlotOnLock ||
-            workspaceConfig.autoSlotPackages.isEmpty()) return false
-        if (::floatingDock.isInitialized && floatingDock.isAutoParkInProgress()) {
-            NeXtepLog.info("auto_slot", "LOCK_PREPARK_ALREADY_IN_FLIGHT")
-            return true
-        }
-        // Lock auto-move is opt-in and concerns only the CURRENT foreground
-        // Task. Never migrate an older pinned/observed Task by implication.
-        val captured = autoSlotTaskRepository.foregroundTask()
-        if (!isAutoSlotAllowed(captured, onLock = true) || captured?.userId == null)
-            return false
-        // Do not create a fresh focusable SystemUI overlay after keyguard is
-        // displayed. Lock parking requires an already retained live session.
-        if (!floatingDock.hasSession()) {
-            NeXtepLog.info("auto_slot",
-                "LOCK_SKIPPED_NO_SESSION task=${captured.taskId}")
-            return false
-        }
-        lastAutoParkTaskId = captured.taskId
-        lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
-        val accepted = floatingDock.autoParkCaptured(
-            captured.taskId, captured.component.packageName,
-            captured.userId, "lock",
-        ) {
-            // An early physical power-key event need not become a lock.
-            // Only suspend displays once keyguard or screen-off is real.
-            if (!isScreenReady() || isKeyguardLocked(applicationContext))
-                floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
-        }
-        NeXtepLog.info("auto_slot",
-            "LOCK_AUTO_PARK_REQUEST task=${captured.taskId} accepted=$accepted")
-        return accepted
-    }
-
-    // Privileged physical power-key event from system_server. Captures the
-    // already-fullscreen pinned Task before OOS17 keyguard sleep callbacks.
-    private val physicalPowerPrelockReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != TriggerBroadcastContract.ACTION_POWER_KEY_PRELOCK ||
-                !initialized.get() || !workspaceConfigReady ||
-                !::floatingDock.isInitialized ||
-                !::autoSlotTaskRepository.isInitialized) return
-            val sentAt = intent.getLongExtra(
-                TriggerBroadcastContract.EXTRA_POWER_KEY_ELAPSED, -1L)
-            val ageMs = android.os.SystemClock.elapsedRealtime() - sentAt
-            if (sentAt < 0L || ageMs !in 0L..800L) {
-                NeXtepLog.warn("auto_slot", "EARLY_PRELOCK_STALE ageMs=$ageMs")
-                return
-            }
-            if (!isScreenReady() || isKeyguardLocked(applicationContext)) return
-            val current = autoSlotTaskRepository.foregroundTask()
-            val accepted = autoParkForLock()
-            NeXtepLog.info("auto_slot",
-                "EARLY_POWER_PRELOCK ageMs=$ageMs accepted=$accepted " +
-                    "task=${current?.taskId ?: -1} display=${current?.displayId ?: -1}")
-        }
-    }
-
     private val taskRefreshQueued = AtomicBoolean(false)
     private val taskRefresh = Runnable {
         taskRefreshQueued.set(false)
-        captureAutoSlotForeground("task-stack", parkOnChange = true)
         if (::windowController.isInitialized) windowController.onTasksChanged()
         if (::floatingDock.isInitialized) floatingDock.onTasksChanged()
         if (::dockMediaObserver.isInitialized) dockMediaObserver.refreshSoon()
@@ -329,23 +151,6 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
-                if (workspaceConfig.autoSlotOnBackground || workspaceConfig.autoSlotOnLock)
-                    captureAutoSlotForeground("config-init", parkOnChange = false)
-                // Prepare four hidden real VirtualDisplays while the screen is
-                // still unlocked. Creating a focusable SystemUI overlay after
-                // ACTION_SCREEN_OFF is too late and can disrupt keyguard.
-                if (workspaceConfig.autoSlotOnLock &&
-                    workspaceConfig.autoSlotPackages.isNotEmpty() &&
-                    workspaceConfig.floatingBubbleEnabled &&
-                    workspaceConfig.floatingWindowMode ==
-                        WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL &&
-                    ::floatingDock.isInitialized &&
-                    ::workspaceController.isInitialized &&
-                    !workspaceController.isActive() && isScreenReady() &&
-                    !isKeyguardLocked(applicationContext)) {
-                    val ready = floatingDock.prepareHiddenAutoSession()
-                    NeXtepLog.info("auto_slot", "PREPARE_HIDDEN_LOCK_DOCK ready=$ready")
-                }
                 if (::nativeFreeform.isInitialized) nativeFreeform.configureNativeLockGuard(
                     workspaceConfig.nativeLockGuardEnabled &&
                     workspaceConfig.floatingWindowMode == WorkspaceConfigContract.FLOATING_WINDOW_MODE_NATIVE_FREEFORM)
@@ -436,18 +241,8 @@ object SystemUiRuntime {
         }
     }
     private val keyguardStateListener = KeyguardManager.KeyguardLockedStateListener {
-        // This callback can precede SCREEN_OFF on OxygenOS. Attempt pinned
-        // return while the physical display is still interactive. The
-        // ACTION_SCREEN_OFF path remains the bounded fallback.
-        if (workspaceConfigReady && ::floatingDock.isInitialized &&
-            ::workspaceController.isInitialized && !workspaceController.isActive() &&
-            isScreenReady() && isKeyguardLocked(applicationContext) &&
-            workspaceConfig.autoSlotOnLock &&
-            workspaceConfig.autoSlotPackages.isNotEmpty()) {
-            NeXtepLog.info("auto_slot", "KEYGUARD_PRELOCK_EVENT")
-            autoParkForLock()
-        }
-        // Re-read current state: a queued callback can belong to an earlier wake.
+        // Only synchronize existing virtual-display sessions. Never create or
+        // migrate a Task during a keyguard transition.
         lockStateObserver.run()
     }
     private val displayStateListener = object : DisplayManager.DisplayListener {
@@ -506,7 +301,6 @@ object SystemUiRuntime {
                 else emptyList()
             }.also { it.start() }
             nativeFreeform = NativeFreeformController(applicationContext)
-            autoSlotTaskRepository = TaskRepository(applicationContext)
             workspaceController = WorkspaceController(
                 applicationContext = applicationContext,
                 windowController = windowController,
@@ -574,19 +368,6 @@ object SystemUiRuntime {
                 )
             }.onFailure { error ->
                 NeXtepLog.warn("systemui_runtime", "Lifecycle receiver unavailable", error)
-            }
-            // Only system_server / holders of DEVICE_POWER may deliver
-            // this event. Fail-open if the OS rejects the receiver.
-            runCatching {
-                applicationContext.registerReceiver(
-                    physicalPowerPrelockReceiver,
-                    IntentFilter(TriggerBroadcastContract.ACTION_POWER_KEY_PRELOCK),
-                    "android.permission.DEVICE_POWER",
-                    lifecycleHandler,
-                    Context.RECEIVER_EXPORTED,
-                )
-            }.onFailure {
-                NeXtepLog.warn("auto_slot", "EARLY_PRELOCK_RECEIVER_UNAVAILABLE", it)
             }
             observeLockAndDisplayState()
             runCatching {
@@ -762,10 +543,9 @@ object SystemUiRuntime {
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 lifecycleHandler.removeCallbacks(hiddenFloatingResume)
                 TaskSurfaceCompat.finishWorkspaceExitAnimations()
-                // If early prelock started migrating a Task, suspending the
-                // virtual display here would cause Activity pause mid-move.
-                if (::floatingDock.isInitialized &&
-                    !floatingDock.isAutoParkInProgress() && !autoParkForLock())
+                // Retain all existing slot Tasks and live virtual displays;
+                // never move a physical-display app during screen off.
+                if (::floatingDock.isInitialized)
                     floatingDock.closeFor(FloatingDockSessionPolicy.CloseReason.SCREEN_LOCK)
             }
             if (intent.action == Intent.ACTION_CONFIGURATION_CHANGED && ::floatingDock.isInitialized) {
