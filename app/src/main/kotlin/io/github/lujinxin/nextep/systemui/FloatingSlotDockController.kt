@@ -20,7 +20,6 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -288,6 +287,7 @@ internal class FloatingSlotDockController(
     private var railViewport: FrameLayout? = null
     private var railOffsetPx = 0
     private var toolbar: LinearLayout? = null
+    private var toolbarMenuWindow: FrameLayout? = null
     // The app's SettingsRepository is the source of truth. These are updated
     // from the trusted configuration IPC whenever the user changes Settings.
     private var orientation = FloatingDockRailLayout.Orientation.HORIZONTAL
@@ -886,6 +886,7 @@ internal class FloatingSlotDockController(
 
     /** Reflow without releasing any VirtualDisplay or moving the running tasks. */
     fun applyLayoutSettings(orientationValue: String, scalePercent: Int) {
+        dismissToolbarMenu()
         val nextOrientation = if (orientationValue == "vertical")
             FloatingDockRailLayout.Orientation.VERTICAL else FloatingDockRailLayout.Orientation.HORIZONTAL
         val nextSize = FloatingDockRailLayout.normalizedScale(scalePercent)
@@ -1169,6 +1170,7 @@ internal class FloatingSlotDockController(
      * the coordinator, or move tasks between physical and virtual displays.
      */
     fun collapse(lockEvent: Boolean = false): Boolean {
+        dismissToolbarMenu()
         val root = host ?: return true
         dismissRemovalPrompt()
         // An already queued outside tap must not fold a later reopened dock.
@@ -1405,6 +1407,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun clear() {
+        dismissToolbarMenu()
         setPanelExpanded(false, "release")
         handler.removeCallbacks(outsideFold)
         outsideFoldPending = false
@@ -1583,16 +1586,28 @@ internal class FloatingSlotDockController(
     }
 
     /**
-     * The top bar has only four frequently used actions. Secondary actions
-     * stay in a native anchored popup rather than expanding the live dock's
-     * own window or detaching TextureViews. The popup is dismissed by Android
-     * on selection, outside tap or Back.
+     * Keep the secondary commands in a compact, in-theme floating card.
+     * Android's platform PopupMenu inherits an unrelated light/theme overlay
+     * in SystemUI. This view instead matches our existing app picker and
+     * remove-confirmation surfaces, without touching any live TextureViews.
      */
+    private fun dismissToolbarMenu() {
+        val window = toolbarMenuWindow ?: return
+        toolbarMenuWindow = null
+        runCatching { manager?.removeViewImmediate(window) }
+            .onFailure { NeXtepLog.warn("floating_dock", "TOOLBAR_MENU_DISMISS_FAILED", it) }
+    }
+
     private fun showToolbarOverflowMenu(moreAnchor: View) {
+        if (toolbarMenuWindow != null) {
+            dismissToolbarMenu()
+            return
+        }
         if (!isExpanded() || suspendedForLock || removalPending ||
             stableZoom != null || resizingDock || !moreAnchor.isAttachedToWindow) return
         val layout = panel ?: return
         val viewport = railViewport ?: return
+        val type = SystemUiWindowTypeResolver.resolve() ?: return
         val vertical = layout.orientation == FloatingDockRailLayout.Orientation.VERTICAL
         val maximumOffset = ((if (vertical) layout.railHeight - viewport.height
             else layout.railWidth - viewport.width)).coerceAtLeast(0)
@@ -1602,45 +1617,155 @@ internal class FloatingSlotDockController(
                 index !in pinnedSlots &&
                     states.getOrNull(index) !is SlotState.Occupied
             }
+        val bounds = manager?.maximumWindowMetrics?.bounds
+            ?: Rect(0, 0, context.resources.displayMetrics.widthPixels,
+                context.resources.displayMetrics.heightPixels)
+        val safe = FloatingDockSafeArea.measure(context, manager)
+        val inset = dp(8)
+        val width = minOf(dp(264),
+            (bounds.width() - safe.left - safe.right - inset * 2).coerceAtLeast(dp(180)))
+        val height = minOf(dp(284),
+            (bounds.height() - safe.top - safe.bottom - inset * 2).coerceAtLeast(dp(180)))
+        val anchor = IntArray(2)
+        moreAnchor.getLocationOnScreen(anchor)
+        val left = safe.left + inset
+        val right = (bounds.width() - safe.right - inset - width).coerceAtLeast(left)
+        val top = safe.top + inset
+        val bottom = (bounds.height() - safe.bottom - inset - height).coerceAtLeast(top)
+        val x = (anchor[0] + moreAnchor.width - width + dp(8)).coerceIn(left, right)
+        val below = anchor[1] + moreAnchor.height + dp(6)
+        val above = anchor[1] - height - dp(6)
+        val y = (if (below <= bottom) below else if (above >= top) above else bottom)
+            .coerceIn(top, bottom)
 
-        val menu = PopupMenu(context, moreAnchor, Gravity.END)
-        val previous = menu.menu.add(0, 1, 0,
-            str(R.string.floating_dock_menu_previous))
-        previous.isEnabled = railOffsetPx > 0
-        val next = menu.menu.add(0, 2, 1,
-            str(R.string.floating_dock_menu_next))
-        next.isEnabled = railOffsetPx < maximumOffset
-        menu.menu.add(0, 3, 2,
-            str(R.string.floating_dock_menu_hide_slot)).isEnabled = canReduceSlots
-        menu.menu.add(0, 4, 3,
-            str(R.string.floating_dock_menu_restore_slot)).isEnabled =
-                visibleSlotIndices.size < WORKSPACE_SLOT_COUNT
-        menu.menu.add(0, 5, 4,
-            str(R.string.floating_dock_reset_size)).isEnabled = sizePercent != 100
-        menu.menu.add(0, 6, 5,
-            str(R.string.floating_dock_arrangement) + " · " +
-                str(if (vertical) R.string.floating_dock_switch_horizontal
-                    else R.string.floating_dock_switch_vertical))
-        menu.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                1 -> stepRail(forward = false)
-                2 -> stepRail(forward = true)
-                3 -> showSlotRemovalPicker()
-                4 -> restoreHiddenSlot()
-                5 -> {
-                    sizePercent = 100
-                    railOffsetPx = 0
-                    reconfigure()
-                }
-                6 -> applyLayoutSettings(
-                    if (vertical) "horizontal" else "vertical", sizePercent)
-                else -> return@setOnMenuItemClickListener false
+        val window = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(Color.argb(252, 20, 33, 45))
+                setStroke(dp(1), Color.argb(94, 140, 200, 218))
             }
-            NeXtepLog.info("floating_dock", "TOOLBAR_MENU_ACTION id=${item.itemId}")
-            true
+            elevation = dp(10).toFloat()
+            setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                    dismissToolbarMenu()
+                    true
+                } else false
+            }
         }
-        runCatching { menu.show() }.onFailure { error ->
-            NeXtepLog.warn("floating_dock", "TOOLBAR_MENU_UNAVAILABLE", error)
+        val scroll = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            isFillViewport = false
+        }
+        val body = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(8), dp(10), dp(10))
+        }
+        fun section(label: String) {
+            body.addView(TextView(context).apply {
+                text = label
+                textSize = 11f
+                setTextColor(Color.argb(205, 160, 190, 205))
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+            }, LinearLayout.LayoutParams(-1, dp(26)))
+        }
+        fun button(label: String, enabled: Boolean = true,
+            onClick: () -> Unit): TextView = TextView(context).apply {
+            text = label
+            textSize = 13f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+            setPadding(dp(5), 0, dp(5), 0)
+            setTextColor(if (enabled) Color.WHITE else Color.argb(130, 218, 230, 235))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(9).toFloat()
+                setColor(if (enabled) Color.argb(230, 30, 48, 62)
+                    else Color.argb(130, 30, 48, 62))
+            }
+            isEnabled = enabled
+            setOnClickListener {
+                dismissToolbarMenu()
+                onClick()
+            }
+        }
+        fun pair(leftText: String, leftEnabled: Boolean, leftAction: () -> Unit,
+            rightText: String, rightEnabled: Boolean, rightAction: () -> Unit) {
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            row.addView(button(leftText, leftEnabled, leftAction),
+                LinearLayout.LayoutParams(0, dp(42), 1f))
+            row.addView(button(rightText, rightEnabled, rightAction),
+                LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(6) })
+            body.addView(row, LinearLayout.LayoutParams(-1, dp(42)).apply {
+                bottomMargin = dp(6)
+            })
+        }
+        fun full(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+            body.addView(button(label, enabled, onClick),
+                LinearLayout.LayoutParams(-1, dp(40)).apply {
+                    bottomMargin = dp(6)
+                })
+        }
+        val title = LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+        }
+        title.addView(TextView(context).apply {
+            text = str(R.string.floating_dock_menu_more)
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(4), 0, 0, 0)
+        }, LinearLayout.LayoutParams(0, dp(28), 1f))
+        title.addView(button("×") { dismissToolbarMenu() },
+            LinearLayout.LayoutParams(dp(30), dp(28)))
+        body.addView(title, LinearLayout.LayoutParams(-1, dp(28)))
+        section(str(R.string.floating_dock_menu_slots_section))
+        pair("‹  " + str(R.string.floating_dock_menu_prev_short),
+            railOffsetPx > 0, { stepRail(forward = false) },
+            str(R.string.floating_dock_menu_next_short) + "  ›",
+            railOffsetPx < maximumOffset, { stepRail(forward = true) })
+        pair("−  " + str(R.string.floating_dock_menu_hide_short),
+            canReduceSlots, { showSlotRemovalPicker() },
+            "＋  " + str(R.string.floating_dock_menu_add_short),
+            visibleSlotIndices.size < WORKSPACE_SLOT_COUNT,
+            { restoreHiddenSlot() })
+        section(str(R.string.floating_dock_menu_layout_section))
+        full("↺  " + str(R.string.floating_dock_reset_size), sizePercent != 100) {
+            sizePercent = 100
+            railOffsetPx = 0
+            reconfigure()
+        }
+        full("⇄  " + str(R.string.floating_dock_arrangement) + " · " +
+            str(if (vertical) R.string.floating_dock_switch_horizontal
+                else R.string.floating_dock_switch_vertical)) {
+            applyLayoutSettings(if (vertical) "horizontal" else "vertical", sizePercent)
+        }
+        scroll.addView(body)
+        window.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+        val params = WindowManager.LayoutParams(
+            width, height, type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.LEFT
+            this.x = x
+            this.y = y
+            title = "NeXtepFloatingToolbarMenu"
+            setFitInsetsTypes(0)
+        }
+        runCatching {
+            checkNotNull(manager).addView(window, params)
+            toolbarMenuWindow = window
+            NeXtepLog.info("floating_dock",
+                "TOOLBAR_MENU_SHOWN orientation=$orientation count=${visibleSlotIndices.size}")
+        }.onFailure {
+            NeXtepLog.warn("floating_dock", "TOOLBAR_MENU_UNAVAILABLE", it)
         }
     }
 
@@ -1799,6 +1924,7 @@ internal class FloatingSlotDockController(
     }
 
     private fun showPicker() {
+        dismissToolbarMenu()
         if (stableZoom != null) return
         val states = coordinator?.slotStates().orEmpty()
         val empty = states.indices.firstOrNull {
