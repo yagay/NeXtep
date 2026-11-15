@@ -295,4 +295,18 @@
     <string name="floating_dock_menu_next_short">Next</string>
     <string name="floating_dock_menu_hide_short">Hide slot</string>
     <string name="floating_dock_menu_add_short">Add slot</string>
+    <!-- Universal media bridge -->
+    <string name="media_bridge_group">Universal Media Bridge</string>
+    <string name="media_bridge_group_summary">System media controls for apps without MediaSession</string>
+    <string name="media_bridge_enable">Enable universal media bridge</string>
+    <string name="media_bridge_enable_summary">Requires notification access and LSPosed scope; native media sessions always take priority</string>
+    <string name="media_bridge_restart_hint">Restart selected apps after changing media bridge or LSPosed scope</string>
+    <string name="media_bridge_apps_count">%1$d selected apps</string>
+    <string name="media_bridge_select_apps">Select media bridge apps</string>
+    <string name="media_bridge_select_apps_summary">Only these applications may report playback events. Enable their LSPosed scope as well.</string>
+    <string name="media_bridge_listener_title">Notification access</string>
+    <string name="media_bridge_listener_summary">Allow NeXtep to check native media sessions and publish only when needed</string>
+    <string name="media_bridge_listener_action">Open notification access</string>
+    <string name="media_bridge_listener_unavailable">Cannot open notification access settings</string>
+    <string name="media_bridge_clear">Clear</string>
 </resources>

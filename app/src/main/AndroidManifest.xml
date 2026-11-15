@@ -23,6 +23,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <permission
+        android:name="io.github.lujinxin.nextep.permission.MEDIA_BRIDGE_CONTROL"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="io.github.lujinxin.nextep.permission.MEDIA_BRIDGE_CONTROL" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -59,6 +64,24 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/nextep_navigation_accessibility" />
         </service>
+
+        <!-- Explicit opt-in notification access hosts a passive proxy media session. -->
+        <service
+            android:name=".media.MediaBridgeListenerService"
+            android:label="@string/media_bridge_group"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Observers run under the source UID; every call is checked against it. -->
+        <provider
+            android:name=".media.MediaBridgeProvider"
+            android:authorities="io.github.lujinxin.nextep.media.bridge"
+            android:exported="true" />
+        <receiver android:name=".media.MediaBridgeControlReceiver" android:exported="false" />
 
         <!-- User-authorized overlay; real task windows remain in SystemUI. -->
         <service

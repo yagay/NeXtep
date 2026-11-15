@@ -283,4 +283,18 @@
     <string name="floating_dock_menu_next_short">下一個</string>
     <string name="floating_dock_menu_hide_short">減少槽位</string>
     <string name="floating_dock_menu_add_short">增加槽位</string>
+    <!-- Universal media bridge -->
+    <string name="media_bridge_group">通用系統媒體橋接</string>
+    <string name="media_bridge_group_summary">讓沒有標準媒體會話的 App 接入系統媒體面板</string>
+    <string name="media_bridge_enable">啟用通用媒體橋接</string>
+    <string name="media_bridge_enable_summary">需要通知讀取權限和所選 App 的 LSPosed 作用域；原生媒體優先</string>
+    <string name="media_bridge_restart_hint">修改媒體橋接或 LSPosed 作用域後，請重新啟動所選 App</string>
+    <string name="media_bridge_apps_count">已選擇 %1$d 個 App</string>
+    <string name="media_bridge_select_apps">選擇媒體橋接應用</string>
+    <string name="media_bridge_select_apps_summary">只允許所選 App 上報播放狀態，還需要在 LSPosed 中啟用其作用域</string>
+    <string name="media_bridge_listener_title">通知讀取權限</string>
+    <string name="media_bridge_listener_summary">用於檢測原生媒體會話，避免重複媒體卡；也負責執行橋接服務</string>
+    <string name="media_bridge_listener_action">開啟通知存取設定</string>
+    <string name="media_bridge_listener_unavailable">無法開啟通知存取設定</string>
+    <string name="media_bridge_clear">清除</string>
 </resources>

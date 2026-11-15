@@ -467,6 +467,85 @@ object SettingsScreen {
                     ), matchWidth())
             }, matchWidth().apply { bottomMargin = dp(activity, 12) })
             addView(collapsibleSettingCard(
+                activity, R.string.media_bridge_group, R.string.media_bridge_group_summary,
+                "media_bridge", false,
+            ) {
+                addView(settingSwitchRow(
+                    activity, activity.getString(R.string.media_bridge_enable),
+                    activity.getString(R.string.media_bridge_enable_summary),
+                    repository.isMediaBridgeEnabled(),
+                    { value ->
+                        repository.setMediaBridgeEnabled(value)
+                        Toast.makeText(activity, R.string.media_bridge_restart_hint,
+                            Toast.LENGTH_LONG).show()
+                    },
+                ), matchWidth())
+                addView(settingDivider(activity))
+                val mediaAppsButton = SettingsRowButton.create(activity).apply {
+                    fun refreshLabel() {
+                        text = activity.getString(R.string.media_bridge_apps_count,
+                            repository.mediaBridgePackages().size)
+                    }
+                    refreshLabel()
+                    setOnClickListener {
+                        val selected = repository.mediaBridgePackages().toMutableSet()
+                        val candidates = apps.mapNotNull { entry ->
+                            val pkg = ComponentName.unflattenFromString(
+                                entry.key.substringAfter('|'))?.packageName
+                                ?: return@mapNotNull null
+                            if (pkg == activity.packageName) return@mapNotNull null
+                            pkg to entry.label
+                        }.distinctBy { it.first }.sortedBy { it.second.lowercase() }
+                        val all = (candidates + selected.filter { pkg ->
+                            candidates.none { it.first == pkg }
+                        }.map { it to it }).distinctBy { it.first }
+                        val labels = all.map { "${it.second}  (${it.first})" }.toTypedArray()
+                        val checked = BooleanArray(all.size) { all[it].first in selected }
+                        MaterialAlertDialogBuilder(activity)
+                            .setTitle(R.string.media_bridge_select_apps)
+                            .setMultiChoiceItems(labels, checked) { _, index, enabled ->
+                                if (enabled) selected.add(all[index].first)
+                                else selected.remove(all[index].first)
+                            }
+                            .setPositiveButton(android.R.string.ok) { _, _ ->
+                                repository.setMediaBridgePackages(selected)
+                                refreshLabel()
+                                Toast.makeText(activity, R.string.media_bridge_restart_hint,
+                                    Toast.LENGTH_LONG).show()
+                            }
+                            .setNeutralButton(R.string.media_bridge_clear) { _, _ ->
+                                repository.setMediaBridgePackages(emptySet())
+                                refreshLabel()
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show()
+                    }
+                }
+                addView(settingRow(activity,
+                    activity.getString(R.string.media_bridge_select_apps),
+                    activity.getString(R.string.media_bridge_select_apps_summary),
+                    mediaAppsButton,
+                ).apply { setOnClickListener { mediaAppsButton.performClick() } }, matchWidth())
+                addView(settingDivider(activity))
+                val listenerButton = SettingsRowButton.create(activity).apply {
+                    text = activity.getString(R.string.media_bridge_listener_action)
+                    setOnClickListener {
+                        runCatching {
+                            activity.startActivity(android.content.Intent(
+                                "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
+                        }.onFailure {
+                            Toast.makeText(activity, R.string.media_bridge_listener_unavailable,
+                                Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                addView(settingRow(activity,
+                    activity.getString(R.string.media_bridge_listener_title),
+                    activity.getString(R.string.media_bridge_listener_summary),
+                    listenerButton,
+                ).apply { setOnClickListener { listenerButton.performClick() } }, matchWidth())
+            }, matchWidth().apply { bottomMargin = dp(activity, 12) })
+            addView(collapsibleSettingCard(
                 activity, R.string.settings_group_display, R.string.settings_group_display_summary,
                 "display", false,
             ) {

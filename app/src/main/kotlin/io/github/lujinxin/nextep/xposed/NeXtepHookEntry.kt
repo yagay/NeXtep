@@ -3,6 +3,7 @@ package io.github.lujinxin.nextep.xposed
 import android.util.Log
 import io.github.lujinxin.nextep.logging.NeXtepLog
 import io.github.lujinxin.nextep.launcher.ColorOsLauncherHook
+import io.github.lujinxin.nextep.media.MediaBridgeHook
 import io.github.lujinxin.nextep.launcher.LauncherNavigationFoldHook
 import io.github.lujinxin.nextep.multiapp.OplusMultiAppHook
 import io.github.lujinxin.nextep.framework.TaskSurfaceCompat
@@ -70,6 +71,18 @@ class NeXtepHookEntry : XposedModule() {
                 OplusMultiAppHook.install(this, param.defaultClassLoader)
             }
             return
+        }
+
+        // The observer is inert unless the scoped app itself is on the
+        // user-maintained bridge allowlist. Never inject into core services.
+        if (!EmergencyDisable.isRequested() &&
+            !packageName.startsWith("com.android.") &&
+            !packageName.startsWith("android.") &&
+            !packageName.startsWith("com.oplus.") &&
+            !packageName.startsWith("com.coloros.")) {
+            HookGuard.run("media_bridge_app_observer") {
+                MediaBridgeHook.install(this, param.defaultClassLoader, packageName)
+            }
         }
 
         if (EmergencyDisable.isRequested() || !FeatureGate.LAUNCHER_TRANSFORM.defaultEnabled) return
