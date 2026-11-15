@@ -18,6 +18,7 @@ object SystemServerWorkspaceBridge {
     private const val GEOMETRY_KEY = "nextep_workspace_geometry_v1"
     internal const val BLOCK_SYSTEM_DRAG_SHARE_KEY = "nextep_workspace_block_system_drag_share_v1"
     const val INDEPENDENT_SLOT_LOCK_GUARD_KEY = "nextep_slot_independent_lock_guard_v1"
+    const val FLOATING_SLOT_BACKGROUND_KEEPALIVE_KEY = "nextep_floating_slot_background_keepalive_v1"
     const val NATIVE_TASK_LOCK_GUARD_KEY = "nextep_native_task_lock_guard_v1"
     const val NATIVE_TASK_FREEZER_KEY = "nextep_native_task_freezer_v1"
     const val NATIVE_TASK_IDENTITIES_KEY = "nextep_native_task_identities_v1"
@@ -68,6 +69,18 @@ object SystemServerWorkspaceBridge {
             }
         }.onFailure {
             NeXtepLog.warn("system_server_bridge", "Unable to publish independent slot lock guard", it)
+        }
+    }
+
+    /** Independent opt-in: strictly only SystemUI-owned NeXtep virtual displays. */
+    fun publishFloatingSlotBackgroundKeepalive(context: Context, enabled: Boolean) {
+        runCatching {
+            val resolver = context.contentResolver
+            val desired = if (enabled) 1 else 0
+            if (Settings.Global.getInt(resolver, FLOATING_SLOT_BACKGROUND_KEEPALIVE_KEY, -1) != desired)
+                Settings.Global.putInt(resolver, FLOATING_SLOT_BACKGROUND_KEEPALIVE_KEY, desired)
+        }.onFailure {
+            NeXtepLog.warn("system_server_bridge", "Unable to publish floating slot keepalive", it)
         }
     }
 
