@@ -103,7 +103,7 @@ internal object SystemUiMediaPipelineDiagnostics {
         NeXtepLog.info("media_bridge", "SYSTEMUI_PIPELINE_HOOK_COUNT=$hooks")
     }
 
-    private fun preserveBridgeClickIntent(args: Array<Any?>, source: String) {
+    private fun preserveBridgeClickIntent(args: List<Any?>, source: String) {
         val data = args.firstOrNull { value ->
             value != null && value.javaClass.name.endsWith(".MediaData") &&
                 value.javaClass.name.startsWith("com.android.systemui.")
