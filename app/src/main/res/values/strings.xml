@@ -297,7 +297,7 @@
     <string name="floating_dock_menu_add_short">Add slot</string>
     <!-- Universal media bridge -->
     <string name="media_bridge_group">Dock Media Bridge</string>
-    <string name="media_bridge_group_summary">Only monitor apps inside NeXtep's four virtual slots</string>
+    <string name="media_bridge_group_summary">Only monitor apps inside the four NeXtep virtual slots</string>
     <string name="media_bridge_enable">Enable dock system media</string>
     <string name="media_bridge_enable_summary">No target-app LSPosed scope. Detect media audio from occupied slots and publish an Android media card. Titles and episode details cannot be recovered from audio alone.</string>
     <string name="media_bridge_restart_hint">Only the existing SystemUI LSPosed scope is required. Restart SystemUI after updating the module.</string>
