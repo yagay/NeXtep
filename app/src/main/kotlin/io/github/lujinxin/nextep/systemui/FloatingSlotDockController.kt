@@ -490,6 +490,14 @@ internal class FloatingSlotDockController(
         reason: String,
         after: (() -> Unit)? = null,
     ): Boolean {
+        // Defense in depth: no caller may reparent a Task on HOME, even if
+        // an older task-stack observation or a future feature calls here.
+        if (reason == "home") {
+            NeXtepLog.info("auto_slot",
+                "HOME_AUTO_PARK_REJECTED task=$taskId")
+            after?.invoke()
+            return false
+        }
         if (taskId <= 0 || userId < 0 || suspendedForLock || removalPending ||
             stableZoom != null || autoParkPending) {
             NeXtepLog.info("auto_slot", "REJECT_BUSY reason=$reason task=$taskId")
