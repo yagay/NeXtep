@@ -56,6 +56,12 @@ class SlotTaskCoordinator(
         var migrationRecoveryTask: TaskRepository.TaskSnapshot? = null,
         var migrationRecoveryDeadline: Long = 0L,
         var migrationRecoveryAttempts: Int = 0,
+        // Only a user-pinned Task parked by Home may be returned to its slot.
+        var homeParkedTaskId: Int? = null,
+        var homeParkedUserId: Int? = null,
+        var homeParkedAtMs: Long = 0L,
+        var homeReturnObservedAtMs: Long = 0L,
+        var homeReturnAttempts: Int = 0,
     )
 
     private data class TaskLayout(
@@ -650,6 +656,23 @@ class SlotTaskCoordinator(
             // A lock/app switch must NOT change the user's foreground.
             parkMainTaskInSlot(index, ready, task,
                 leaveOverview = restoreHomeAfterMove)
+            // Track the EXACT identity, not only its package; explicit slot
+            // promotions clear this record before a future reconciliation.
+            val record = slotRecords[index]
+            if (restoreHomeAfterMove && preferredSlot == index &&
+                pinnedPackages[index] == expectedPackage) {
+                record.homeParkedTaskId = taskId
+                record.homeParkedUserId = expectedUserId
+                record.homeParkedAtMs = SystemClock.uptimeMillis()
+                record.homeReturnObservedAtMs = 0L
+                record.homeReturnAttempts = 0
+                NeXtepLog.info("home_dock_recovery",
+                    "ARMED task=$taskId pkg=$expectedPackage slot=$index " +
+                        "maxReturns=${HomeDockReturnPolicy.MAX_RETURNS}")
+            } else {
+                record.homeParkedTaskId = null
+                record.homeParkedUserId = null
+            }
             if (restoreHomeAfterMove) NeXtepLog.info("auto_slot",
                 "PIN_HOME_RESTORED task=$taskId slot=$index")
         }.map { index }
@@ -1606,7 +1629,8 @@ class SlotTaskCoordinator(
                         if (occupied != null &&
                             occupied.taskId == retainedTask.taskId &&
                             occupied.displayId == displayId &&
-                            onExternalForegroundPromotion(index, occupied, retainedTask)
+                            (retainHomeParkedTask(index, retainedTask, "$reason full") ||
+                                onExternalForegroundPromotion(index, occupied, retainedTask))
                         ) {
                             record.mismatchSince = 0L
                             return@forEachIndexed
@@ -1812,6 +1836,112 @@ class SlotTaskCoordinator(
             }
     }
 
+    /**
+     * ColorOS Quickstep/ShortSeriesActivity may reparent a Task back to Display
+     * 0 AFTER a successful Home park. Do not immediately destroy the slot's
+     * ownership. Wait for a stable observation and attempt a bounded move of
+     * the SAME live Task to its reserved VirtualDisplay. No app relaunch and
+     * no synthetic HOME key or focus-stealing loop.
+     *
+     * Explicit slot/media taps use swapWithMain(), which calls
+     * clearSlotAssignment() and therefore never enter this recovery path.
+     */
+    private fun retainHomeParkedTask(
+        slotIndex: Int,
+        task: TaskRepository.TaskSnapshot,
+        source: String,
+    ): Boolean {
+        val record = slotRecords.getOrNull(slotIndex) ?: return false
+        val occupied = record.state as? SlotState.Occupied ?: return false
+        if (record.homeParkedTaskId != task.taskId) return false
+        val now = SystemClock.uptimeMillis()
+        val ageMs = now - record.homeParkedAtMs
+        val observedMs = record.homeReturnObservedAtMs.takeIf { it > 0L }
+            ?.let { (now - it).coerceAtLeast(0L) }
+        val decision = HomeDockReturnPolicy.decide(
+            pinned = pinnedPackages[slotIndex] == task.component.packageName,
+            sameTaskAndUser = occupied.taskId == task.taskId &&
+                occupied.component.packageName == task.component.packageName &&
+                task.userId != null && task.userId == record.homeParkedUserId &&
+                slots[slotIndex].displayId() == occupied.displayId,
+            fullscreen = task.displayId == Display.DEFAULT_DISPLAY &&
+                task.windowingMode == fullscreenWindowingMode() && !task.vendorWindowed,
+            ageMs = ageMs,
+            observedForMs = observedMs,
+            completedReturns = record.homeReturnAttempts,
+        )
+        when (decision) {
+            HomeDockReturnPolicy.Decision.RELEASE -> {
+                NeXtepLog.warn("home_dock_recovery",
+                    "RELEASE task=${task.taskId} pkg=${task.component.packageName} " +
+                        "source=$source ageMs=$ageMs attempts=${record.homeReturnAttempts} " +
+                        "display=${task.displayId} mode=${task.windowingMode}")
+                return false
+            }
+            HomeDockReturnPolicy.Decision.OBSERVE -> {
+                record.homeReturnObservedAtMs = now
+                NeXtepLog.info("home_dock_recovery",
+                    "EXTERNAL_PROMOTION_SEEN task=${task.taskId} " +
+                        "source=$source ageMs=$ageMs display=${task.displayId} " +
+                        "slotDisplay=${occupied.displayId}")
+                scheduleReconciliation(HomeDockReturnPolicy.OBSERVE_MS)
+                return true
+            }
+            HomeDockReturnPolicy.Decision.WAIT -> {
+                scheduleReconciliation(
+                    (HomeDockReturnPolicy.OBSERVE_MS - (observedMs ?: 0L))
+                        .coerceAtLeast(40L))
+                return true
+            }
+            HomeDockReturnPolicy.Decision.RESTORE -> Unit
+        }
+        if (!active || suspended || transitionInProgress || recentSelectionPending ||
+            visualTransitionPending || activeDrag != null) {
+            // A regular transition owns the task; never compete with it.
+            scheduleReconciliation(400L)
+            return true
+        }
+        val current = taskRepository.findTask(task.taskId)
+        if (current == null || current.displayId != Display.DEFAULT_DISPLAY ||
+            current.userId != record.homeParkedUserId ||
+            current.component.packageName != occupied.component.packageName) {
+            record.homeReturnObservedAtMs = 0L
+            scheduleReconciliation(WorkspaceRefreshPolicy.FAST_INTERVAL_MS)
+            return true
+        }
+        val attempt = ++record.homeReturnAttempts
+        NeXtepLog.info("home_dock_recovery",
+            "RESTORE_REQUEST task=${task.taskId} slot=$slotIndex " +
+                "attempt=$attempt/${HomeDockReturnPolicy.MAX_RETURNS} source=$source")
+        return runCatching {
+            moveTaskToDisplayAndWait(task.taskId, occupied.displayId)
+            val restored = taskRepository.findTask(task.taskId)
+                ?: error("Protected task vanished during restoration")
+            check(restored.displayId == occupied.displayId &&
+                restored.component.packageName == occupied.component.packageName) {
+                "Protected task changed while restoring"
+            }
+            ensureSlotLayout(slotIndex, restored)
+            record.homeReturnObservedAtMs = 0L
+            record.mismatchSince = 0L
+            refreshPolicy.onTaskChanged(SystemClock.uptimeMillis())
+            scheduleReconciliation(TASK_CHANGE_COALESCE_MS)
+            NeXtepLog.info("home_dock_recovery",
+                "RESTORED task=${task.taskId} slot=$slotIndex " +
+                    "display=${occupied.displayId} attempt=$attempt")
+            true
+        }.getOrElse { error ->
+            NeXtepLog.warn("home_dock_recovery",
+                "RESTORE_FAILED task=${task.taskId} slot=$slotIndex attempt=$attempt",
+                error)
+            if (attempt < HomeDockReturnPolicy.MAX_RETURNS) {
+                record.homeReturnObservedAtMs = 0L
+                scheduleReconciliation(400L)
+                true
+            } else false
+        }
+    }
+
     private fun reconcileForeground(reason: String) {
         val tasks = taskRepository.runningTasks()
         val foreground = tasks.firstOrNull { it.displayId == Display.DEFAULT_DISPLAY } ?: return
@@ -1820,6 +1950,10 @@ class SlotTaskCoordinator(
                 foreground.displayId == Display.DEFAULT_DISPLAY
         }
         if (promotedSlot >= 0) {
+            // Full reconciliation and the fast foreground path must apply
+            // the same retention rule. Never clear a just-parked pinned Task
+            // on the first apparent external promotion to Display 0.
+            if (retainHomeParkedTask(promotedSlot, foreground, "$reason foreground")) return
             val record = slotRecords[promotedSlot]
             val originalLayout = record.originalLayout
                 ?: defaultMainLayout(foreground.resizeMode)
@@ -2125,6 +2259,11 @@ class SlotTaskCoordinator(
         record.migrationRecoveryDeadline = 0L
         record.migrationRecoveryAttempts = 0
         record.mismatchSince = 0L
+        record.homeParkedTaskId = null
+        record.homeParkedUserId = null
+        record.homeParkedAtMs = 0L
+        record.homeReturnObservedAtMs = 0L
+        record.homeReturnAttempts = 0
     }
 
     private fun setState(index: Int, state: SlotState, reason: String) {

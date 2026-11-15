@@ -37,6 +37,11 @@ object SystemServerHook {
         HookGuard.run("workspace_ime_target") { WorkspaceImeTargetHook.install(module, classLoader) }
         HookGuard.run("workspace_navigation") { WorkspaceNavigationBarHook.install(module, classLoader) }
         HookGuard.run("floating_navigation_events") { SystemNavigationFoldHook.install(module, classLoader) }
+        // Read-only Binder caller attribution for unexpected pinned-task
+        // promotion. No task mutation, and failed hook installation is isolated.
+        HookGuard.run("systemserver_task_move_trace") {
+            SystemServerTaskMoveTrace.install(module, classLoader)
+        }
         HookGuard.run("pinned_virtual_prelock_power_key") {
             PhysicalPowerKeyPrelockHook.install(module, classLoader)
         }
