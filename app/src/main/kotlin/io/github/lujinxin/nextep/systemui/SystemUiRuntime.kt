@@ -84,14 +84,15 @@ object SystemUiRuntime {
             task?.userId == null || task.displayId != Display.DEFAULT_DISPLAY ||
             task.windowingMode != 1 || task.vendorWindowed) return false
         val pkg = task.component.packageName
-        val pinned = floatingDock.pinnedSlotFor(pkg, task.userId) != null
-        val enabled = pinned ||
-            if (onLock) workspaceConfig.autoSlotOnLock
-            else workspaceConfig.autoSlotOnBackground
-        if (!enabled) return false
-        if ((!pinned && (workspaceConfig.autoSlotPackages.isEmpty() ||
-            pkg !in workspaceConfig.autoSlotPackages)) ||
-            pkg == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
+        // Locking a slot grants Task-scoped lifecycle protection only.
+        // Automatic migration is a separate explicit option plus app selection.
+        if (!AutoSlotTransitionPolicy.permitsAutomaticMove(
+                enabled = if (onLock) workspaceConfig.autoSlotOnLock
+                    else workspaceConfig.autoSlotOnBackground,
+                selected = pkg in workspaceConfig.autoSlotPackages,
+                nextIsHome = false,
+            )) return false
+        if (pkg == TriggerBroadcastContract.SYSTEM_UI_PACKAGE ||
             pkg == TriggerBroadcastContract.MODULE_PACKAGE ||
             pkg == TriggerBroadcastContract.resolveHomePackage(applicationContext)) return false
         val now = android.os.SystemClock.elapsedRealtime()
@@ -101,57 +102,53 @@ object SystemUiRuntime {
 
     private fun captureAutoSlotForeground(source: String, parkOnChange: Boolean) {
         if (!::autoSlotTaskRepository.isInitialized ||
-            (!workspaceConfig.autoSlotOnBackground && !workspaceConfig.autoSlotOnLock &&
-                (!::floatingDock.isInitialized || !floatingDock.hasPinnedBindings()))) return
+            (!workspaceConfig.autoSlotOnBackground && !workspaceConfig.autoSlotOnLock)) return
         val next = autoSlotTaskRepository.foregroundTask()
         val previous = observedForeground
         observedForeground = next
         if (!parkOnChange || autoSlotPending || previous?.userId == null ||
-            next == null || next.taskId == previous.taskId ||
-            !isAutoSlotAllowed(previous, onLock = false)) return
+            next == null || next.taskId == previous.taskId) return
 
-        // Home runs the already-in-progress Quickstep animation. A task
-        // observed on the desktop for one instant is not yet safely movable.
-        // Lock parking is intentionally separate and remains immediate.
         val homePackage = TriggerBroadcastContract.resolveHomePackage(applicationContext)
-        val returningHome = PinnedHomeTransitionPolicy.shouldAutoParkOnHome(
-            pinned = floatingDock.pinnedSlotFor(
-                previous.component.packageName, previous.userId) != null,
-            nextIsHome = homePackage != null && next.component.packageName == homePackage,
-        )
-        val parkReason = if (returningHome) "home" else "background"
+        val nextIsHome = homePackage != null && next.component.packageName == homePackage
+        if (!AutoSlotTransitionPolicy.permitsAutomaticMove(
+                enabled = workspaceConfig.autoSlotOnBackground,
+                selected = previous.component.packageName in workspaceConfig.autoSlotPackages,
+                nextIsHome = nextIsHome,
+            )) {
+            if (nextIsHome) NeXtepLog.info("auto_slot",
+                "HOME_AUTO_PARK_DISABLED task=${previous.taskId} source=$source")
+            return
+        }
+        if (!isAutoSlotAllowed(previous, onLock = false)) return
+
         val taskId = previous.taskId
         val pkg = previous.component.packageName
         val userId = previous.userId
         autoSlotPending = true
-        fun commitPark() {
+        // Never reparent a Task during/after HOME's Quickstep transition,
+        // including when focus changes to HOME while this callback is queued.
+        lifecycleHandler.postDelayed({
             try {
                 val latest = autoSlotTaskRepository.foregroundTask()
-                val stillHome = homePackage != null &&
-                    latest?.taskId == next.taskId &&
+                val nowHome = homePackage != null &&
                     latest?.component?.packageName == homePackage
-                if (returningHome && (!stillHome ||
-                    floatingDock.pinnedSlotFor(pkg, userId) == null)) {
-                    NeXtepLog.info("auto_slot",
-                        "HOME_SETTLE_CANCEL_CHANGED_FOCUS task=$taskId")
-                    return
-                }
-                if (isScreenReady() && !isKeyguardLocked(applicationContext) &&
+                if (!nowHome && isScreenReady() &&
+                    !isKeyguardLocked(applicationContext) &&
                     isAutoSlotAllowed(previous, onLock = false) &&
                     latest?.taskId != taskId) {
                     val accepted = floatingDock.autoParkCaptured(
-                        taskId, pkg, userId, parkReason)
+                        taskId, pkg, userId, "background")
                     if (accepted) {
                         lastAutoParkTaskId = taskId
                         lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
                         NeXtepLog.info("auto_slot",
-                            "AUTO_PARK_DISPATCH task=$taskId reason=$parkReason " +
-                                "homeSettled=$returningHome")
+                            "AUTO_PARK_DISPATCH task=$taskId reason=background")
                     }
                 } else {
                     NeXtepLog.info("auto_slot",
-                        "AUTO_PARK_SKIP_CHANGED_STATE task=$taskId reason=$parkReason " +
-                            "latest=${latest?.taskId}")
+                        "AUTO_PARK_SKIP_CHANGED_STATE task=$taskId " +
+                            "latest=${latest?.taskId} home=$nowHome")
                 }
             } catch (error: Throwable) {
                 NeXtepLog.warn("auto_slot",
@@ -159,70 +156,14 @@ object SystemUiRuntime {
             } finally {
                 autoSlotPending = false
             }
-        }
-        if (returningHome) {
-            NeXtepLog.info("auto_slot",
-                "HOME_SETTLE_START task=$taskId launcherTask=${next.taskId} " +
-                    "firstDelayMs=${HomeAutoParkSettlePolicy.FIRST_CHECK_DELAY_MS}")
-            fun sampleHome(confirmations: Int) {
-                try {
-                    val latest = autoSlotTaskRepository.foregroundTask()
-                    val target = autoSlotTaskRepository.findTask(taskId)
-                    val stillHome = homePackage != null &&
-                        latest?.component?.packageName == homePackage
-                    val sameHomeTask = latest?.taskId == next.taskId
-                    val onMain = target?.displayId == Display.DEFAULT_DISPLAY
-                    val sameTarget = target != null &&
-                        target.component.packageName == pkg && target.userId == userId &&
-                        target.windowingMode == 1 && !target.vendorWindowed
-                    val decision = HomeAutoParkSettlePolicy.decide(
-                        launcherStillForeground = stillHome,
-                        sameLauncherTask = sameHomeTask,
-                        targetStillOnMain = onMain,
-                        matchingTargetIdentity = sameTarget,
-                        confirmations = confirmations,
-                    )
-                    when (decision) {
-                        HomeAutoParkSettlePolicy.Decision.CANCEL -> {
-                            autoSlotPending = false
-                            NeXtepLog.info("auto_slot",
-                                "HOME_SETTLE_CANCEL task=$taskId samples=$confirmations " +
-                                    "home=$stillHome sameHomeTask=$sameHomeTask " +
-                                    "onMain=$onMain identity=$sameTarget")
-                        }
-                        HomeAutoParkSettlePolicy.Decision.WAIT -> {
-                            if (confirmations >= HomeAutoParkSettlePolicy.MAX_CHECKS) {
-                                autoSlotPending = false
-                                NeXtepLog.warn("auto_slot",
-                                    "HOME_SETTLE_TIMEOUT task=$taskId")
-                            } else lifecycleHandler.postDelayed({
-                                sampleHome(confirmations + 1)
-                            }, HomeAutoParkSettlePolicy.CONFIRM_DELAY_MS)
-                        }
-                        HomeAutoParkSettlePolicy.Decision.PARK -> {
-                            NeXtepLog.info("auto_slot",
-                                "HOME_SETTLED task=$taskId launcherTask=${next.taskId} " +
-                                    "samples=$confirmations")
-                            commitPark()
-                        }
-                    }
-                } catch (error: Throwable) {
-                    autoSlotPending = false
-                    NeXtepLog.warn("auto_slot",
-                        "HOME_SETTLE_FAILED task=$taskId", error)
-                }
-            }
-            lifecycleHandler.postDelayed({
-                sampleHome(1)
-            }, HomeAutoParkSettlePolicy.FIRST_CHECK_DELAY_MS)
-        } else lifecycleHandler.postDelayed({ commitPark() }, 120L)
+        }, 120L)
     }
 
     /**
      * A pinned card has just been promoted to the physical display. Seed the
-     * observed identity from the real foreground Task. Switching to another
-     * app or HOME returns it to its reserved slot; HOME restores launcher
-     * focus once the migration completes.
+     * observed identity from the real foreground Task. A pin alone never
+     * triggers a return to a virtual slot: HOME remains a normal transition.
+     * Explicit automatic movement to another app is still configurable.
      */
     fun onPinnedTaskPromoted(taskId: Int) {
         fun capture(source: String) {
@@ -246,7 +187,9 @@ object SystemUiRuntime {
     }
 
     private fun autoParkForLock(): Boolean {
-        if (!::autoSlotTaskRepository.isInitialized) return false
+        if (!::autoSlotTaskRepository.isInitialized ||
+            !workspaceConfig.autoSlotOnLock ||
+            workspaceConfig.autoSlotPackages.isEmpty()) return false
         if (::floatingDock.isInitialized && floatingDock.isAutoParkInProgress()) {
             NeXtepLog.info("auto_slot", "LOCK_PREPARK_ALREADY_IN_FLIGHT")
             return true
@@ -392,15 +335,13 @@ object SystemUiRuntime {
                     windowController.setNavigationButtonsEnabled(workspaceConfig.navigationButtonsEnabled)
                 }
                 if (::fourFingerGestures.isInitialized) fourFingerGestures.updateConfig(workspaceConfig)
-                if (workspaceConfig.autoSlotOnBackground || workspaceConfig.autoSlotOnLock ||
-                    (::floatingDock.isInitialized && floatingDock.hasPinnedBindings()))
+                if (workspaceConfig.autoSlotOnBackground || workspaceConfig.autoSlotOnLock)
                     captureAutoSlotForeground("config-init", parkOnChange = false)
                 // Prepare four hidden real VirtualDisplays while the screen is
                 // still unlocked. Creating a focusable SystemUI overlay after
                 // ACTION_SCREEN_OFF is too late and can disrupt keyguard.
-                if ((workspaceConfig.autoSlotOnLock &&
-                    workspaceConfig.autoSlotPackages.isNotEmpty() ||
-                    (::floatingDock.isInitialized && floatingDock.hasPinnedBindings())) &&
+                if (workspaceConfig.autoSlotOnLock &&
+                    workspaceConfig.autoSlotPackages.isNotEmpty() &&
                     workspaceConfig.floatingBubbleEnabled &&
                     workspaceConfig.floatingWindowMode ==
                         WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL &&
@@ -507,7 +448,8 @@ object SystemUiRuntime {
         if (workspaceConfigReady && ::floatingDock.isInitialized &&
             ::workspaceController.isInitialized && !workspaceController.isActive() &&
             isScreenReady() && isKeyguardLocked(applicationContext) &&
-            (floatingDock.hasPinnedBindings() || workspaceConfig.autoSlotOnLock)) {
+            workspaceConfig.autoSlotOnLock &&
+            workspaceConfig.autoSlotPackages.isNotEmpty()) {
             NeXtepLog.info("auto_slot", "KEYGUARD_PRELOCK_EVENT")
             autoParkForLock()
         }
