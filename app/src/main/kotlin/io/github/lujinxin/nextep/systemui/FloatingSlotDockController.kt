@@ -337,6 +337,29 @@ internal class FloatingSlotDockController(
         }.onFailure { NeXtepLog.warn("floating_dock", "POPUP_INPUT_POLICY_FAILED", it) }
     }
 
+    /**
+     * Only confirmed tasks on the four VirtualDisplays can become media
+     * candidates. This also works while the dock is folded: tasks are retained.
+     * No hook or observer is installed in the occupied application process.
+     */
+    fun occupiedMediaApps(): List<DockMediaAudioObserver.SlotApp> {
+        if (!hasSession()) return emptyList()
+        return coordinator?.slotStates().orEmpty().mapIndexedNotNull { index, state ->
+            val occupied = state as? SlotState.Occupied ?: return@mapIndexedNotNull null
+            if (slots.getOrNull(index)?.displayId() != occupied.displayId)
+                return@mapIndexedNotNull null
+            val task = floatingTaskRepository.findTask(occupied.taskId)
+                ?: return@mapIndexedNotNull null
+            if (task.displayId != occupied.displayId ||
+                task.component.packageName != occupied.component.packageName)
+                return@mapIndexedNotNull null
+            val user = task.userId ?: return@mapIndexedNotNull null
+            val pkg = occupied.component.packageName
+            val uid = pinnedPackageUid(pkg, user) ?: return@mapIndexedNotNull null
+            DockMediaAudioObserver.SlotApp(pkg, uid)
+        }
+    }
+
     /** Visible and interactive, as opposed to a retained hidden live session. */
     fun isExpanded(): Boolean = host != null && panelVisible
 

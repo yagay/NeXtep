@@ -206,25 +206,12 @@ class SettingsRepository(private val context: Context) {
             notifyTopContentChanged()
     }
 
-    /** A separate, explicit opt-in; empty selection never hooks random apps. */
+    /** No target-app allowlist is needed; only SystemUI monitors NeXtep slots. */
     fun isMediaBridgeEnabled(): Boolean =
         preferences.getBoolean(KEY_MEDIA_BRIDGE_ENABLED, false)
 
-    fun mediaBridgePackages(): Set<String> =
-        preferences.getStringSet(KEY_MEDIA_BRIDGE_PACKAGES, emptySet())
-            .orEmpty().filter { it.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) }
-            .toSet()
-
     fun setMediaBridgeEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_MEDIA_BRIDGE_ENABLED, enabled).commit()
-    }
-
-    fun setMediaBridgePackages(packages: Set<String>) {
-        val safe = packages.map(String::trim)
-            .filter { it != "io.github.lujinxin.nextep" &&
-                it.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) }
-            .take(40).toSet()
-        preferences.edit().putStringSet(KEY_MEDIA_BRIDGE_PACKAGES, safe).commit()
     }
 
     fun setAutoSlotPackages(packages: Set<String>) {
@@ -372,7 +359,6 @@ class SettingsRepository(private val context: Context) {
         const val KEY_AUTO_SLOT_LOCK = "auto_slot_on_lock"
         const val KEY_AUTO_SLOT_PACKAGES = "auto_slot_packages"
         const val KEY_MEDIA_BRIDGE_ENABLED = "media_bridge_enabled"
-        const val KEY_MEDIA_BRIDGE_PACKAGES = "media_bridge_packages"
         const val KEY_NATIVE_LOCK_GUARD_ENABLED = "native_lock_guard_enabled"
         const val KEY_NATIVE_FREEZE_PROTECTION_ENABLED = "native_freeze_protection_enabled"
         const val KEY_FLOATING_POPUP_BACK_ENABLED = "floating_popup_back_enabled"

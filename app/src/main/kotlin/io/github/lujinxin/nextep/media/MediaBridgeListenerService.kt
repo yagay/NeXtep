@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -27,9 +26,9 @@ import io.github.lujinxin.nextep.config.SettingsRepository
 import io.github.lujinxin.nextep.logging.NeXtepLog
 
 /**
- * One passive proxy session, hosted by a user-enabled notification listener.
- * Never plays audio, never creates an extra decoder, never takes audio focus.
- * It only reflects trustworthy observations from selected LSPosed scopes.
+ * One system media card for an audibly playing NeXtep VirtualDisplay task.
+ * No target-app Hook, fake playback engine, or synthetic transport controls.
+ * Real app-owned MediaSessions always take priority.
  */
 class MediaBridgeListenerService : NotificationListenerService() {
     private val handler = Handler(Looper.getMainLooper())
@@ -40,6 +39,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
     private var session: MediaSession? = null
     private var selected: MediaBridgeSnapshot? = null
     private var connected = false
+    private var lastDockReportMs = 0L
     private val refreshTask = object : Runnable {
         override fun run() {
             if (!connected) return
@@ -56,13 +56,13 @@ class MediaBridgeListenerService : NotificationListenerService() {
         connected = true
         active = this
         notifications?.createNotificationChannel(NotificationChannel(
-            CHANNEL, "NeXtep 通用媒体桥接", NotificationManager.IMPORTANCE_LOW))
+            CHANNEL, "NeXtep 槽位媒体", NotificationManager.IMPORTANCE_LOW))
         runCatching {
             sessions?.addOnActiveSessionsChangedListener(activeSessionsListener, listenerId, handler)
         }.onFailure { NeXtepLog.warn("media_bridge", "SESSION_LISTENER_FAILED", it) }
         handler.removeCallbacks(refreshTask)
         handler.post(refreshTask)
-        NeXtepLog.info("media_bridge", "NOTIFICATION_LISTENER_CONNECTED")
+        NeXtepLog.info("media_bridge", "DOCK_MEDIA_LISTENER_CONNECTED")
     }
 
     override fun onListenerDisconnected() {
@@ -91,14 +91,36 @@ class MediaBridgeListenerService : NotificationListenerService() {
         handler.removeCallbacks(refreshTask)
         runCatching { sessions?.removeOnActiveSessionsChangedListener(activeSessionsListener) }
         candidates.clear()
+        lastDockReportMs = 0
         retire()
     }
 
-    private fun observe(snapshot: MediaBridgeSnapshot) {
+    /** Each report replaces the complete verified four-slot occupancy snapshot. */
+    private fun observeDock(
+        occupied: Set<String>,
+        audible: Set<String>,
+        uidReadable: Boolean,
+    ) {
         if (!connected) return
-        if (snapshot.state == MediaBridgeContract.STATE_STOPPED)
-            candidates.remove(snapshot.packageName)
-        else candidates[snapshot.packageName] = snapshot
+        lastDockReportMs = SystemClock.elapsedRealtime()
+        val confirmed = audible.intersect(occupied)
+        candidates.keys.retainAll(confirmed)
+        for (pkg in confirmed) {
+            candidates[pkg] = MediaBridgeSnapshot(
+                packageName = pkg,
+                state = MediaBridgeContract.STATE_PLAYING,
+                source = "systemui-dock-audio",
+                title = null, // The audio framework does not expose episode metadata.
+                artist = null,
+                durationMs = -1L,
+                positionMs = -1L,
+                controllable = false, // Don't invent controls for inaccessible players.
+                receivedAtMs = lastDockReportMs,
+            )
+        }
+        NeXtepLog.debug("media_bridge",
+            "DOCK_REPORT occupied=${occupied.size} audible=${confirmed.size} " +
+                "uidReadable=$uidReadable")
         refresh()
     }
 
@@ -114,43 +136,40 @@ class MediaBridgeListenerService : NotificationListenerService() {
     private fun refresh() {
         if (!connected) return
         val settings = SettingsRepository(this)
-        if (!settings.isMediaBridgeEnabled()) {
+        val now = SystemClock.elapsedRealtime()
+        if (!settings.isMediaBridgeEnabled() ||
+            now - lastDockReportMs > DOCK_REPORT_TTL_MS) {
             candidates.clear()
             retire()
             return
         }
-        val now = SystemClock.elapsedRealtime()
-        val allow = settings.mediaBridgePackages()
-        candidates.entries.removeAll { (pkg, sample) ->
-            pkg !in allow || now - sample.receivedAtMs > MediaBridgePolicy.PAUSED_STALE_MS
+        candidates.entries.removeAll { (_, sample) ->
+            now - sample.receivedAtMs > MediaBridgePolicy.PLAYING_STALE_MS
+        }
+        if (candidates.isEmpty()) {
+            retire()
+            return
         }
         val best = MediaBridgePolicy.choose(candidates.values, now, originalSessionPackages())
         if (best == null) {
             retire()
             return
         }
-        if (best != selected) publish(best)
+        if (session == null || selected?.packageName != best.packageName ||
+            selected?.state != best.state) publish(best)
     }
 
     private fun ensureSession(): MediaSession {
         session?.let { return it }
-        return MediaSession(this, "NeXtepUniversalMediaBridge").apply {
-            setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or
-                MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
-            setCallback(object : MediaSession.Callback() {
-                override fun onPlay() = command(MediaBridgeContract.COMMAND_PLAY)
-                override fun onPause() = command(MediaBridgeContract.COMMAND_PAUSE)
-                override fun onStop() {
-                    command(MediaBridgeContract.COMMAND_PAUSE)
-                    retire()
-                }
-            }, handler)
+        return MediaSession(this, "NeXtepDockMedia").apply {
+            // No transport actions are advertised for apps without an exposed
+            // command endpoint. Sending generic media keys may control the proxy itself.
             val launch = Intent(this@MediaBridgeListenerService, MainActivity::class.java)
             setSessionActivity(PendingIntent.getActivity(
                 this@MediaBridgeListenerService, 1801, launch,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            isActive = true
             session = this
+            isActive = true
         }
     }
 
@@ -174,67 +193,36 @@ class MediaBridgeListenerService : NotificationListenerService() {
             metadata.putLong(MediaMetadata.METADATA_KEY_DURATION, sample.durationMs)
         if (art != null) metadata.putBitmap(MediaMetadata.METADATA_KEY_ART, art)
         media.setMetadata(metadata.build())
-        val playing = sample.state == MediaBridgeContract.STATE_PLAYING
-        val actions = if (sample.controllable)
-            PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE
-        else 0L
         media.setPlaybackState(PlaybackState.Builder()
-            .setActions(actions)
-            .setState(if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
-                if (sample.positionMs >= 0) sample.positionMs
-                else PlaybackState.PLAYBACK_POSITION_UNKNOWN,
-                if (playing) 1f else 0f, SystemClock.elapsedRealtime())
+            .setActions(0L)
+            .setState(PlaybackState.STATE_PLAYING,
+                PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                1f, SystemClock.elapsedRealtime())
             .build())
-        val actionName = if (playing) MediaBridgeContract.COMMAND_PAUSE else MediaBridgeContract.COMMAND_PLAY
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_nextep_tile)
             .setContentTitle(title)
-            .setContentText(sample.artist ?: appName)
+            .setContentText(appName)
             .setShowWhen(false)
-            .setOngoing(playing)
+            .setOngoing(true)
             .setContentIntent(PendingIntent.getActivity(this, 1801,
                 Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
             .setStyle(Notification.MediaStyle().setMediaSession(media.sessionToken))
-            .apply {
-                if (sample.controllable) {
-                    val intent = Intent(this@MediaBridgeListenerService,
-                        MediaBridgeControlReceiver::class.java)
-                        .putExtra(MediaBridgeContract.EXTRA_COMMAND, actionName)
-                    addAction(Notification.Action.Builder(
-                        if (playing) android.R.drawable.ic_media_pause
-                        else android.R.drawable.ic_media_play,
-                        if (playing) "暂停" else "播放",
-                        PendingIntent.getBroadcast(this@MediaBridgeListenerService, 1802,
-                            intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-                    ).build())
-                }
-                if (art != null) setLargeIcon(art)
-            }
+            .apply { if (art != null) setLargeIcon(art) }
             .build()
-        notifications?.notify(NOTIFICATION_ID, notification)
+        runCatching { notifications?.notify(NOTIFICATION_ID, notification) }
+            .onFailure { NeXtepLog.warn("media_bridge", "NOTIFICATION_FAILED", it) }
         NeXtepLog.info("media_bridge",
-            "PUBLISHED pkg=${sample.packageName} state=${sample.state} " +
-                "source=${sample.source} metadata=${sample.title != null} controls=${sample.controllable}")
-    }
-
-    private fun command(action: String) {
-        val sample = selected ?: return
-        if (!connected || !sample.controllable ||
-            !SettingsRepository(this).isMediaBridgeEnabled()) return
-        val intent = Intent(MediaBridgeContract.ACTION_COMMAND)
-            .setPackage(sample.packageName)
-            .putExtra(MediaBridgeContract.EXTRA_COMMAND, action)
-        runCatching { sendBroadcast(intent) }.onFailure {
-            NeXtepLog.warn("media_bridge", "COMMAND_FAILED pkg=${sample.packageName}", it)
-        }
+            "DOCK_MEDIA_PUBLISHED pkg=${sample.packageName} metadata=app-label " +
+                "source=${sample.source} controls=false")
     }
 
     private fun retire() {
         if (selected == null && session == null) return
-        NeXtepLog.info("media_bridge", "RETIRED pkg=${selected?.packageName ?: "none"}")
+        NeXtepLog.info("media_bridge", "DOCK_MEDIA_RETIRED pkg=${selected?.packageName ?: "none"}")
         selected = null
-        notifications?.cancel(NOTIFICATION_ID)
+        runCatching { notifications?.cancel(NOTIFICATION_ID) }
         session?.runCatching { isActive = false; release() }
         session = null
     }
@@ -254,26 +242,18 @@ class MediaBridgeListenerService : NotificationListenerService() {
     companion object {
         private const val CHANNEL = "nextep_media_bridge"
         private const val NOTIFICATION_ID = 18022
+        private const val DOCK_REPORT_TTL_MS = 20_000L
         @Volatile private var active: MediaBridgeListenerService? = null
 
-        internal fun accept(sample: MediaBridgeSnapshot) {
+        internal fun acceptDock(
+            occupied: Set<String>,
+            audible: Set<String>,
+            uidReadable: Boolean,
+        ) {
             val target = active
-            target?.handler?.post { if (active === target) target.observe(sample) }
-        }
-
-        fun dispatchCommand(action: String) {
-            val target = active
-            target?.handler?.post { if (active === target) target.command(action) }
-        }
-    }
-}
-
-/** Notification actions remain confined to our own app process. */
-class MediaBridgeControlReceiver : android.content.BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        when (val cmd = intent.getStringExtra(MediaBridgeContract.EXTRA_COMMAND)) {
-            MediaBridgeContract.COMMAND_PLAY, MediaBridgeContract.COMMAND_PAUSE ->
-                MediaBridgeListenerService.dispatchCommand(cmd)
+            target?.handler?.post {
+                if (active === target) target.observeDock(occupied, audible, uidReadable)
+            }
         }
     }
 }

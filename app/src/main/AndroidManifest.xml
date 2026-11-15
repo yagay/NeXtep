@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <queries>
+        <!-- Resolve the privileged UID that supplies dock-only observations. -->
+        <package android:name="com.android.systemui" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -24,10 +26,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <permission
-        android:name="io.github.lujinxin.nextep.permission.MEDIA_BRIDGE_CONTROL"
-        android:protectionLevel="signature" />
-    <uses-permission android:name="io.github.lujinxin.nextep.permission.MEDIA_BRIDGE_CONTROL" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -76,12 +74,12 @@
             </intent-filter>
         </service>
 
-        <!-- Observers run under the source UID; every call is checked against it. -->
+        <!-- SystemUI owns the four slots. Reject all other provider callers. -->
         <provider
             android:name=".media.MediaBridgeProvider"
             android:authorities="io.github.lujinxin.nextep.media.bridge"
-            android:exported="true" />
-        <receiver android:name=".media.MediaBridgeControlReceiver" android:exported="false" />
+            android:exported="true"
+            android:permission="android.permission.STATUS_BAR_SERVICE" />
 
         <!-- User-authorized overlay; real task windows remain in SystemUI. -->
         <service

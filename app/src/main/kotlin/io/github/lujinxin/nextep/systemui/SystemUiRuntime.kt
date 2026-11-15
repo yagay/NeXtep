@@ -40,6 +40,7 @@ object SystemUiRuntime {
     private lateinit var applicationContext: Context
     private lateinit var windowController: NeXtepWindowController
     private lateinit var floatingDock: FloatingSlotDockController
+    private lateinit var dockMediaObserver: DockMediaAudioObserver
     private lateinit var nativeFreeform: NativeFreeformController
     private lateinit var workspaceController: WorkspaceController
     private lateinit var fourFingerGestures: FourFingerGestureController
@@ -251,6 +252,7 @@ object SystemUiRuntime {
         captureAutoSlotForeground("task-stack", parkOnChange = true)
         if (::windowController.isInitialized) windowController.onTasksChanged()
         if (::floatingDock.isInitialized) floatingDock.onTasksChanged()
+        if (::dockMediaObserver.isInitialized) dockMediaObserver.refreshSoon()
     }
 
     /** All sources converge here. Navigation never toggles or opens a folded dock. */
@@ -495,6 +497,12 @@ object SystemUiRuntime {
             floatingDock = FloatingSlotDockController(
                 applicationContext, windowController::recordedLayoutProfile,
             )
+            // Media bridge is read-only and scoped to our retained four-slot
+            // tasks. No third-party package needs an LSPosed scope.
+            dockMediaObserver = DockMediaAudioObserver(applicationContext) {
+                if (::floatingDock.isInitialized) floatingDock.occupiedMediaApps()
+                else emptyList()
+            }.also { it.start() }
             nativeFreeform = NativeFreeformController(applicationContext)
             autoSlotTaskRepository = TaskRepository(applicationContext)
             workspaceController = WorkspaceController(
