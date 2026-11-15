@@ -505,6 +505,14 @@ internal object NeXtepSlotLifecycleGuard {
 
     private fun shouldGuard(owner: Any): Boolean {
         queueObserver(owner)
+        // A previously prearmed virtual slot must not hijack Home/Recents
+        // after its pinned Task is promoted to the physical display.
+        // Display 0 is guarded only for the real power-key lock transition.
+        if (isPinnedTask(owner) && slotIdentity(owner)?.displayId == 0) {
+            val sincePower = android.os.SystemClock.elapsedRealtime() - lastPinnedPowerKeyAt
+            return enabled && !disabledByErrors && !isFinishing(owner) &&
+                (physicalScreenOff() || sincePower in 0L..PINNED_PRELOCK_WINDOW_MS)
+        }
         return SlotLockProtectionPolicy.eligible(
             enabled = enabled && !disabledByErrors,
             matchingSlot = isTrackedEligible(owner),
@@ -583,6 +591,11 @@ internal object NeXtepSlotLifecycleGuard {
 
     private fun shouldGuardBackgroundStop(owner: Any): Boolean {
         if (!shouldKeepBackgroundTask(owner)) return false
+        // Normal physical-display Home/app switching must be free to STOP
+        // the Activity. The verified pinned UID still receives freezer
+        // protection so stopping the UI need not kill its playback process.
+        if (isPinnedTask(owner) && slotIdentity(owner)?.displayId == 0 &&
+            !shouldGuard(owner)) return false
         val record = resumedActivity(owner) ?: return false
         val id = taskId(owner)
         val uid = recordUid(record) ?: return false
