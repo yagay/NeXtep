@@ -179,9 +179,9 @@ object SystemUiRuntime {
                     "PIN_FOREGROUND_CAPTURED task=$taskId source=$source")
             }
         }
-        // Register the promoted Task immediately. With a 160 ms-only delay,
-        // a rapid HOME gesture could occur before the identity was recorded,
-        // leaving the pinned Task outside its reserved slot.
+        // Observe the promoted Task immediately and after the display move
+        // settles; this records identity for explicit auto-move settings only.
+        // HOME does not park it, and lock protection stays Task-scoped.
         capture("immediate")
         lifecycleHandler.postDelayed({ capture("settled") }, 160L)
     }
