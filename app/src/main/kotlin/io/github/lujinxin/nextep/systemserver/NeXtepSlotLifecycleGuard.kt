@@ -41,6 +41,9 @@ internal object NeXtepSlotLifecycleGuard {
     private val observerStarted = AtomicBoolean(false)
     private val observerQueued = AtomicBoolean(false)
     private val trackedTasks = ConcurrentHashMap<Int, WeakReference<Any>>()
+    /** YMiniGuard-style background session keyed by actual Task identity. */
+    private data class BackgroundSession(val uid: Int, val armedAt: Long)
+    private val backgroundSessions = ConcurrentHashMap<Int, BackgroundSession>()
     private val lastEvents = ConcurrentHashMap<String, Long>()
     private val failureCount = AtomicInteger(0)
     @Volatile private var disabledByErrors = false
@@ -79,6 +82,9 @@ internal object NeXtepSlotLifecycleGuard {
                     if (isNeXtepSlot(record)) {
                         trackActivity(record, "setState")
                         val state = chain.args.firstOrNull()?.toString().orEmpty()
+                        if (state.contains("RESUMED", ignoreCase = true)) {
+                            backgroundSessions.remove(taskId(record))
+                        }
                         if (state.contains("PAUS", true) || state.contains("STOP", true)
                             || state.contains("RESUM", true)) {
                             note("STATE", "SLOT_ACTIVITY_STATE task=${taskId(record)} state=$state")
@@ -420,6 +426,7 @@ internal object NeXtepSlotLifecycleGuard {
         } else {
             trackedTasks.remove(id)
             prearmedTasks.remove(id)
+            backgroundSessions.remove(id)
         }
         if (trackedTasks.size > 32) cleanup()
     }
@@ -488,8 +495,87 @@ internal object NeXtepSlotLifecycleGuard {
         )
     }
 
+    /**
+     * A real SystemUI-owned floating VirtualDisplay is mandatory. This is not
+     * an unconditional foreground claim or package-wide lifecycle exemption.
+     */
+    private fun shouldKeepBackgroundTask(owner: Any): Boolean =
+        backgroundKeepaliveEnabled && !disabledByErrors &&
+            isNeXtepSlot(owner) && !isFinishing(owner) && taskId(owner) > 0
+
+    private fun resumedActivity(owner: Any): Any? =
+        if (owner.javaClass.name == "com.android.server.wm.ActivityRecord") owner
+        else field(owner, "mResumedActivity")
+            ?: call(owner, "topRunningActivity")
+            ?: call(owner, "getTopNonFinishingActivity")
+
+    private fun activityPackage(record: Any?): String? {
+        val info = field(record, "info") ?: field(record, "mInfo")
+        return (field(info, "packageName") as? String)
+            ?: (field(field(info, "applicationInfo"), "packageName") as? String)
+    }
+
+    /**
+     * YMiniGuard's backgroundProtected policy:
+     *  - different app, explicit user leave, recents transition or sleep
+     *  - do not intercept navigation inside the protected package or finishing
+     *  - remember the verified Task/UID for following stop/freeze callbacks
+     */
+    private fun shouldGuardBackgroundPause(owner: Any, args: List<Any?>): Boolean {
+        if (!shouldKeepBackgroundTask(owner)) return false
+        val activity = resumedActivity(owner) ?: return false
+        if (isFinishing(activity)) {
+            backgroundSessions.remove(taskId(owner))
+            return false
+        }
+        val uid = recordUid(activity)?.takeIf { it >= 10000 } ?: return false
+        val task = taskId(owner)
+        val reason = args.filterIsInstance<String>().firstOrNull().orEmpty()
+        val bools = args.filterIsInstance<Boolean>()
+        val userLeaving = bools.firstOrNull() == true
+        val uiSleeping = if (bools.size >= 2) bools[1] else false
+        val ownPkg = activityPackage(activity)
+        val other = args.firstOrNull {
+            it != null && it.javaClass.name == "com.android.server.wm.ActivityRecord"
+        }
+        val otherPkg = activityPackage(other)
+        if (otherPkg != null && ownPkg == otherPkg) {
+            backgroundSessions.remove(task)
+            return false
+        }
+        val switchingApp = otherPkg != null && ownPkg != null && ownPkg != otherPkg
+        val recents = reason.contains("pauseInRecentsAnim", true) ||
+            reason.contains("pauseBackTasks", true)
+        val alreadyArmed = backgroundSessions[task]?.uid == uid
+        if (!alreadyArmed && !switchingApp && !userLeaving &&
+            !uiSleeping && !recents && !physicalScreenOff()) return false
+        backgroundSessions[task] = BackgroundSession(uid, android.os.SystemClock.elapsedRealtime())
+        trackActivity(activity, "background-armed")
+        return true
+    }
+
+    private fun shouldGuardBackgroundStop(owner: Any): Boolean {
+        if (!shouldKeepBackgroundTask(owner)) return false
+        val record = resumedActivity(owner) ?: return false
+        val id = taskId(owner)
+        val uid = recordUid(record) ?: return false
+        return backgroundSessions[id]?.uid == uid && !isFinishing(record)
+    }
+
+    private fun liveBackgroundUid(uid: Int): Boolean {
+        if (!backgroundKeepaliveEnabled || disabledByErrors || uid < 10000) return false
+        return trackedTasks.entries.any { (id, ref) ->
+            val record = ref.get()
+            record != null && taskId(record) == id &&
+                !isFinishing(record) && isNeXtepSlot(record) &&
+                recordUid(record) == uid
+        }
+    }
+
     private fun liveProtectedUid(uid: Int): Boolean {
-        if (!enabled || !freezerEnabled || disabledByErrors || uid < 10000) return false
+        if (disabledByErrors || uid < 10000) return false
+        if (liveBackgroundUid(uid)) return true
+        if (!enabled || !freezerEnabled) return false
         val iterator = trackedTasks.entries.iterator()
         while (iterator.hasNext()) {
             val (id, ref) = iterator.next()
@@ -509,7 +595,10 @@ internal object NeXtepSlotLifecycleGuard {
         trackedTasks.entries.removeIf { (id, ref) ->
             val activity = ref.get()
             val stale = activity == null || isFinishing(activity) || !isNeXtepSlot(activity)
-            if (stale) prearmedTasks.remove(id)
+            if (stale) {
+                prearmedTasks.remove(id)
+                backgroundSessions.remove(id)
+            }
             stale
         }
     }
@@ -550,6 +639,9 @@ internal object NeXtepSlotLifecycleGuard {
                 resolver.registerContentObserver(Settings.Global.getUriFor(key), false, observer)
                 resolver.registerContentObserver(Settings.Global.getUriFor(
                     SystemServerWorkspaceBridge.NATIVE_TASK_FREEZER_KEY), false, observer)
+                resolver.registerContentObserver(Settings.Global.getUriFor(
+                    SystemServerWorkspaceBridge.FLOATING_SLOT_BACKGROUND_KEEPALIVE_KEY),
+                    false, observer)
                 context = ctx
                 observerStarted.set(true)
                 refresh(ctx)
@@ -593,8 +685,14 @@ internal object NeXtepSlotLifecycleGuard {
             Settings.Global.getInt(ctx.contentResolver,
                 SystemServerWorkspaceBridge.NATIVE_TASK_FREEZER_KEY, 0) == 1
         }.getOrDefault(false)
+        backgroundKeepaliveEnabled = runCatching {
+            Settings.Global.getInt(ctx.contentResolver,
+                SystemServerWorkspaceBridge.FLOATING_SLOT_BACKGROUND_KEEPALIVE_KEY, 0) == 1
+        }.getOrDefault(false)
         if (!next) prearmedTasks.clear()
-        Log.i(TAG, "SLOT_LOCK_POLICY enabled=$next freezer=$freezerEnabled tracked=${trackedTasks.size}")
+        if (!backgroundKeepaliveEnabled) backgroundSessions.clear()
+        Log.i(TAG, "SLOT_LOCK_POLICY enabled=$next freezer=$freezerEnabled " +
+            "background=$backgroundKeepaliveEnabled tracked=${trackedTasks.size}")
         recordStatus("policy:$next")
     }
 
@@ -606,8 +704,10 @@ internal object NeXtepSlotLifecycleGuard {
                 val ctx = context ?: return@postDelayed
                 val counts = counters.entries.sortedBy { it.key }
                     .joinToString(",") { "${it.key}:${it.value.get()}" }
-                val snapshot = "enabled=$enabled freezer=$freezerEnabled hooks=$installedCount " +
+                val snapshot = "enabled=$enabled freezer=$freezerEnabled " +
+                    "background=$backgroundKeepaliveEnabled hooks=$installedCount " +
                     "tracked=${trackedTasks.size} armed=${prearmedTasks.size} " +
+                    "backgroundSessions=${backgroundSessions.size} " +
                     "errors=${failureCount.get()} disabledByErrors=$disabledByErrors " +
                     "screenOff=${physicalScreenOff()} last=$lastEvent counters=$counts"
                 Settings.Global.putString(ctx.contentResolver, STATUS_KEY, snapshot)
