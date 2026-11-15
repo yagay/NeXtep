@@ -29,6 +29,7 @@ data class WorkspaceTopConfig(
     val floatingBubbleEnabled: Boolean = false,
     val floatingWindowMode: String = WorkspaceConfigContract.FLOATING_WINDOW_MODE_VIRTUAL,
     val floatingLockGuardEnabled: Boolean = true,
+    val floatingBackgroundKeepaliveEnabled: Boolean = false,
     val nativeLockGuardEnabled: Boolean = true,
     val nativeFreezeProtectionEnabled: Boolean = false,
     val floatingPopupBackEnabled: Boolean = true,
@@ -71,6 +72,7 @@ object WorkspaceConfigContract {
     fun normalizeFloatingWindowMode(value: String?): String =
         if (value == FLOATING_WINDOW_MODE_NATIVE_FREEFORM) value else FLOATING_WINDOW_MODE_VIRTUAL
     const val EXTRA_FLOATING_LOCK_GUARD_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_LOCK_GUARD_ENABLED"
+    const val EXTRA_FLOATING_BACKGROUND_KEEPALIVE_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_BACKGROUND_KEEPALIVE_ENABLED"
     const val EXTRA_NATIVE_LOCK_GUARD_ENABLED = "io.github.lujinxin.nextep.extra.NATIVE_LOCK_GUARD_ENABLED"
     const val EXTRA_NATIVE_FREEZE_PROTECTION_ENABLED = "io.github.lujinxin.nextep.extra.NATIVE_FREEZE_PROTECTION_ENABLED"
     const val EXTRA_FLOATING_POPUP_BACK_ENABLED = "io.github.lujinxin.nextep.extra.FLOATING_POPUP_BACK_ENABLED"
@@ -150,6 +152,8 @@ class WorkspaceConfigReceiver : BroadcastReceiver() {
                 putString(WorkspaceConfigContract.EXTRA_FLOATING_WINDOW_MODE, settings.floatingWindowMode)
                 putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED,
                     settings.floatingLockGuardEnabled)
+                putBoolean(WorkspaceConfigContract.EXTRA_FLOATING_BACKGROUND_KEEPALIVE_ENABLED,
+                    settings.floatingBackgroundKeepaliveEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_NATIVE_LOCK_GUARD_ENABLED,
                     settings.nativeLockGuardEnabled)
                 putBoolean(WorkspaceConfigContract.EXTRA_NATIVE_FREEZE_PROTECTION_ENABLED,
@@ -307,6 +311,9 @@ object WorkspaceConfigClient {
                 extras.getString(WorkspaceConfigContract.EXTRA_FLOATING_WINDOW_MODE)),
             floatingLockGuardEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_FLOATING_LOCK_GUARD_ENABLED, true,
+            ),
+            floatingBackgroundKeepaliveEnabled = extras.getBoolean(
+                WorkspaceConfigContract.EXTRA_FLOATING_BACKGROUND_KEEPALIVE_ENABLED, false,
             ),
             nativeLockGuardEnabled = extras.getBoolean(
                 WorkspaceConfigContract.EXTRA_NATIVE_LOCK_GUARD_ENABLED, true),
