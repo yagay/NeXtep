@@ -588,6 +588,7 @@ class SlotTaskCoordinator(
         expectedPackage: String,
         expectedUserId: Int,
         preferredSlot: Int = -1,
+        restoreHomeAfterMove: Boolean = false,
     ): Result<Int> {
         ensureMainThread()
         if (!active || suspended || transitionInProgress || recentSelectionPending)
@@ -618,7 +619,13 @@ class SlotTaskCoordinator(
             return Result.failure(IllegalStateException("Task already assigned"))
         val ready = slotRecords[index].state as SlotState.Ready
         return runTransition("automatic four-slot park task=$taskId slot=$index") {
-            parkMainTaskInSlot(index, ready, task, leaveOverview = false)
+            // HOME migration must not leave the moved pinned Activity as
+            // the primary display's top-focused window on OPlus.
+            // A lock/app switch must NOT change the user's foreground.
+            parkMainTaskInSlot(index, ready, task,
+                leaveOverview = restoreHomeAfterMove)
+            if (restoreHomeAfterMove) NeXtepLog.info("auto_slot",
+                "PIN_HOME_RESTORED task=$taskId slot=$index")
         }.map { index }
     }
 

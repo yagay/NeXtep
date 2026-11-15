@@ -109,20 +109,20 @@ object SystemUiRuntime {
             next == null || next.taskId == previous.taskId ||
             !isAutoSlotAllowed(previous, onLock = false)) return
 
-        // Moving a pinned task to an OWN_FOCUS VirtualDisplay during HOME
-        // can refocus it over the launcher on OPlus. Let HOME win and keep
-        // the exact task in Display 0's background under the pinned guard.
+        // HOME must return the pinned Task to its reserved slot, but the
+        // launcher must remain the physical Display 0 foreground Activity.
+        // Distinguish HOME from other background switches so the coordinator
+        // can restore launcher focus *after* moving the Task to its slot.
         val homePackage = TriggerBroadcastContract.resolveHomePackage(applicationContext)
-        if (PinnedHomeTransitionPolicy.shouldKeepOnMain(
-                pinned = floatingDock.pinnedSlotFor(
-                    previous.component.packageName, previous.userId) != null,
-                nextIsHome = homePackage != null &&
-                    next.component.packageName == homePackage,
-            )) {
-            NeXtepLog.info("auto_slot",
-                "PIN_HOME_KEEP_MAIN task=${previous.taskId} home=${next.component.packageName}")
-            return
-        }
+        val returningHome = PinnedHomeTransitionPolicy.shouldAutoParkOnHome(
+            pinned = floatingDock.pinnedSlotFor(
+                previous.component.packageName, previous.userId) != null,
+            nextIsHome = homePackage != null &&
+                next.component.packageName == homePackage,
+        )
+        val parkReason = if (returningHome) "home" else "background"
+        if (returningHome) NeXtepLog.info("auto_slot",
+            "PIN_HOME_AUTO_PARK_REQUEST task=${previous.taskId}")
         val taskId = previous.taskId
         val pkg = previous.component.packageName
         val userId = previous.userId
@@ -130,18 +130,17 @@ object SystemUiRuntime {
         lifecycleHandler.postDelayed({
             try {
                 val latest = autoSlotTaskRepository.foregroundTask()
-                val latestHome = TriggerBroadcastContract.resolveHomePackage(applicationContext)
-                if (PinnedHomeTransitionPolicy.shouldKeepOnMain(
-                        floatingDock.pinnedSlotFor(pkg, userId) != null,
-                        latestHome != null && latest?.component?.packageName == latestHome)) {
-                    NeXtepLog.info("auto_slot", "PIN_HOME_LATE_CANCEL task=$taskId")
+                if (returningHome &&
+                    (latest?.component?.packageName != homePackage ||
+                        floatingDock.pinnedSlotFor(pkg, userId) == null)) {
+                    NeXtepLog.info("auto_slot", "PIN_HOME_CANCEL_CHANGED_FOCUS task=$taskId")
                     return@postDelayed
                 }
                 if (isScreenReady() && !isKeyguardLocked(applicationContext) &&
                     isAutoSlotAllowed(previous, onLock = false) &&
                     latest?.taskId != taskId) {
                     val accepted = floatingDock.autoParkCaptured(
-                        taskId, pkg, userId, "background")
+                        taskId, pkg, userId, parkReason)
                     if (accepted) {
                         lastAutoParkTaskId = taskId
                         lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
@@ -152,20 +151,21 @@ object SystemUiRuntime {
             } finally {
                 autoSlotPending = false
             }
-        }, 120L)
+        }, if (returningHome) 0L else 120L)
     }
 
     /**
      * A pinned card has just been promoted to the physical display. Seed the
-     * observed identity from the real Task. Switching to another app may
-     * return it to its reserved virtual slot; HOME keeps it in Display 0's
-     * background to prevent OEM focus-stealing during reparent.
+     * observed identity from the real foreground Task. Switching to another
+     * app or HOME returns it to its reserved slot; HOME restores launcher
+     * focus once the migration completes.
      */
     fun onPinnedTaskPromoted(taskId: Int) {
         lifecycleHandler.postDelayed({
             if (!::autoSlotTaskRepository.isInitialized) return@postDelayed
             val task = autoSlotTaskRepository.findTask(taskId)
             if (task?.displayId == Display.DEFAULT_DISPLAY &&
+                autoSlotTaskRepository.foregroundTask()?.taskId == taskId &&
                 task.userId != null && ::floatingDock.isInitialized &&
                 floatingDock.pinnedSlotFor(task.component.packageName, task.userId) != null) {
                 observedForeground = task

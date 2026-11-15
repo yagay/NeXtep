@@ -233,7 +233,7 @@ internal class FloatingSlotDockController(
         pinPrefs.edit().putString("slot_$index", "${task.component.packageName}|$user").apply()
         syncPinnedSlots()
         Toast.makeText(context,
-            "已锁定槽位 ${index + 1}：Home 留在主屏后台，切换应用或锁屏自动归位",
+            "已锁定槽位 ${index + 1}：Home、切换应用或锁屏自动回槽；Home 保持桌面前台",
             Toast.LENGTH_LONG).show()
         NeXtepLog.info("auto_slot", "PIN_APP index=$index task=${task.taskId} user=$user")
     }
@@ -461,7 +461,9 @@ internal class FloatingSlotDockController(
                 return
             }
             coordinator?.autoParkTask(taskId, packageName, userId,
-                preferredSlot = pinnedIndex ?: -1)
+                preferredSlot = pinnedIndex ?: -1,
+                restoreHomeAfterMove = PinnedHomeTransitionPolicy.shouldRestoreHome(
+                    pinned = pinnedIndex != null, reason = reason))
                 ?.onSuccess { index ->
                     revealOccupiedSlot(index, "auto-$reason")
                     NeXtepLog.info("auto_slot",
@@ -475,8 +477,15 @@ internal class FloatingSlotDockController(
         // Prelock is a race against Activity pause. The virtual displays
         // are already prewarmed; do not add another main-loop turn when a
         // reserved slot is Ready. Keep retries asynchronous for cold slots.
-        if (reason == "lock" && Looper.myLooper() == Looper.getMainLooper() &&
-            coordinator?.slotStates().orEmpty().any { it is SlotState.Ready }) {
+        val currentStates = coordinator?.slotStates().orEmpty()
+        val pinnedIndex = pinnedSlotFor(packageName, userId)
+        val targetReady = if (pinnedIndex != null)
+            currentStates.getOrNull(pinnedIndex) is SlotState.Ready
+        else currentStates.any { it is SlotState.Ready }
+        // HOME is time-sensitive too: move before the player fully stops.
+        // The coordinator explicitly restores HOME only after the move.
+        if (reason in setOf("lock", "home") &&
+            Looper.myLooper() == Looper.getMainLooper() && targetReady) {
             attempt(0)
         } else {
             handler.post { attempt(if (reason == "lock") 3 else 12) }

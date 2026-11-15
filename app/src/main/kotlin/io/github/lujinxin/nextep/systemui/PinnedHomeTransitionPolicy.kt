@@ -1,11 +1,16 @@
 package io.github.lujinxin.nextep.systemui
 
 /**
- * HOME should never automatically reparent a pinned app to an OWN_FOCUS
- * virtual display: some OEMs refocus that Activity above the launcher.
- * Exact pinned Task/UID background protection remains active on Display 0.
+ * Separates HOME's task parking from launcher-focus restoration.
+ *
+ * The pinned Task must go back to the reserved virtual slot on HOME;
+ * moving it can briefly make the virtual Activity top-focused on OPlus.
+ * Restore the launcher only for this exact HOME-initiated pinned move.
  */
 internal object PinnedHomeTransitionPolicy {
-    fun shouldKeepOnMain(pinned: Boolean, nextIsHome: Boolean): Boolean =
+    fun shouldAutoParkOnHome(pinned: Boolean, nextIsHome: Boolean): Boolean =
         pinned && nextIsHome
+
+    fun shouldRestoreHome(pinned: Boolean, reason: String): Boolean =
+        pinned && reason == "home"
 }
