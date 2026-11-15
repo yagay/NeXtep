@@ -119,7 +119,7 @@ object SystemServerWorkspaceBridge {
     }
 
     /** Publish only live verified pin registrations from the injected SystemUI host. */
-    fun publishPinnedTaskIdentities(
+    internal fun publishPinnedTaskIdentities(
         context: Context, identities: Collection<PinnedTaskIdentityContract.Identity>,
     ) {
         runCatching {
