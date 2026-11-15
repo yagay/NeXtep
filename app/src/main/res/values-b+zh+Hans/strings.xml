@@ -272,4 +272,12 @@
     <string name="floating_popup_back_summary">展开悬浮弹窗时请求键盘焦点，以接收返回键并在失去焦点时收起。可能影响底层应用的输入焦点；可随时关闭。</string>
     <string name="floating_swipe_collapse_title">下滑收起悬浮窗口</string>
     <string name="floating_swipe_collapse_summary">在悬浮窗口的空白位置向下滑动收起，不中断四个窗口的任务。</string>
+    <!-- Compact floating toolbar secondary actions. -->
+    <string name="floating_dock_menu_more">更多操作</string>
+    <string name="floating_dock_menu_previous">上一个槽位</string>
+    <string name="floating_dock_menu_next">下一个槽位</string>
+    <string name="floating_dock_menu_hide_slot">减少槽位（选择槽位）…</string>
+    <string name="floating_dock_menu_restore_slot">增加槽位</string>
+    <string name="floating_dock_menu_collapse">折叠小窗</string>
+    <string name="floating_dock_menu_resize">拖动调整小窗大小</string>
 </resources>
