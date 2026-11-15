@@ -20,6 +20,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -286,8 +287,6 @@ internal class FloatingSlotDockController(
     private var grid: FrameLayout? = null
     private var railViewport: FrameLayout? = null
     private var railOffsetPx = 0
-    private var previousControl: TextView? = null
-    private var nextControl: TextView? = null
     private var toolbar: LinearLayout? = null
     // The app's SettingsRepository is the source of truth. These are updated
     // from the trusted configuration IPC whenever the user changes Settings.
@@ -1420,8 +1419,6 @@ internal class FloatingSlotDockController(
         grid = null
         railViewport = null
         railOffsetPx = 0
-        previousControl = null
-        nextControl = null
         toolbar = null
         picker = null
         pickerList = null
@@ -1498,19 +1495,15 @@ internal class FloatingSlotDockController(
                     setStroke(dp(1), Color.argb(120, 140, 200, 218))
                 }
             }
-        previousControl = tiny(if (isVertical()) "↑" else "‹", "Previous floating window") {
-            stepRail(forward = false)
-        }
-        nextControl = tiny(if (isVertical()) "↓" else "›", "Next floating window") {
-            stepRail(forward = true)
-        }
         val add = tiny("＋", str(R.string.floating_dock_add)) { showPicker() }
-        val less = tiny("−", "减少槽位 / Select slot to hide") { showSlotRemovalPicker() }
-        val more = tiny("+", "增加槽位 / Restore a hidden slot") { restoreHiddenSlot() }
-        // Drag this handle in the expanded dock; the live VirtualDisplay
-        // canvases and Task IDs stay unchanged. Short tap explains the gesture.
-        val resize = tiny("⤢", "按住拖动调整小窗大小 / Drag to resize") {}
-        val close = tiny("×", "Hide floating windows") {
+        // The existing drag handle stays live: changes are viewport-only and
+        // never recreate a VirtualDisplay or reparent a running Task.
+        val resize = tiny("⤢", str(R.string.floating_dock_menu_resize)) {}
+        lateinit var more: TextView
+        more = tiny("⋯", str(R.string.floating_dock_menu_more)) {
+            showToolbarOverflowMenu(more)
+        }
+        val collapse = tiny("⌃", str(R.string.floating_dock_menu_collapse)) {
             closeFor(FloatingDockSessionPolicy.CloseReason.USER_HIDE)
         }
         var downX = 0f
@@ -1576,30 +1569,78 @@ internal class FloatingSlotDockController(
                         marginStart = separation / 2
                     })
                 }
-            target.addView(row(checkNotNull(previousControl), checkNotNull(nextControl)),
-                LinearLayout.LayoutParams(-2, button).apply { bottomMargin = separation })
-            target.addView(row(add, close), LinearLayout.LayoutParams(-2, button).apply {
+            target.addView(row(add, resize), LinearLayout.LayoutParams(-2, button).apply {
                 bottomMargin = separation
             })
-            target.addView(row(less, more), LinearLayout.LayoutParams(-2, button).apply {
-                bottomMargin = separation
-            })
-            val scaleLabel = tiny("${sizePercent}%", "当前小窗缩放比例") {
-                sizePercent = 100
-                railOffsetPx = 0
-                reconfigure()
-                buildToolbarControls()
-            }.apply { textSize = 11f }
-            target.addView(row(resize, scaleLabel), LinearLayout.LayoutParams(-2, button))
+            target.addView(row(more, collapse), LinearLayout.LayoutParams(-2, button))
         } else {
-            listOf(checkNotNull(previousControl), checkNotNull(nextControl),
-                add, less, more, resize, close)
-                .forEachIndexed { index, buttonView ->
-                    target.addView(buttonView,
-                        LinearLayout.LayoutParams(button, button).apply {
-                            if (index > 0) marginStart = separation
-                        })
+            listOf(add, resize, more, collapse).forEachIndexed { index, buttonView ->
+                target.addView(buttonView, LinearLayout.LayoutParams(button, button).apply {
+                    if (index > 0) marginStart = separation
+                })
+            }
+        }
+    }
+
+    /**
+     * The top bar has only four frequently used actions. Secondary actions
+     * stay in a native anchored popup rather than expanding the live dock's
+     * own window or detaching TextureViews. The popup is dismissed by Android
+     * on selection, outside tap or Back.
+     */
+    private fun showToolbarOverflowMenu(moreAnchor: View) {
+        if (!isExpanded() || suspendedForLock || removalPending ||
+            stableZoom != null || resizingDock || !moreAnchor.isAttachedToWindow) return
+        val layout = panel ?: return
+        val viewport = railViewport ?: return
+        val vertical = layout.orientation == FloatingDockRailLayout.Orientation.VERTICAL
+        val maximumOffset = ((if (vertical) layout.railHeight - viewport.height
+            else layout.railWidth - viewport.width)).coerceAtLeast(0)
+        val states = coordinator?.slotStates().orEmpty()
+        val canReduceSlots = visibleSlotIndices.size > 1 &&
+            visibleSlotIndices.any { index ->
+                index !in pinnedSlots &&
+                    states.getOrNull(index) !is SlotState.Occupied
+            }
+
+        val menu = PopupMenu(context, moreAnchor, Gravity.END)
+        val previous = menu.menu.add(0, 1, 0,
+            str(R.string.floating_dock_menu_previous))
+        previous.isEnabled = railOffsetPx > 0
+        val next = menu.menu.add(0, 2, 1,
+            str(R.string.floating_dock_menu_next))
+        next.isEnabled = railOffsetPx < maximumOffset
+        menu.menu.add(0, 3, 2,
+            str(R.string.floating_dock_menu_hide_slot)).isEnabled = canReduceSlots
+        menu.menu.add(0, 4, 3,
+            str(R.string.floating_dock_menu_restore_slot)).isEnabled =
+                visibleSlotIndices.size < WORKSPACE_SLOT_COUNT
+        menu.menu.add(0, 5, 4,
+            str(R.string.floating_dock_reset_size)).isEnabled = sizePercent != 100
+        menu.menu.add(0, 6, 5,
+            str(R.string.floating_dock_arrangement) + " · " +
+                str(if (vertical) R.string.floating_dock_switch_horizontal
+                    else R.string.floating_dock_switch_vertical))
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> stepRail(forward = false)
+                2 -> stepRail(forward = true)
+                3 -> showSlotRemovalPicker()
+                4 -> restoreHiddenSlot()
+                5 -> {
+                    sizePercent = 100
+                    railOffsetPx = 0
+                    reconfigure()
                 }
+                6 -> applyLayoutSettings(
+                    if (vertical) "horizontal" else "vertical", sizePercent)
+                else -> return@setOnMenuItemClickListener false
+            }
+            NeXtepLog.info("floating_dock", "TOOLBAR_MENU_ACTION id=${item.itemId}")
+            true
+        }
+        runCatching { menu.show() }.onFailure { error ->
+            NeXtepLog.warn("floating_dock", "TOOLBAR_MENU_UNAVAILABLE", error)
         }
     }
 
