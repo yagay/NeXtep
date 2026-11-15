@@ -233,7 +233,7 @@ internal class FloatingSlotDockController(
         pinPrefs.edit().putString("slot_$index", "${task.component.packageName}|$user").apply()
         syncPinnedSlots()
         Toast.makeText(context,
-            "已锁定槽位 ${index + 1}：Home、切换应用或锁屏自动回槽；Home 保持桌面前台",
+            "已锁定槽位 ${index + 1}：启用后台与锁屏任务保护；Home 不会自动移入小窗",
             Toast.LENGTH_LONG).show()
         NeXtepLog.info("auto_slot", "PIN_APP index=$index task=${task.taskId} user=$user")
     }
