@@ -30,6 +30,9 @@ class MediaOpenActivity : Activity() {
         super.onCreate(savedInstanceState)
         val pkg = intent?.getStringExtra(TriggerBroadcastContract.EXTRA_MEDIA_APP_PACKAGE)
             ?.trim().orEmpty()
+        NeXtepLog.info("media_bridge",
+            "MEDIA_OPEN_ACTIVITY_CLICK pkg=$pkg action=${intent?.action} " +
+                "data=${intent?.data?.scheme} source=media-notification")
         if (!pkg.matches(Regex("[a-zA-Z0-9_]+(\\.[a-zA-Z0-9_]+)+")) ||
             pkg == packageName) {
             NeXtepLog.warn("media_bridge", "MEDIA_OPEN_INVALID_TARGET")

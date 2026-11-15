@@ -23,7 +23,6 @@ import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import io.github.lujinxin.nextep.R
-import io.github.lujinxin.nextep.config.MainActivity
 import io.github.lujinxin.nextep.config.SettingsRepository
 import io.github.lujinxin.nextep.logging.NeXtepLog
 
@@ -247,8 +246,8 @@ class MediaBridgeListenerService : NotificationListenerService() {
     private fun ensureSession(): MediaSession {
         session?.let { return it }
         return MediaSession(this, "NeXtepDockMedia").apply {
-            // A real, clickable action is exposed instead of pretending to
-            // support pause/next for a third-party video engine.
+            // Only the original playing app is a valid media-click target.
+            // Do not pretend to support pause/next for a third-party engine.
             setCallback(object : MediaSession.Callback() {
                 override fun onCustomAction(action: String, extras: android.os.Bundle?) {
                     if (action != ACTION_OPEN_MEDIA_APP) return
@@ -304,6 +303,10 @@ class MediaBridgeListenerService : NotificationListenerService() {
                 "notificationActions=${posted?.notification?.actions?.size ?: -1} " +
                 "sessionListed=${managerSession != null} active=${current.isActive} " +
                 "state=${playback?.state ?: -1} customActions=${playback?.customActions?.size ?: -1} " +
+                "notificationClickCreator=${posted?.notification?.contentIntent?.creatorPackage} " +
+                "notificationClickActivity=${posted?.notification?.contentIntent?.isActivity} " +
+                "sessionClickCreator=${current.controller.sessionActivity?.creatorPackage} " +
+                "sessionClickActivity=${current.controller.sessionActivity?.isActivity} " +
                 "channelImportance=$channelImportance")
     }
 
@@ -333,8 +336,8 @@ class MediaBridgeListenerService : NotificationListenerService() {
         }
         media.setMetadata(metadata.build())
         media.setPlaybackState(PlaybackState.Builder()
-            // No fake play/pause/seek actions. SystemUI may still show the
-            // one supported custom action for opening the NeXtep window.
+            // No fake play/pause/seek actions. The one supported action
+            // opens the original docked player's Task.
             .setActions(0L)
             .addCustomAction(ACTION_OPEN_MEDIA_APP,
                 getString(R.string.media_bridge_open_app), R.drawable.ic_nextep_tile)
@@ -385,7 +388,8 @@ class MediaBridgeListenerService : NotificationListenerService() {
         handler.postDelayed({ verifyPublication(generation, "settled") }, 2_000L)
         NeXtepLog.info("media_bridge",
             "DOCK_MEDIA_PUBLISHED pkg=${sample.packageName} metadata=app-label " +
-                "source=${sample.source} controls=open-module-only " +
+                "source=${sample.source} controls=open-original-app-only " +
+                "clickCreator=${appIntent.creatorPackage} clickActivity=${appIntent.isActivity} " +
                 "notificationsEnabled=$notificationsEnabled granted=$permissionGranted")
     }
 
