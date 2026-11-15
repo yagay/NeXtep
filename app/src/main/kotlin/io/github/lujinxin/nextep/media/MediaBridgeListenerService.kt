@@ -42,6 +42,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
     private var lastDockReportMs = 0L
     private var lastDecision: String? = null
     private var lastNativeSummary: String? = null
+    private var publishGeneration = 0
 
     private fun traceDecision(value: String) {
         if (lastDecision == value) return
@@ -88,12 +89,26 @@ class MediaBridgeListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (sbn?.packageName == packageName) return
+        if (sbn?.packageName == packageName) {
+            if (sbn.id == NOTIFICATION_ID) {
+                NeXtepLog.info("media_bridge",
+                    "BRIDGE_NOTIFICATION_LISTENER_POSTED id=${sbn.id} " +
+                        "actions=${sbn.notification.actions?.size ?: 0} " +
+                        "style=${sbn.notification.extras.getString(Notification.EXTRA_TEMPLATE)}")
+            }
+            return
+        }
         handler.post { if (connected) refresh() }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        if (sbn?.packageName == packageName) return
+        if (sbn?.packageName == packageName) {
+            if (sbn.id == NOTIFICATION_ID && connected) {
+                NeXtepLog.warn("media_bridge",
+                    "BRIDGE_NOTIFICATION_LISTENER_REMOVED whileConnected=true")
+            }
+            return
+        }
         handler.post { if (connected) refresh() }
     }
 
@@ -216,18 +231,73 @@ class MediaBridgeListenerService : NotificationListenerService() {
         }
     }
 
+    private fun moduleActivityIntent(): PendingIntent {
+        val open = Intent(this, MainActivity::class.java).addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(this, 1801, open,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
     private fun ensureSession(): MediaSession {
         session?.let { return it }
         return MediaSession(this, "NeXtepDockMedia").apply {
-            // No transport actions are advertised for apps without an exposed
-            // command endpoint. Sending generic media keys may control the proxy itself.
-            val launch = Intent(this@MediaBridgeListenerService, MainActivity::class.java)
-            setSessionActivity(PendingIntent.getActivity(
-                this@MediaBridgeListenerService, 1801, launch,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            // A real, clickable action is exposed instead of pretending to
+            // support pause/next for a third-party video engine.
+            setCallback(object : MediaSession.Callback() {
+                override fun onCustomAction(action: String?, extras: android.os.Bundle?) {
+                    if (action != ACTION_OPEN_MODULE) return
+                    runCatching { moduleActivityIntent().send() }
+                        .onFailure {
+                            NeXtepLog.warn("media_bridge", "OPEN_MODULE_ACTION_FAILED", it)
+                        }
+                }
+            }, handler)
+            setSessionActivity(moduleActivityIntent())
             session = this
-            isActive = true
+            // Activating after metadata/state are set prevents an initial
+            // empty session from being selected by OxygenOS SystemUI.
         }
+    }
+
+    /** Readback validates framework registration, not actual OEM carousel rendering. */
+    private fun verifyPublication(generation: Int, phase: String) {
+        if (generation != publishGeneration || !connected || selected == null) return
+        val current = session ?: return
+        val own = runCatching {
+            notifications?.activeNotifications?.firstOrNull {
+                it.id == NOTIFICATION_ID && it.packageName == packageName
+            }
+        }.onFailure {
+            NeXtepLog.warn("media_bridge", "READBACK_NOTIFICATION_QUERY_FAILED", it)
+        }.getOrNull()
+        val listener = runCatching {
+            activeNotifications?.firstOrNull {
+                it.id == NOTIFICATION_ID && it.packageName == packageName
+            }
+        }.onFailure {
+            NeXtepLog.warn("media_bridge", "READBACK_LISTENER_QUERY_FAILED", it)
+        }.getOrNull()
+        val posted = own ?: listener
+        val postedToken = posted?.notification?.extras?.getParcelable(
+            Notification.EXTRA_MEDIA_SESSION, MediaSession.Token::class.java)
+        val managerSession = runCatching {
+            sessions?.getActiveSessions(listenerId)?.firstOrNull {
+                it.sessionToken == current.sessionToken
+            }
+        }.onFailure {
+            NeXtepLog.warn("media_bridge", "READBACK_SESSION_QUERY_FAILED", it)
+        }.getOrNull()
+        val playback = managerSession?.playbackState ?: current.controller.playbackState
+        val channelImportance = notifications?.getNotificationChannel(CHANNEL)?.importance ?: -1
+        NeXtepLog.info("media_bridge",
+            "BRIDGE_READBACK phase=$phase ownPosted=${own != null} " +
+                "listenerPosted=${listener != null} " +
+                "mediaTemplate=${posted?.notification?.extras?.getString(Notification.EXTRA_TEMPLATE)} " +
+                "tokenMatch=${postedToken == current.sessionToken} " +
+                "notificationActions=${posted?.notification?.actions?.size ?: -1} " +
+                "sessionListed=${managerSession != null} active=${current.isActive} " +
+                "state=${playback?.state ?: -1} customActions=${playback?.customActions?.size ?: -1} " +
+                "channelImportance=$channelImportance")
     }
 
     private fun publish(sample: MediaBridgeSnapshot) {
@@ -248,24 +318,36 @@ class MediaBridgeListenerService : NotificationListenerService() {
             .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, appName)
         if (sample.durationMs > 0)
             metadata.putLong(MediaMetadata.METADATA_KEY_DURATION, sample.durationMs)
-        if (art != null) metadata.putBitmap(MediaMetadata.METADATA_KEY_ART, art)
+        if (art != null) {
+            metadata.putBitmap(MediaMetadata.METADATA_KEY_ART, art)
+            metadata.putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, art)
+        }
         media.setMetadata(metadata.build())
         media.setPlaybackState(PlaybackState.Builder()
+            // No fake play/pause/seek actions. SystemUI may still show the
+            // one supported custom action for opening the NeXtep window.
             .setActions(0L)
+            .addCustomAction(ACTION_OPEN_MODULE,
+                getString(R.string.media_bridge_open_app), R.drawable.ic_nextep_tile)
             .setState(PlaybackState.STATE_PLAYING,
                 PlaybackState.PLAYBACK_POSITION_UNKNOWN,
                 1f, SystemClock.elapsedRealtime())
             .build())
+        media.isActive = true
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_nextep_tile)
             .setContentTitle(title)
             .setContentText(appName)
             .setShowWhen(false)
+            .setOnlyAlertOnce(true)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setCategory(Notification.CATEGORY_TRANSPORT)
             .setOngoing(true)
-            .setContentIntent(PendingIntent.getActivity(this, 1801,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
-            .setStyle(Notification.MediaStyle().setMediaSession(media.sessionToken))
+            .setContentIntent(moduleActivityIntent())
+            .addAction(Notification.Action.Builder(R.drawable.ic_nextep_tile,
+                getString(R.string.media_bridge_open_app), moduleActivityIntent()).build())
+            .setStyle(Notification.MediaStyle().setMediaSession(media.sessionToken)
+                .setShowActionsInCompactView(0))
             .apply { if (art != null) setLargeIcon(art) }
             .build()
         val permissionGranted = checkSelfPermission(
@@ -277,16 +359,30 @@ class MediaBridgeListenerService : NotificationListenerService() {
                 "MEDIA_NOTIFICATION_PERMISSION_BLOCKED granted=$permissionGranted " +
                     "notificationsEnabled=$notificationsEnabled")
         }
-        runCatching { notifications?.notify(NOTIFICATION_ID, notification) }
-            .onFailure { NeXtepLog.warn("media_bridge", "NOTIFICATION_FAILED", it) }
+        val posted = runCatching {
+            requireNotNull(notifications) { "NotificationManager unavailable" }
+                .notify(NOTIFICATION_ID, notification)
+            true
+        }.onFailure {
+            NeXtepLog.warn("media_bridge", "NOTIFICATION_FAILED", it)
+        }.getOrDefault(false)
+        if (!posted) {
+            traceDecision("NOTIFICATION_POST_FAILED")
+            retire()
+            return
+        }
+        val generation = ++publishGeneration
+        handler.postDelayed({ verifyPublication(generation, "early") }, 650L)
+        handler.postDelayed({ verifyPublication(generation, "settled") }, 2_000L)
         NeXtepLog.info("media_bridge",
             "DOCK_MEDIA_PUBLISHED pkg=${sample.packageName} metadata=app-label " +
-                "source=${sample.source} controls=false " +
+                "source=${sample.source} controls=open-module-only " +
                 "notificationsEnabled=$notificationsEnabled granted=$permissionGranted")
     }
 
     private fun retire() {
         if (selected == null && session == null) return
+        publishGeneration++
         NeXtepLog.info("media_bridge", "DOCK_MEDIA_RETIRED pkg=${selected?.packageName ?: "none"}")
         selected = null
         runCatching { notifications?.cancel(NOTIFICATION_ID) }
@@ -307,6 +403,8 @@ class MediaBridgeListenerService : NotificationListenerService() {
     }
 
     companion object {
+        private const val ACTION_OPEN_MODULE =
+            "io.github.lujinxin.nextep.media.OPEN_MODULE"
         private const val CHANNEL = "nextep_media_bridge"
         private const val NOTIFICATION_ID = 18022
         private const val DOCK_REPORT_TTL_MS = 20_000L

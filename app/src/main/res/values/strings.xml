@@ -305,4 +305,5 @@
     <string name="media_bridge_listener_summary">Required to check native media sessions and publish the dock media card</string>
     <string name="media_bridge_listener_action">Open notification access</string>
     <string name="media_bridge_listener_unavailable">Cannot open notification access settings</string>
+    <string name="media_bridge_open_app">Open NeXtep</string>
 </resources>

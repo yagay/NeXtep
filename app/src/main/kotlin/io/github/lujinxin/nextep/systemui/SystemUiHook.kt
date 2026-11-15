@@ -115,6 +115,9 @@ object SystemUiHook {
                     })
                 }
         }
+        HookGuard.run("systemui_media_pipeline_diagnostics") {
+            SystemUiMediaPipelineDiagnostics.install(module, classLoader)
+        }
         SystemUiBrightnessMirrorHook.install(module, classLoader)
         HookGuard.run("systemui_framework_startup") {
             val method = Instrumentation::class.java.getDeclaredMethod(

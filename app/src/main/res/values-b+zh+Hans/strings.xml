@@ -297,4 +297,5 @@
     <string name="media_bridge_listener_summary">用于检测原生媒体并避免重复卡片，同时发布小窗媒体卡</string>
     <string name="media_bridge_listener_action">打开通知使用权设置</string>
     <string name="media_bridge_listener_unavailable">无法打开通知使用权设置</string>
+    <string name="media_bridge_open_app">打开 NeXtep</string>
 </resources>
