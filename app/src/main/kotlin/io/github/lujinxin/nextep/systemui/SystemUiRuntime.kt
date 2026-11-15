@@ -157,8 +157,9 @@ object SystemUiRuntime {
 
     /**
      * A pinned card has just been promoted to the physical display. Seed the
-     * observed identity from the real Task, so its next Home/app switch will
-     * return the SAME Task to its reserved virtual slot.
+     * observed identity from the real Task. Switching to another app may
+     * return it to its reserved virtual slot; HOME keeps it in Display 0's
+     * background to prevent OEM focus-stealing during reparent.
      */
     fun onPinnedTaskPromoted(taskId: Int) {
         lifecycleHandler.postDelayed({
