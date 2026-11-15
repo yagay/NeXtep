@@ -47,6 +47,7 @@ internal object NeXtepSlotLifecycleGuard {
     @Volatile private var context: Context? = null
     @Volatile private var enabled = false
     @Volatile private var freezerEnabled = false
+    @Volatile private var backgroundKeepaliveEnabled = false
 
     fun install(module: XposedModule, loader: ClassLoader) {
         val fragment = loader.loadClass("com.android.server.wm.TaskFragment")
@@ -105,11 +106,15 @@ internal object NeXtepSlotLifecycleGuard {
                     probe(fragmentObject, "startPausing")
                     if (uiSleeping) armForLock(fragmentObject, "startPausing")
                 }
-                if (fragmentObject != null && safeCondition {
-                    shouldGuard(fragmentObject)
-                }) {
-                    note("PAUSE", "SLOT_PAUSE_BLOCK task=${taskId(fragmentObject)} " +
-                        "uiSleeping=$uiSleeping")
+                val lockGuarded = fragmentObject != null &&
+                    safeCondition { shouldGuard(fragmentObject) }
+                val backgroundGuarded = fragmentObject != null &&
+                    safeCondition { shouldGuardBackgroundPause(fragmentObject, chain.args) }
+                if (lockGuarded || backgroundGuarded) {
+                    note(if (backgroundGuarded && !lockGuarded) "BACKGROUND_PAUSE" else "PAUSE",
+                        "SLOT_PAUSE_BLOCK task=${taskId(fragmentObject!!)} " +
+                            "uiSleeping=$uiSleeping background=$backgroundGuarded " +
+                            "reason=${chain.args.filterIsInstance<String>().firstOrNull().orEmpty().take(60)}")
                     false
                 } else chain.proceed()
             }
@@ -122,9 +127,14 @@ internal object NeXtepSlotLifecycleGuard {
             hook(module, method) { chain ->
                 val record = chain.thisObject
                 if (record != null) probe(record, "stopIfPossible")
-                if (record != null && safeCondition { !isFinishing(record) && shouldGuard(record) }) {
+                val lockGuarded = record != null &&
+                    safeCondition { !isFinishing(record) && shouldGuard(record) }
+                val backgroundGuarded = record != null &&
+                    safeCondition { shouldGuardBackgroundStop(record) }
+                if (lockGuarded || backgroundGuarded) {
                     call(record, "resumeKeyDispatchingLocked")
-                    note("STOP", "SLOT_STOP_BLOCK task=${taskId(record)}")
+                    note(if (backgroundGuarded && !lockGuarded) "BACKGROUND_STOP" else "STOP",
+                        "SLOT_STOP_BLOCK task=${taskId(record!!)} background=$backgroundGuarded")
                     null
                 } else chain.proceed()
             }
@@ -142,7 +152,9 @@ internal object NeXtepSlotLifecycleGuard {
                     if (!forceSleep) armForLock(fragmentObject, "sleepIfPossible")
                 }
                 if (!forceSleep && fragmentObject != null && safeCondition {
-                    shouldGuard(fragmentObject)
+                    shouldGuard(fragmentObject) ||
+                        (shouldKeepBackgroundTask(fragmentObject) &&
+                            (physicalScreenOff() || displaySleeping(fragmentObject)))
                 }) {
                     note("SLEEP", "SLOT_SLEEP_BLOCK task=${taskId(fragmentObject)}")
                     true
@@ -184,6 +196,65 @@ internal object NeXtepSlotLifecycleGuard {
             }
         }.onFailure {
             Log.w(TAG, "OPlus early lock observer unavailable; lifecycle fallback remains", it)
+        }
+
+        // OEM-specific remote-playback stop interception confirmed in the
+        // uploaded OOS17 oplus-services.jar classes3.dex. Unlike the failed
+        // FlexibleWindow-only hook, this method accepts an ActivityRecord
+        // directly; verify the exact NeXtep virtual display before returning
+        // the OEM's normal "skip stop" decision.
+        runCatching {
+            val supervisorExt = loader.loadClass(
+                "com.android.server.wm.ActivityTaskSupervisorExtImpl")
+            supervisorExt.declaredMethods.filter {
+                it.name == "skipStopActivityWhenRemotePlaying" &&
+                    it.returnType == Boolean::class.javaPrimitiveType &&
+                    it.parameterCount == 1 &&
+                    it.parameterTypes[0].name == "com.android.server.wm.ActivityRecord"
+            }.forEach { method ->
+                hook(module, method) { chain ->
+                    val record = chain.args.firstOrNull()
+                    if (record != null && safeCondition {
+                        shouldGuardBackgroundStop(record)
+                    }) {
+                        note("OEM_REMOTE_STOP",
+                            "SLOT_OEM_REMOTE_STOP_BLOCK task=${taskId(record)}")
+                        true
+                    } else chain.proceed()
+                }
+                installed++
+            }
+        }.onFailure {
+            Log.w(TAG, "OOS17 remote-playing stop hook unavailable", it)
+        }
+
+        // New OOS17 diagnostic-only pause decision: do not override its
+        // return value until the real device log proves the decision is
+        // involved in the virtual display's unwanted pause.
+        runCatching {
+            val fragmentExt = loader.loadClass("com.android.server.wm.TaskFragmentExtImpl")
+            fragmentExt.declaredMethods.filter {
+                it.name == "shouldPauseImmediately" &&
+                    it.returnType == Boolean::class.javaPrimitiveType &&
+                    it.parameterCount == 3 &&
+                    it.parameterTypes[0].name == "com.android.server.wm.TaskFragment" &&
+                    it.parameterTypes[1].name == "com.android.server.wm.ActivityRecord" &&
+                    it.parameterTypes[2].name == "com.android.server.wm.ActivityRecord"
+            }.forEach { method ->
+                hook(module, method) { chain ->
+                    val fragmentObject = chain.args.firstOrNull()
+                    if (fragmentObject != null && safeCondition {
+                        shouldKeepBackgroundTask(fragmentObject)
+                    }) {
+                        note("OEM_PAUSE_DECISION",
+                            "SLOT_OEM_PAUSE_DECISION task=${taskId(fragmentObject)}")
+                    }
+                    chain.proceed()
+                }
+                installed++
+            }
+        }.onFailure {
+            Log.w(TAG, "OOS17 pause-decision diagnostics unavailable", it)
         }
 
         // Freezer and UID-stop suppression is additionally gated by a LIVE
