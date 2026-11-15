@@ -161,8 +161,8 @@ object SystemUiRuntime {
      * focus once the migration completes.
      */
     fun onPinnedTaskPromoted(taskId: Int) {
-        lifecycleHandler.postDelayed({
-            if (!::autoSlotTaskRepository.isInitialized) return@postDelayed
+        fun capture(source: String) {
+            if (!::autoSlotTaskRepository.isInitialized) return
             val task = autoSlotTaskRepository.findTask(taskId)
             if (task?.displayId == Display.DEFAULT_DISPLAY &&
                 autoSlotTaskRepository.foregroundTask()?.taskId == taskId &&
@@ -170,9 +170,15 @@ object SystemUiRuntime {
                 floatingDock.pinnedSlotFor(task.component.packageName, task.userId) != null) {
                 observedForeground = task
                 lastAutoParkTaskId = -1
-                NeXtepLog.info("auto_slot", "PIN_FOREGROUND_CAPTURED task=$taskId")
+                NeXtepLog.info("auto_slot",
+                    "PIN_FOREGROUND_CAPTURED task=$taskId source=$source")
             }
-        }, 160L)
+        }
+        // Register the promoted Task immediately. With a 160 ms-only delay,
+        // a rapid HOME gesture could occur before the identity was recorded,
+        // leaving the pinned Task outside its reserved slot.
+        capture("immediate")
+        lifecycleHandler.postDelayed({ capture("settled") }, 160L)
     }
 
     private fun autoParkForLock(): Boolean {
