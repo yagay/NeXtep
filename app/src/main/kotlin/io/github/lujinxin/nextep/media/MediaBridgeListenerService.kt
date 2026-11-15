@@ -41,6 +41,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
     private var connected = false
     private var lastDockReportMs = 0L
     private var lastDecision: String? = null
+    private var lastNativeSummary: String? = null
 
     private fun traceDecision(value: String) {
         if (lastDecision == value) return
@@ -104,6 +105,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
         candidates.clear()
         lastDockReportMs = 0
         lastDecision = null
+        lastNativeSummary = null
         retire()
     }
 
@@ -163,8 +165,12 @@ class MediaBridgeListenerService : NotificationListenerService() {
             NativeMediaCardPolicy.shouldPreferNative(hasMediaCard, state)
         }.map { it.packageName }.toSet()
 
-        traceDecision("NATIVE_CHECK sessions=${native.size} nativeCards=" +
-            "${notificationsWithTokens.size} preferred=${preferred.sorted()}")
+        val nativeSummary = "sessions=${native.size} nativeCards=" +
+            "${notificationsWithTokens.size} preferred=${preferred.sorted()}"
+        if (lastNativeSummary != nativeSummary) {
+            lastNativeSummary = nativeSummary
+            NeXtepLog.info("media_bridge", "NATIVE_CHECK $nativeSummary")
+        }
         preferred
     }.onFailure { NeXtepLog.warn("media_bridge", "NATIVE_SESSION_QUERY_FAILED", it) }
         .getOrDefault(emptySet())
