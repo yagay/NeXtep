@@ -110,32 +110,31 @@ object SystemUiRuntime {
             next == null || next.taskId == previous.taskId ||
             !isAutoSlotAllowed(previous, onLock = false)) return
 
-        // HOME must return the pinned Task to its reserved slot, but the
-        // launcher must remain the physical Display 0 foreground Activity.
-        // Distinguish HOME from other background switches so the coordinator
-        // can restore launcher focus *after* moving the Task to its slot.
+        // Home runs the already-in-progress Quickstep animation. A task
+        // observed on the desktop for one instant is not yet safely movable.
+        // Lock parking is intentionally separate and remains immediate.
         val homePackage = TriggerBroadcastContract.resolveHomePackage(applicationContext)
         val returningHome = PinnedHomeTransitionPolicy.shouldAutoParkOnHome(
             pinned = floatingDock.pinnedSlotFor(
                 previous.component.packageName, previous.userId) != null,
-            nextIsHome = homePackage != null &&
-                next.component.packageName == homePackage,
+            nextIsHome = homePackage != null && next.component.packageName == homePackage,
         )
         val parkReason = if (returningHome) "home" else "background"
-        if (returningHome) NeXtepLog.info("auto_slot",
-            "PIN_HOME_AUTO_PARK_REQUEST task=${previous.taskId}")
         val taskId = previous.taskId
         val pkg = previous.component.packageName
         val userId = previous.userId
         autoSlotPending = true
-        lifecycleHandler.postDelayed({
+        fun commitPark() {
             try {
                 val latest = autoSlotTaskRepository.foregroundTask()
-                if (returningHome &&
-                    (latest?.component?.packageName != homePackage ||
-                        floatingDock.pinnedSlotFor(pkg, userId) == null)) {
-                    NeXtepLog.info("auto_slot", "PIN_HOME_CANCEL_CHANGED_FOCUS task=$taskId")
-                    return@postDelayed
+                val stillHome = homePackage != null &&
+                    latest?.taskId == next.taskId &&
+                    latest?.component?.packageName == homePackage
+                if (returningHome && (!stillHome ||
+                    floatingDock.pinnedSlotFor(pkg, userId) == null)) {
+                    NeXtepLog.info("auto_slot",
+                        "HOME_SETTLE_CANCEL_CHANGED_FOCUS task=$taskId")
+                    return
                 }
                 if (isScreenReady() && !isKeyguardLocked(applicationContext) &&
                     isAutoSlotAllowed(previous, onLock = false) &&
@@ -145,14 +144,78 @@ object SystemUiRuntime {
                     if (accepted) {
                         lastAutoParkTaskId = taskId
                         lastAutoParkAt = android.os.SystemClock.elapsedRealtime()
+                        NeXtepLog.info("auto_slot",
+                            "AUTO_PARK_DISPATCH task=$taskId reason=$parkReason " +
+                                "homeSettled=$returningHome")
                     }
+                } else {
+                    NeXtepLog.info("auto_slot",
+                        "AUTO_PARK_SKIP_CHANGED_STATE task=$taskId reason=$parkReason " +
+                            "latest=${latest?.taskId}")
                 }
             } catch (error: Throwable) {
-                NeXtepLog.warn("auto_slot", "AUTO_BACKGROUND_EXCEPTION task=$taskId source=$source", error)
+                NeXtepLog.warn("auto_slot",
+                    "AUTO_BACKGROUND_EXCEPTION task=$taskId source=$source", error)
             } finally {
                 autoSlotPending = false
             }
-        }, if (returningHome) 0L else 120L)
+        }
+        if (returningHome) {
+            NeXtepLog.info("auto_slot",
+                "HOME_SETTLE_START task=$taskId launcherTask=${next.taskId} " +
+                    "firstDelayMs=${HomeAutoParkSettlePolicy.FIRST_CHECK_DELAY_MS}")
+            fun sampleHome(confirmations: Int) {
+                try {
+                    val latest = autoSlotTaskRepository.foregroundTask()
+                    val target = autoSlotTaskRepository.findTask(taskId)
+                    val stillHome = homePackage != null &&
+                        latest?.component?.packageName == homePackage
+                    val sameHomeTask = latest?.taskId == next.taskId
+                    val onMain = target?.displayId == Display.DEFAULT_DISPLAY
+                    val sameTarget = target != null &&
+                        target.component.packageName == pkg && target.userId == userId &&
+                        target.windowingMode == 1 && !target.vendorWindowed
+                    val decision = HomeAutoParkSettlePolicy.decide(
+                        launcherStillForeground = stillHome,
+                        sameLauncherTask = sameHomeTask,
+                        targetStillOnMain = onMain,
+                        matchingTargetIdentity = sameTarget,
+                        confirmations = confirmations,
+                    )
+                    when (decision) {
+                        HomeAutoParkSettlePolicy.Decision.CANCEL -> {
+                            autoSlotPending = false
+                            NeXtepLog.info("auto_slot",
+                                "HOME_SETTLE_CANCEL task=$taskId samples=$confirmations " +
+                                    "home=$stillHome sameHomeTask=$sameHomeTask " +
+                                    "onMain=$onMain identity=$sameTarget")
+                        }
+                        HomeAutoParkSettlePolicy.Decision.WAIT -> {
+                            if (confirmations >= HomeAutoParkSettlePolicy.MAX_CHECKS) {
+                                autoSlotPending = false
+                                NeXtepLog.warn("auto_slot",
+                                    "HOME_SETTLE_TIMEOUT task=$taskId")
+                            } else lifecycleHandler.postDelayed({
+                                sampleHome(confirmations + 1)
+                            }, HomeAutoParkSettlePolicy.CONFIRM_DELAY_MS)
+                        }
+                        HomeAutoParkSettlePolicy.Decision.PARK -> {
+                            NeXtepLog.info("auto_slot",
+                                "HOME_SETTLED task=$taskId launcherTask=${next.taskId} " +
+                                    "samples=$confirmations")
+                            commitPark()
+                        }
+                    }
+                } catch (error: Throwable) {
+                    autoSlotPending = false
+                    NeXtepLog.warn("auto_slot",
+                        "HOME_SETTLE_FAILED task=$taskId", error)
+                }
+            }
+            lifecycleHandler.postDelayed({
+                sampleHome(1)
+            }, HomeAutoParkSettlePolicy.FIRST_CHECK_DELAY_MS)
+        } else lifecycleHandler.postDelayed({ commitPark() }, 120L)
     }
 
     /**

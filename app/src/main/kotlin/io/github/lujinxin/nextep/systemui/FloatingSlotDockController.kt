@@ -542,7 +542,7 @@ internal class FloatingSlotDockController(
             }
             coordinator?.autoParkTask(taskId, packageName, userId,
                 preferredSlot = pinnedIndex ?: -1,
-                restoreHomeAfterMove = PinnedHomeTransitionPolicy.shouldRestoreHome(
+                homeTriggered = PinnedHomeTransitionPolicy.isPinnedHomePark(
                     pinned = pinnedIndex != null, reason = reason))
                 ?.onSuccess { index ->
                     revealOccupiedSlot(index, "auto-$reason")
@@ -562,8 +562,8 @@ internal class FloatingSlotDockController(
         val targetReady = if (pinnedIndex != null)
             currentStates.getOrNull(pinnedIndex) is SlotState.Ready
         else currentStates.any { it is SlotState.Ready }
-        // HOME is time-sensitive too: move before the player fully stops.
-        // The coordinator explicitly restores HOME only after the move.
+        // HOME was already settled by SystemUiRuntime. Pre-lock must
+        // still move immediately, before the physical screen sleeps.
         if (reason in setOf("lock", "home") &&
             Looper.myLooper() == Looper.getMainLooper() && targetReady) {
             attempt(0)

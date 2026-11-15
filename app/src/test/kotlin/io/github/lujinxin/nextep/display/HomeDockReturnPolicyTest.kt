@@ -17,9 +17,11 @@ class HomeDockReturnPolicyTest {
         assertEquals(HomeDockReturnPolicy.Decision.RESTORE, choose(observed = 451L))
     }
 
-    @Test fun protectsSecondSpontaneousPromotionWithinWindow() {
+    @Test fun fallbackIsSingleAndShortLived() {
         assertEquals(HomeDockReturnPolicy.Decision.RESTORE,
-            choose(age = 14_000L, observed = 650L, attempts = 1))
+            choose(age = 3_000L, observed = 650L, attempts = 0))
+        assertEquals(HomeDockReturnPolicy.Decision.RELEASE,
+            choose(age = 3_000L, observed = 650L, attempts = 1))
     }
 
     @Test fun neverLoopsForeverOrAfterProtectionWindow() {

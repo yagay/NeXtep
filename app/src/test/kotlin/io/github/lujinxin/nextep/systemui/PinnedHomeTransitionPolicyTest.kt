@@ -7,17 +7,17 @@ import org.junit.Test
 class PinnedHomeTransitionPolicyTest {
     @Test fun homeAutoParksPinnedTaskIntoReservedSlot() {
         assertTrue(PinnedHomeTransitionPolicy.shouldAutoParkOnHome(true, true))
-        assertTrue(PinnedHomeTransitionPolicy.shouldRestoreHome(true, "home"))
+        assertTrue(PinnedHomeTransitionPolicy.isPinnedHomePark(true, "home"))
     }
 
     @Test fun unrelatedForegroundChangesDoNotLaunchHome() {
         assertFalse(PinnedHomeTransitionPolicy.shouldAutoParkOnHome(true, false))
-        assertFalse(PinnedHomeTransitionPolicy.shouldRestoreHome(true, "background"))
-        assertFalse(PinnedHomeTransitionPolicy.shouldRestoreHome(true, "lock"))
+        assertFalse(PinnedHomeTransitionPolicy.isPinnedHomePark(true, "background"))
+        assertFalse(PinnedHomeTransitionPolicy.isPinnedHomePark(true, "lock"))
     }
 
     @Test fun unpinnedTasksRetainExistingAutoParkBehavior() {
         assertFalse(PinnedHomeTransitionPolicy.shouldAutoParkOnHome(false, true))
-        assertFalse(PinnedHomeTransitionPolicy.shouldRestoreHome(false, "home"))
+        assertFalse(PinnedHomeTransitionPolicy.isPinnedHomePark(false, "home"))
     }
 }

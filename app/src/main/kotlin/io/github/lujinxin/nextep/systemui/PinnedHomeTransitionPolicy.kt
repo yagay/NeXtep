@@ -11,6 +11,9 @@ internal object PinnedHomeTransitionPolicy {
     fun shouldAutoParkOnHome(pinned: Boolean, nextIsHome: Boolean): Boolean =
         pinned && nextIsHome
 
-    fun shouldRestoreHome(pinned: Boolean, reason: String): Boolean =
+    /** Tag a pinned HOME park; the launcher is already foreground, so no
+     * second HOME activity launch should be sent after moving the Task.
+     */
+    fun isPinnedHomePark(pinned: Boolean, reason: String): Boolean =
         pinned && reason == "home"
 }

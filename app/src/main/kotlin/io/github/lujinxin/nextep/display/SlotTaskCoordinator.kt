@@ -605,7 +605,8 @@ class SlotTaskCoordinator(
         if (current.taskId != taskId || !isExchangeableMainTask(current))
             return Result.failure(IllegalStateException("Foreground app changed or cannot be moved"))
         return runTransition("quick park foreground task=$taskId slot=$index") {
-            parkMainTaskInSlot(index, ready, current)
+            parkMainTaskInSlot(index, ready, current,
+                leaveOverview = true, source = "quick-add")
         }.map { index }
     }
 
@@ -620,7 +621,7 @@ class SlotTaskCoordinator(
         expectedPackage: String,
         expectedUserId: Int,
         preferredSlot: Int = -1,
-        restoreHomeAfterMove: Boolean = false,
+        homeTriggered: Boolean = false,
     ): Result<Int> {
         ensureMainThread()
         if (!active || suspended || transitionInProgress || recentSelectionPending)
@@ -651,15 +652,17 @@ class SlotTaskCoordinator(
             return Result.failure(IllegalStateException("Task already assigned"))
         val ready = slotRecords[index].state as SlotState.Ready
         return runTransition("automatic four-slot park task=$taskId slot=$index") {
-            // HOME migration must not leave the moved pinned Activity as
-            // the primary display's top-focused window on OPlus.
-            // A lock/app switch must NOT change the user's foreground.
+            // HOME is already the physical foreground Task and has passed
+            // Quickstep settling checks; never launch HOME a second time.
+            // LOCK uses the SAME live-Task pipeline but moves immediately,
+            // before the keyguard can pause its player.
             parkMainTaskInSlot(index, ready, task,
-                leaveOverview = restoreHomeAfterMove)
+                leaveOverview = false,
+                source = if (homeTriggered) "home" else "automatic")
             // Track the EXACT identity, not only its package; explicit slot
             // promotions clear this record before a future reconciliation.
             val record = slotRecords[index]
-            if (restoreHomeAfterMove && preferredSlot == index &&
+            if (homeTriggered && preferredSlot == index &&
                 pinnedPackages[index] == expectedPackage) {
                 record.homeParkedTaskId = taskId
                 record.homeParkedUserId = expectedUserId
@@ -673,8 +676,8 @@ class SlotTaskCoordinator(
                 record.homeParkedTaskId = null
                 record.homeParkedUserId = null
             }
-            if (restoreHomeAfterMove) NeXtepLog.info("auto_slot",
-                "PIN_HOME_RESTORED task=$taskId slot=$index")
+            if (homeTriggered) NeXtepLog.info("auto_slot",
+                "PIN_HOME_PARKED_WITHOUT_RELAUNCH task=$taskId slot=$index")
         }.map { index }
     }
 
@@ -1113,8 +1116,7 @@ class SlotTaskCoordinator(
                     ?: defaultMainLayout(existing.resizeMode)
                 var moved = false
                 try {
-                    mainTaskPresenter.restoreForMove(existing.taskId).getOrThrow()
-                    restoredTask = taskRepository.findTask(existing.taskId) ?: existing
+                    restoredTask = prepareLiveTaskForVirtualDisplay(existing.taskId)
                     originalLayout = if (sourceSlot >= 0) {
                         slotRecords[sourceSlot].originalLayout
                     } else {
@@ -1186,11 +1188,26 @@ class SlotTaskCoordinator(
         }
     }
 
+    /** Shared live-task placement for quick-add, settled HOME and pre-lock.
+     * The app is never restarted, regardless of which entrypoint requested it.
+     */
+    /** Prepare an already-live Task before moving it to a VirtualDisplay.
+     * Kept separate from launching a new Activity with setLaunchDisplayId().
+     */
+    private fun prepareLiveTaskForVirtualDisplay(
+        taskId: Int,
+    ): TaskRepository.TaskSnapshot {
+        mainTaskPresenter.restoreForMove(taskId).getOrThrow()
+        return taskRepository.findTask(taskId)
+            ?: error("Live Task $taskId disappeared while preparing slot migration")
+    }
+
     private fun parkMainTaskInSlot(
         slotIndex: Int,
         ready: SlotState.Ready,
         mainTask: TaskRepository.TaskSnapshot,
         leaveOverview: Boolean = true,
+        source: String = "manual",
     ) {
         val targetDisplayId = slots[slotIndex].displayId()
             ?: error("Slot $slotIndex display is unavailable")
@@ -1205,8 +1222,23 @@ class SlotTaskCoordinator(
         var movedToSlot = false
         try {
             preparedForMove = true
-            restoredMainTask = taskRepository.findTask(mainTask.taskId) ?: mainTask
+            restoredMainTask = taskRepository.findTask(mainTask.taskId)
+                ?: error("Task ${mainTask.taskId} disappeared before parking")
+            check(restoredMainTask.displayId == Display.DEFAULT_DISPLAY &&
+                restoredMainTask.component.packageName == mainTask.component.packageName &&
+                restoredMainTask.userId == mainTask.userId &&
+                !restoredMainTask.vendorWindowed) {
+                "Original Task identity or display changed during $source parking"
+            }
             mainOriginalLayout = restoredMainTask.toLayout()
+            NeXtepLog.info("slot_coordinator",
+                "LIVE_TASK_PARK_BEGIN source=$source task=${mainTask.taskId} " +
+                    "user=${mainTask.userId} from=${restoredMainTask.displayId} " +
+                    "to=$targetDisplayId")
+            // Manual slot selection already does this before migration.
+            // Do it in the same order for HOME and pre-lock to avoid the OEM
+            // restoring the former Display 0 presentation AFTER reparenting.
+            restoredMainTask = prepareLiveTaskForVirtualDisplay(mainTask.taskId)
             if (restoredMainTask.resizeMode != TASK_RESIZE_MODE_RESIZEABLE) {
                 ActivityTaskManagerCompat.setTaskResizeable(
                     mainTask.taskId,
@@ -1219,12 +1251,11 @@ class SlotTaskCoordinator(
             record.migrationRecoveryAttempts = 0
             moveTaskToDisplayAndWait(mainTask.taskId, targetDisplayId)
             movedToSlot = true
-            // Never expose the identity-sized task on Display 0 between restore and move.
-            // Its logical layout is unchanged by the presentation transform.
-            mainTaskPresenter.restoreForMove(mainTask.taskId).getOrThrow()
             record.originalLayout = mainOriginalLayout
             ensureSlotLayout(slotIndex, restoredMainTask, mainOriginalLayout)
             if (leaveOverview) showHomeOnDefaultDisplay()
+            else if (source == "home") NeXtepLog.info("auto_slot",
+                "HOME_FOCUS_PRESERVED task=${mainTask.taskId} launcherNotRestarted=true")
 
             slotRecords.forEachIndexed { index, otherRecord ->
                 val occupiedTaskId = (otherRecord.state as? SlotState.Occupied)?.taskId
@@ -1250,6 +1281,9 @@ class SlotTaskCoordinator(
                 SlotState.Occupied(targetDisplayId, mainTask.taskId, mainTask.component),
                 "main task parked in empty slot",
             )
+            NeXtepLog.info("slot_coordinator",
+                "LIVE_TASK_PARKED source=$source task=${mainTask.taskId} " +
+                    "slot=$slotIndex display=$targetDisplayId")
         } catch (error: Throwable) {
             val rollbackErrors = mutableListOf<Throwable>()
             record.retainedTaskId = null
