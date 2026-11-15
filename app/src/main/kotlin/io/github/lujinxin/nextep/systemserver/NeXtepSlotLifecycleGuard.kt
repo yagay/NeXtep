@@ -432,7 +432,12 @@ internal object NeXtepSlotLifecycleGuard {
         if (id < 0) return
         if (isTrackedEligible(record) && !isFinishing(record)) {
             trackedTasks[id] = WeakReference(record)
-            logOnce("SLOT_TRACK:$id", "SLOT_TASK_TRACKED task=$id source=$source uid=${recordUid(record)}")
+            if (isPinnedTask(record) && slotIdentity(record)?.displayId == 0) {
+                logOnce("PIN_MAIN_TRACK:$id",
+                    "PIN_MAIN_TASK_TRACKED task=$id source=$source uid=${recordUid(record)}")
+            } else {
+                logOnce("SLOT_TRACK:$id", "SLOT_TASK_TRACKED task=$id source=$source uid=${recordUid(record)}")
+            }
             recordStatus("tracked:$id")
         } else {
             trackedTasks.remove(id)
@@ -568,7 +573,12 @@ internal object NeXtepSlotLifecycleGuard {
         // Preventing normal PAUSE on the physical display can deadlock task
         // switching, recents and keyguard. Allow regular Display 0 pause;
         // stop/UID-freeze remain gated by the verified pinned Task.
-        return !isPinnedTask(owner) || slotIdentity(owner)?.displayId != 0
+        val pinnedMain = isPinnedTask(owner) && slotIdentity(owner)?.displayId == 0
+        if (pinnedMain) {
+            logOnce("PIN_MAIN_PAUSE:$task",
+                "PIN_MAIN_BACKGROUND_ARMED task=$task uid=$uid reason=${reason.take(60)}")
+        }
+        return !pinnedMain
     }
 
     private fun shouldGuardBackgroundStop(owner: Any): Boolean {
@@ -721,7 +731,8 @@ internal object NeXtepSlotLifecycleGuard {
         val prior = pinnedIdentities
         pinnedIdentities = registrations
         // A deleted/moved pin must revoke all old Task sessions immediately.
-        (prior.keys - registrations.keys).forEach { id ->
+        prior.forEach { (id, previous) ->
+            if (registrations[id] == previous) return@forEach
             backgroundSessions.remove(id)
             prearmedTasks.remove(id)
             trackedTasks.remove(id)
