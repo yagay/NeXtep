@@ -288,4 +288,11 @@
     <string name="floating_dock_menu_restore_slot">Show another slot</string>
     <string name="floating_dock_menu_collapse">Collapse floating windows</string>
     <string name="floating_dock_menu_resize">Drag to resize floating windows</string>
+    <!-- Compact in-theme floating action menu -->
+    <string name="floating_dock_menu_slots_section">Slots</string>
+    <string name="floating_dock_menu_layout_section">Appearance</string>
+    <string name="floating_dock_menu_prev_short">Previous</string>
+    <string name="floating_dock_menu_next_short">Next</string>
+    <string name="floating_dock_menu_hide_short">Hide slot</string>
+    <string name="floating_dock_menu_add_short">Add slot</string>
 </resources>
