@@ -359,8 +359,8 @@ object SettingsScreen {
                     addView(settingDivider(activity))
                     addView(settingSwitchRow(
                         activity,
-                        "四槽位持续后台保活（实验性）",
-                        "只保护真实位于 NeXtep 虚拟槽位的 App：后台暂停/停止与厂商远程播放停止判断、按实际任务 UID 防冻结。正常应用内切页和主动退出不阻断。默认关闭。",
+                        "非锁定小窗后台保活（实验性）",
+                        "仅控制未锁定的虚拟槽位 App，默认关闭。已经锁定的 App 使用上方锁屏保护开关：同一任务切到主屏幕后仍启用停止/冻结保护，正常主屏幕切换仍允许系统 Pause。主动退出不阻断。",
                         settings.floatingBackgroundKeepaliveEnabled,
                         repository::setFloatingBackgroundKeepaliveEnabled,
                     ), matchWidth())

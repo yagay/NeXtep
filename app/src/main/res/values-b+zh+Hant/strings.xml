@@ -195,8 +195,8 @@
     <string name="floating_native_interaction_action">原生操作</string>
     <string name="floating_native_interaction_summary">暫時切到手機主螢幕操作，按首頁、切換應用程式或鎖定後返回小視窗。</string>
     <string name="floating_dock_zoom_restore">縮回小視窗</string>
-    <string name="floating_lock_guard_title">鎖屏保護浮動小視窗</string>
-    <string name="floating_lock_guard_summary">實驗功能：僅保護 NeXtep 浮動顯示器中的任務，減少鎖定時 ColorOS 休眠及凍結造成的停播。需重新啟動或重新載入 system_server Hook，異常時可關閉。</string>
+    <string name="floating_lock_guard_title">鎖定應用主畫面與鎖屏保活</string>
+    <string name="floating_lock_guard_summary">實驗功能：鎖定應用在主畫面、小視窗、背景與鎖屏時依 Task ID/UID 保護；未鎖定應用只在 NeXtep 小視窗內受保護。保留主畫面正常 Pause 與系統安全鎖屏。更新後需重啟或重新載入 system_server Hook，異常時可關閉。</string>
     <string name="floating_dock_title">懸浮小視窗</string>
     <string name="floating_dock_add">選應用</string>
     <string name="floating_dock_close">×</string>
