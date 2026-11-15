@@ -244,7 +244,7 @@ class MediaBridgeListenerService : NotificationListenerService() {
             // A real, clickable action is exposed instead of pretending to
             // support pause/next for a third-party video engine.
             setCallback(object : MediaSession.Callback() {
-                override fun onCustomAction(action: String?, extras: android.os.Bundle?) {
+                override fun onCustomAction(action: String, extras: android.os.Bundle?) {
                     if (action != ACTION_OPEN_MODULE) return
                     runCatching { moduleActivityIntent().send() }
                         .onFailure {
