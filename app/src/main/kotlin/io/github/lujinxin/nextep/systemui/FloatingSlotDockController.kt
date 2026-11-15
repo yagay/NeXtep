@@ -1522,12 +1522,13 @@ internal class FloatingSlotDockController(
                 width, height, plan.panelWidth, plan.panelHeight, null,
                 recorded.densityDpi / 160f, safeInsets,
             )
-            if (full.width > anchored.width) {
-                NeXtepLog.info("floating_dock",
+            FloatingDockPlacement.ensureVerticalPreviewWidth(
+                anchored, full, plan.railContentWidth,
+            ).also { selected ->
+                if (selected != anchored) NeXtepLog.info("floating_dock",
                     "VERTICAL_PREVIEW_SAFE_PLACEMENT anchored=${anchored.width} " +
                         "required=${plan.railContentWidth} full=${full.width}")
-                full
-            } else anchored
+            }
         } else anchored
         return Panel(position.width, position.height, plan.headerHeight, plan.gap,
             plan.padding, plan.railContentWidth, plan.railHeight, plan.cells,
